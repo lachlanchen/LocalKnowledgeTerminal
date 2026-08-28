@@ -57,8 +57,8 @@ if [ ! -f /etc/lkt-model.env ]; then
   cat >/etc/lkt-model.env <<EOF
 LKT_LLM_MODEL=Qwen3-4B-Q4_K_M
 LKT_MODEL_PATH=${MODEL_PATH}
-LKT_MODEL_CONTEXT=4096
-LKT_BATCH_SIZE=256
+LKT_MODEL_CONTEXT=3072
+LKT_BATCH_SIZE=128
 LKT_UBATCH_SIZE=64
 EOF
   chmod 0644 /etc/lkt-model.env

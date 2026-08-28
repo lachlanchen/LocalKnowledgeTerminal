@@ -53,6 +53,16 @@ class AtomicWatchTests(unittest.TestCase):
         self.assertIn("Nice=10", unit)
         self.assertIn("CPUWeight=25", unit)
 
+    def test_model_service_preserves_an_interactive_memory_reserve(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        unit = (root / "systemd" / "lkt-llm.service").read_text(encoding="utf-8")
+        self.assertIn("MemoryHigh=5G", unit)
+        self.assertIn("MemoryMax=6G", unit)
+        self.assertIn("MemorySwapMax=128M", unit)
+        self.assertIn("OOMPolicy=stop", unit)
+        self.assertIn("Environment=LKT_MODEL_CONTEXT=3072", unit)
+        self.assertIn("Environment=LKT_BATCH_SIZE=128", unit)
+
     def test_watch_runs_bounded_idle_action(self) -> None:
         emitted: list[str] = []
         status = run_atomic_watch(

@@ -76,7 +76,7 @@ selection="${1:-}"
 [ -f "$FOUR_B_PATH" ] || { printf 'Missing fallback model: %s\n' "$FOUR_B_PATH" >&2; exit 1; }
 
 if [ "$selection" = "4b" ]; then
-  activate "Qwen3-4B-Q4_K_M" "$FOUR_B_PATH" 4096 256
+  activate "Qwen3-4B-Q4_K_M" "$FOUR_B_PATH" 3072 128
   printf 'Active model: Qwen3-4B Q4_K_M\n'
   exit 0
 fi
@@ -88,11 +88,11 @@ marker="${EIGHT_B_PATH}.verified-sha256"
   exit 1
 }
 
-if activate "Qwen3-8B-Q4_K_M" "$EIGHT_B_PATH" 3072 128; then
+if activate "Qwen3-8B-Q4_K_M" "$EIGHT_B_PATH" 2048 64; then
   printf 'Active model: Qwen3-8B Q4_K_M\n'
   exit 0
 fi
 
 printf '8B failed its health check; restoring 4B automatically.\n' >&2
-activate "Qwen3-4B-Q4_K_M" "$FOUR_B_PATH" 4096 256
+activate "Qwen3-4B-Q4_K_M" "$FOUR_B_PATH" 3072 128
 exit 1

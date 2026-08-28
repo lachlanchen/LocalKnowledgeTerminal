@@ -29,6 +29,13 @@ optional 8B profile reduces context/batch memory and has an automatic 4B health
 fallback. The web and model services read the same label file so saved cards
 record the model that actually produced them.
 
+On the 8 GB Pi profile, the 4B service uses a 3,072-token context and a smaller
+batch. systemd applies a soft 5 GB and hard 6 GB model-service ceiling plus a
+small swap ceiling; a pathological inference therefore restarts the model
+instead of starving SSH, VNC, or the web UI. Optional Answer/Question deck
+generation also pauses below 1.5 GiB available memory. Interactive requests and
+already persisted cards remain independent of that background pause.
+
 The browser exposes two carousel levels over the acquired-knowledge ledger. The
 outer carousel is filtered by mode, so autoplay never changes an Origin into a
 Question. Answer and Question also have an inner language carousel. It renders

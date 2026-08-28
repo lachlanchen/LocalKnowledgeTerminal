@@ -21,7 +21,27 @@ def pi_power_blocker(throttled_output: str) -> str:
     return ""
 
 
-def background_preparation_blocker(max_temperature_c: float = 78.0) -> str:
+def memory_pressure_blocker(
+    meminfo: str, *, min_available_mib: float = 1536.0
+) -> str:
+    """Pause optional generation before it competes with the UI or SSH."""
+
+    match = re.search(r"^MemAvailable:\s+(\d+)\s+kB$", meminfo, re.MULTILINE)
+    if match is None:
+        return ""
+    available_mib = int(match.group(1)) / 1024.0
+    if available_mib < min_available_mib:
+        return (
+            "background preparation paused: only "
+            f"{available_mib:.0f} MiB memory is available"
+        )
+    return ""
+
+
+def background_preparation_blocker(
+    max_temperature_c: float = 78.0,
+    min_available_mib: float = 1536.0,
+) -> str:
     """Protect interactive use while a small device is power- or heat-limited.
 
     Missing Pi-specific telemetry is treated as healthy so the same code works
@@ -56,4 +76,13 @@ def background_preparation_blocker(max_temperature_c: float = 78.0) -> str:
             "background preparation paused: device temperature is "
             f"{temperature_c:.1f} C"
         )
+    try:
+        meminfo = Path("/proc/meminfo").read_text(encoding="ascii")
+    except OSError:
+        return ""
+    blocker = memory_pressure_blocker(
+        meminfo, min_available_mib=min_available_mib
+    )
+    if blocker:
+        return blocker
     return ""
