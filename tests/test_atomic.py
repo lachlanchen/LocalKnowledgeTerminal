@@ -315,6 +315,12 @@ class AtomicWorkerTests(unittest.TestCase):
             )[0]["payload"]["parts"]
             self.assertEqual([part["surface"] for part in split], ["in", "spect", "ion"])
             self.assertEqual([part["basis"] for part in split], ["model", "book", "model"])
+            draft = store.artifacts_for_subject(
+                plan.subject_key,
+                stage="model-morpheme-draft",
+                validation_state="candidate",
+            )
+            self.assertEqual(len(draft), 1)
             queued_types = {
                 job["job_type"]
                 for job in store.jobs_for_subject(plan.subject_key)

@@ -135,6 +135,10 @@ unshared morphemes become archived, and a rejected revision records the reason.
 `plan-morphemes` can then enqueue only the corrected split against the current
 evidence and meaning checkpoints.
 
+The raw structured morphology draft is checkpointed as a non-publishable
+candidate before validation. A failed retry therefore remains inspectable, but
+cannot create terms, edges, graph nodes, or cards.
+
 Answer and Question preparation follows the same rule: source text, each
 language, grammar parts, and investigation candidates are separate tasks. A
 meaningful selected word can start a child investigation while retaining the

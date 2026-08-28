@@ -483,6 +483,18 @@ model knowledge."""
             max_tokens=320,
         )
         value = completion.get("value")
+        self.store.save_job_artifact(
+            job["job_id"],
+            "model-morpheme-draft",
+            {
+                "term": source["text"],
+                "value": value,
+                "model": completion.get("model", self.model.model_name),
+                "metrics": completion.get("metrics", {}),
+            },
+            language=source["language"],
+            validation_state="candidate",
+        )
         raw_parts = value.get("parts") if isinstance(value, dict) else None
         if not isinstance(raw_parts, list) or not 2 <= len(raw_parts) <= 5:
             raise ValueError("morpheme task returned an invalid number of parts")
