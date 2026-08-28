@@ -17,6 +17,8 @@ class Settings:
     roots_db: Path
     affixes_db: Path
     cards_db: Path
+    knowledge_db: Path
+    graph_db: Path
     llm_url: str
     llm_model: str
     host: str
@@ -52,6 +54,12 @@ class Settings:
             ).resolve(),
             cards_db=Path(
                 os.environ.get("LKT_CARDS_DB", data_dir / "cards.sqlite3")
+            ).resolve(),
+            knowledge_db=Path(
+                os.environ.get("LKT_KNOWLEDGE_DB", data_dir / "knowledge.sqlite3")
+            ).resolve(),
+            graph_db=Path(
+                os.environ.get("LKT_GRAPH_DB", data_dir / "knowledge-graph.lbdb")
             ).resolve(),
             llm_url=os.environ.get(
                 "LKT_LLM_URL", "http://127.0.0.1:8081/v1/chat/completions"

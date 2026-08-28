@@ -130,14 +130,15 @@ yet. They are future references only.
 
 ## Local inference
 
-- Qwen3-4B Q4_K_M is the proven default because it is responsive and its output
-  quality is acceptable on this Pi.
+- Qwen3-8B Q4_K_M is proven usable on this Pi and is the current quality-first
+  default; Qwen3-4B remains the responsive one-command fallback.
 - Download the official Qwen3-8B Q4_K_M as an optional deep model, verify its
   SHA-256, and benchmark it safely.
 - Never run 4B and 8B together on an 8 GB Pi. Keep a one-command, automatic 4B
   fallback and do not replace the default until 8B proves stable.
-- If 8B proves stable and materially better on real morphology JSON, use it as
-  the default offline preparation model; prepared SQLite display remains fast.
+- Never require one model response to build a complete morphology graph. Use
+  small persisted jobs under either model and compose accepted artifacts later;
+  prepared SQLite display remains fast.
 - Model downloads must be resumable and must not interrupt the live 4B service.
 - Use the Word Origins book RAG to correct hallucinated etymology and ground
   source claims.
@@ -160,6 +161,8 @@ yet. They are future references only.
 
 - Keep corpus ingestion, retrieval, model inference, card composition, storage,
   and rendering independent.
+- Treat normalized SQLite knowledge as authoritative and the embedded graph
+  database as a replaceable traversal projection.
 - Private books, indexes, model files, saved cards, secrets, and generated
   screenshots do not enter Git.
 - Develop on Windows, commit/push stable changes to GitHub, fetch/deploy on the

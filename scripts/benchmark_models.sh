@@ -15,10 +15,15 @@ mkdir -p "$LOG_DIR"
 touch "$RESULT_PATH"
 chmod 0644 "$RESULT_PATH"
 
-restore_four_b() {
-  "$SOURCE_DIR/scripts/select_model.sh" 4b >/dev/null 2>&1 || true
+ORIGINAL_PROFILE="4b"
+if [ -r /etc/lkt-model.env ] && grep -q '^LKT_LLM_MODEL=Qwen3-8B' /etc/lkt-model.env; then
+  ORIGINAL_PROFILE="8b"
+fi
+
+restore_original() {
+  "$SOURCE_DIR/scripts/select_model.sh" "$ORIGINAL_PROFILE" >/dev/null 2>&1 || true
 }
-trap restore_four_b EXIT
+trap restore_original EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
@@ -28,6 +33,6 @@ for profile in 4b 8b; do
   python3 "$SOURCE_DIR/scripts/benchmark_model.py" | tee -a "$RESULT_PATH"
 done
 
-restore_four_b
+restore_original
 trap - EXIT INT TERM
-printf 'Benchmarks complete; 4B restored. Results: %s\n' "$RESULT_PATH"
+printf 'Benchmarks complete; %s restored. Results: %s\n' "$ORIGINAL_PROFILE" "$RESULT_PATH"

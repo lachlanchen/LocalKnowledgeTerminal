@@ -40,6 +40,8 @@ LKT_QUESTIONS_DB=${LKT_HOME}/data/book-of-questions.sqlite3
 LKT_ROOTS_DB=${LKT_HOME}/data/english-roots.sqlite3
 LKT_AFFIXES_DB=${LKT_HOME}/data/english-affixes.sqlite3
 LKT_CARDS_DB=${LKT_HOME}/data/cards.sqlite3
+LKT_KNOWLEDGE_DB=${LKT_HOME}/data/knowledge.sqlite3
+LKT_GRAPH_DB=${LKT_HOME}/data/knowledge-graph.lbdb
 LKT_LLM_URL=http://127.0.0.1:8081/v1/chat/completions
 LKT_LLM_MODEL=Qwen3-4B-Q4_K_M
 LKT_REQUEST_TIMEOUT=720
@@ -89,6 +91,10 @@ if [ -n "$AFFIXES_SOURCE" ]; then
     PYTHONPATH="$SOURCE_DIR" LKT_SOURCE="$SOURCE_DIR" LKT_DATA_DIR="$LKT_HOME/data" \
     python3 -m lkt.cli ingest-morphology affix "$AFFIXES_SOURCE"
 fi
+
+runuser -u "$LKT_USER" -- env \
+  PYTHONPATH="$SOURCE_DIR" LKT_SOURCE="$SOURCE_DIR" LKT_DATA_DIR="$LKT_HOME/data" \
+  python3 -m lkt.cli knowledge-status >/dev/null
 
 install -o root -g root -m 0644 "$SOURCE_DIR/systemd/lkt-llm.service" /etc/systemd/system/
 install -o root -g root -m 0644 "$SOURCE_DIR/systemd/lkt-web.service" /etc/systemd/system/

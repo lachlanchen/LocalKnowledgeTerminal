@@ -48,6 +48,17 @@ wait_for_model() {
   return 1
 }
 
+wait_for_web() {
+  local attempt
+  for attempt in $(seq 1 60); do
+    if curl --silent --fail http://127.0.0.1:8090/api/health >/dev/null; then
+      return 0
+    fi
+    sleep 1
+  done
+  return 1
+}
+
 activate() {
   local name="$1" path="$2" context="$3" batch="$4"
   write_config "$name" "$path" "$context" "$batch"
@@ -55,6 +66,7 @@ activate() {
   systemctl restart lkt-llm.service
   wait_for_model
   systemctl restart lkt-web.service
+  wait_for_web
 }
 
 selection="${1:-}"

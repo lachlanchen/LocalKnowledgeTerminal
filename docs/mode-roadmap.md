@@ -14,11 +14,12 @@ of source-specific conditionals.
 | Book Question | Question cards | multilingual FTS5, then seeded draw | yes |
 | Root Graph | Root + Affix dictionaries | root-primary exact/FTS, then affix support | yes |
 | Affix Graph | Affix + Root dictionaries | affix-primary exact/FTS, then root support | yes |
-| Chat / Benchmark | Qwen3-4B | direct bounded conversation | no |
+| Chat / Benchmark | Qwen3-8B / 4B | direct bounded conversation | no |
 
 ## Prepared enrichment points
 
+The normalized knowledge schema and dependency-aware planner are implemented.
 Phoneme segmentation, Arabic grapheme segmentation, sentence grammar, linked
-word investigation, and batch corpus preparation are separate sequential jobs.
-Each saves reusable artifacts into the preparation ledger and enriches a card
-revision without coupling retrieval, generation, or rendering.
+word investigation, recursive origin expansion, and batch corpus preparation
+are represented as separate sequential jobs. The next milestone executes those
+jobs and promotes validated artifacts into reconstructable cards.

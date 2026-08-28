@@ -8,8 +8,12 @@ from pathlib import Path
 from .card_books import CardBookIndex, build_card_book_index
 from .config import Settings
 from .corpus import CorpusIndex, build_index
+from .graph import rebuild_ladybug
 from .llm import LlamaCppClient
+from .knowledge import KnowledgeStore
+from .lexicon import WordnetRag
 from .morphology import MorphologyIndex, build_morphology_index
+from .preparation import DISPLAY_LANGUAGES, PreparationPlanner
 from .service import CardService
 from .store import CardStore
 
@@ -138,6 +142,95 @@ def command_generate(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_knowledge_status(_args: argparse.Namespace) -> int:
+    settings = _settings()
+    print(
+        json.dumps(
+            KnowledgeStore(settings.knowledge_db).status(),
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+    return 0
+
+
+def command_rebuild_graph(args: argparse.Namespace) -> int:
+    settings = _settings()
+    destination = Path(args.database).resolve() if args.database else settings.graph_db
+    result = rebuild_ladybug(
+        KnowledgeStore(settings.knowledge_db), destination, replace=args.replace
+    )
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0
+
+
+def command_lexicon_search(args: argparse.Namespace) -> int:
+    settings = _settings()
+    results = WordnetRag(settings.data_dir / "lexicons" / "wn").search(
+        args.query,
+        source_language=args.source,
+        target_languages=args.targets,
+        limit=args.limit,
+    )
+    print(json.dumps(results, ensure_ascii=False, indent=2))
+    return 0
+
+
+def _planner(settings: Settings, args: argparse.Namespace) -> PreparationPlanner:
+    return PreparationPlanner(
+        KnowledgeStore(settings.knowledge_db),
+        model=settings.llm_model,
+        prompt_version=args.prompt_version,
+        source_fingerprint=args.source_fingerprint,
+    )
+
+
+def command_plan_word(args: argparse.Namespace) -> int:
+    settings = _settings()
+    planner = _planner(settings, args)
+    plan = planner.plan_word(
+        args.query,
+        language=args.language,
+        display_languages=args.display_languages,
+    )
+    print(
+        json.dumps(
+            {
+                "subject_entity_id": plan.subject_entity_id,
+                "subject_key": plan.subject_key,
+                "jobs": planner.store.jobs_for_subject(plan.subject_key),
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+    return 0
+
+
+def command_plan_content(args: argparse.Namespace) -> int:
+    settings = _settings()
+    planner = _planner(settings, args)
+    plan = planner.plan_content(
+        args.kind,
+        args.text,
+        language=args.language,
+        source_key=args.source_key,
+        display_languages=args.display_languages,
+    )
+    print(
+        json.dumps(
+            {
+                "subject_entity_id": plan.subject_entity_id,
+                "subject_key": plan.subject_key,
+                "jobs": planner.store.jobs_for_subject(plan.subject_key),
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+    return 0
+
+
 def command_serve(_args: argparse.Namespace) -> int:
     from .web import run
 
@@ -194,6 +287,66 @@ def parser() -> argparse.ArgumentParser:
         default="word",
     )
     generate.set_defaults(handler=command_generate)
+
+    knowledge_status = commands.add_parser(
+        "knowledge-status",
+        help="initialise and report the established-knowledge database",
+    )
+    knowledge_status.set_defaults(handler=command_knowledge_status)
+
+    rebuild_graph = commands.add_parser(
+        "rebuild-graph",
+        help="rebuild the LadybugDB traversal projection from accepted knowledge",
+    )
+    rebuild_graph.add_argument("--database", help="override graph destination")
+    rebuild_graph.add_argument(
+        "--replace", action="store_true", help="replace an existing projection"
+    )
+    rebuild_graph.set_defaults(handler=command_rebuild_graph)
+
+    lexicon_search = commands.add_parser(
+        "lexicon-search",
+        help="inspect sense-aligned multilingual WordNet evidence",
+    )
+    lexicon_search.add_argument("query")
+    lexicon_search.add_argument(
+        "--source", choices=("en", "ja", "zh", "fr", "ar"), default="en"
+    )
+    lexicon_search.add_argument(
+        "--targets",
+        nargs="+",
+        choices=("en", "ja", "zh", "fr", "ar"),
+        default=("ja", "zh", "fr", "ar"),
+    )
+    lexicon_search.add_argument("--limit", type=int, default=6)
+    lexicon_search.set_defaults(handler=command_lexicon_search)
+
+    plan_word = commands.add_parser(
+        "plan-word", help="enqueue small reusable preparation jobs for one word"
+    )
+    plan_word.add_argument("query")
+    plan_word.add_argument("--language", default="en")
+    plan_word.add_argument(
+        "--display-languages", nargs="+", default=DISPLAY_LANGUAGES
+    )
+    plan_word.add_argument("--prompt-version", default="atomic-v1")
+    plan_word.add_argument("--source-fingerprint", default="")
+    plan_word.set_defaults(handler=command_plan_word)
+
+    plan_content = commands.add_parser(
+        "plan-content",
+        help="enqueue separate language, grammar, and investigation jobs",
+    )
+    plan_content.add_argument("kind", choices=("answer", "question", "sentence"))
+    plan_content.add_argument("text")
+    plan_content.add_argument("--language", default="en")
+    plan_content.add_argument("--source-key", default="")
+    plan_content.add_argument(
+        "--display-languages", nargs="+", default=DISPLAY_LANGUAGES
+    )
+    plan_content.add_argument("--prompt-version", default="atomic-v1")
+    plan_content.add_argument("--source-fingerprint", default="")
+    plan_content.set_defaults(handler=command_plan_content)
 
     serve = commands.add_parser("serve", help="run the GUI and JSON API")
     serve.set_defaults(handler=command_serve)

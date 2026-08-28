@@ -5,7 +5,7 @@
 **Private, book-grounded intelligence on your own hardware.**
 
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
-[![Model](https://img.shields.io/badge/Qwen3-4B-6f42c1?style=flat-square)](https://huggingface.co/Qwen/Qwen3-4B-GGUF)
+[![Model](https://img.shields.io/badge/Qwen3-4B%20%2F%208B-6f42c1?style=flat-square)](https://huggingface.co/Qwen/Qwen3-8B-GGUF)
 [![Runtime](https://img.shields.io/badge/llama.cpp-v0.3.0-173f35?style=flat-square)](https://github.com/ggml-org/llama.cpp)
 [![Target](https://img.shields.io/badge/Raspberry%20Pi%205-8GB-C51A4A?style=flat-square&logo=raspberrypi)](https://www.raspberrypi.com/products/raspberry-pi-5/)
 [![Sponsor](https://img.shields.io/badge/Sponsor-lachlanchen-EA4AAA?style=flat-square&logo=githubsponsors&logoColor=white)](https://github.com/sponsors/lachlanchen)
@@ -13,8 +13,9 @@
 Local Knowledge Terminal (LKT) turns a private book collection into cited,
 multilingual cards. Its first library combines structured editions of **Word
 Origins**, **The Book of Answers**, **The Book of Questions**, an **English Root
-Dictionary**, and an **English Affix Dictionary**. Qwen3-4B
-Q4_K_M runs locally on an 8 GB Raspberry Pi 5; retrieval, inference, history,
+Dictionary**, and an **English Affix Dictionary**. Qwen3-8B Q4_K_M runs locally
+on an 8 GB Raspberry Pi 5 with Qwen3-4B as a one-command fallback; retrieval,
+inference, history,
 and the browser GUI operate without a cloud API.
 
 ## Six independent experiences, one card contract
@@ -68,9 +69,18 @@ Fullscreen display mode hides all application chrome, and `/?display=1` opens
 the same card document as a kiosk-friendly screen surface. Print CSS and the
 versioned card JSON provide clean boundaries for later e-ink rendering.
 
-Every generated card receives a new ID and remains in the local SQLite acquired-
-knowledge history. Asking the same question again creates a fresh Qwen result;
-the carousel can retain and compare both versions.
+Every generated card receives a new ID and remains in the card ledger. A second,
+normalized `knowledge.sqlite3` database stores accepted terms, senses,
+pronunciations, phoneme/grapheme segments, morphemes, history, translations,
+grammar, provenance, revisions, and inquiry lineage as reusable atoms. Cards are
+reconstructable views over those atoms. A LadybugDB property graph is a derived
+traversal projection and can always be rebuilt from SQLite.
+
+Preparation uses small dependency-aware jobs: retrieve evidence, prepare one
+meaning, split components, recursively expand each origin branch, prepare each
+language/pronunciation independently, validate, then compose. Successful stages
+are checkpointed immediately; one weak language or branch can be retried without
+discarding the rest.
 
 ```text
  Word Origin ──► best Word Origins entry ─────┐
@@ -78,7 +88,7 @@ the carousel can retain and compare both versions.
  Book Answer ──► reproducible answer draw ────┼──► independent prompts
 Book Question ─► question search / draw ──────┘              │
                                                               ▼
-                                                    Qwen3-4B on llama.cpp
+                                                  Qwen3-8B / 4B on llama.cpp
                                                        │
                                       ┌────────────────┴───────────────┐
                                       ▼                                ▼
@@ -111,6 +121,10 @@ the configured book has no evidence, the app does not generate a card.
 | `lkt/service.py` | Card composition and normalization |
 | `lkt/pronunciation.py` | Deterministic full-sentence tone-marked pinyin |
 | `lkt/store.py` | Versioned cards, preparation artifacts, revisions, archive, and chat ledger |
+| `lkt/knowledge.py` | Atomic established knowledge, evidence, jobs, revisions, and inquiry lineage |
+| `lkt/preparation.py` | Dependency-aware divide-and-conquer word/content planning |
+| `lkt/graph.py` | Rebuildable LadybugDB traversal projection from accepted SQLite atoms |
+| `lkt/lexicon.py` | Compact multilingual WordNet correction evidence |
 | `lkt/web.py` | Dependency-free HTTP API and GUI server |
 | `lkt/outputs.py` | Stable web/e-ink/audio output boundary |
 | `lkt/static/` | Desktop-class GUI, responsive enough for later kiosk use |
@@ -118,6 +132,7 @@ the configured book has no evidence, the app does not generate a card.
 | `systemd/` | Hardened model and application services |
 | `docs/lineage.md` | Exact legacy-project and corpus provenance |
 | `docs/product-brief.md` | Durable owner requirements and acceptance criteria |
+| `docs/knowledge-architecture.md` | Atomic SQLite, graph projection, and staged preparation contract |
 | `docs/owner-request-log.md` | Chronological, privacy-redacted owner direction |
 | `docs/voice-hardware.md` | Supported microphone choice and staged audio tests |
 | `docs/mode-roadmap.md` | Extension plan for future suffix, affix, and root books |
@@ -144,6 +159,7 @@ python -m lkt.cli ingest-morphology root "C:\path\to\root-dictionary\json\entrie
 python -m lkt.cli ingest-morphology affix "C:\path\to\affix-dictionary\json\entries-polished.jsonl"
 python -m lkt.cli search abacus
 python -m lkt.cli search technology --corpus question
+python -m lkt.cli knowledge-status
 ```
 
 With a llama.cpp server listening on port 8081:
@@ -164,7 +180,7 @@ Open <http://127.0.0.1:8090>.
 ```text
 /home/lachlan/LocalKnowledgeTerminal/
 ├── source/      # this Git repository; updated with fetch + fast-forward pull
-├── runtime/     # pinned llama.cpp checkout and ARM64 build
+├── runtime/     # pinned llama.cpp plus optional knowledge Python environment
 ├── models/      # Qwen GGUF (not committed)
 ├── data/        # corpus index and saved cards (not committed)
 └── logs/        # bootstrap logs (not committed)
@@ -182,8 +198,11 @@ The Pi service exposes one inference slot (`--parallel 1`). Card composition and
 Model Lab requests are therefore handled sequentially, keeping memory use and
 latency predictable instead of making four CPU cores compete across jobs.
 
-Qwen3-4B remains the responsive default. The optional official Qwen3-8B
-Q4_K_M download and model switch are explicit and reversible:
+Qwen3-8B is proven usable and is the current quality-first default. On the
+deployed Pi it produced a 120-token multilingual probe at 1.78 tokens/s with
+about 6.28 GiB RSS, 1.85 GiB system memory still available, and no current
+thermal throttling. Qwen3-4B remains the responsive fallback. Model selection
+is explicit and reversible:
 
 ```bash
 tmux new-session -d -s lkt-8b-download \
@@ -200,8 +219,19 @@ become healthy, `select_model.sh 8b` restores the 4B profile automatically.
 The downloader resumes a partial transfer, verifies the official SHA-256, and
 only then atomically exposes the final GGUF.
 The benchmark activates one model at a time, runs the same bounded multilingual
-quality/speed probe, records wall time, llama.cpp token rate, and process memory
-to `logs/model-benchmark-*.jsonl`, and restores 4B even when the 8B trial fails.
+quality/speed probe, records wall time, llama.cpp token rate, and process memory,
+then restores the model that was active before the benchmark.
+
+Install the compact optional knowledge runtime and build the graph projection:
+
+```bash
+./scripts/install_knowledge_runtime.sh
+./scripts/rebuild_graph.sh
+```
+
+This pins LadybugDB 0.19.1 and Wn 1.1.1 in an isolated environment, then installs
+only the OMW 2.0 English, Japanese, Mandarin Chinese, French, and Arabic
+lexicons. Full Wiktionary dumps are intentionally excluded.
 
 On the Pi:
 

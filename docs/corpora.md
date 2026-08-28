@@ -12,6 +12,18 @@ content hashes are documented here.
 | New Oriental English Root Dictionary `entries-polished.jsonl` | 6,327 | exact headword + morphology FTS5 | `102385447293126471ba47015a235c307f15d4473399c14203972738efe07d8f` |
 | English Affix Dictionary `entries-polished.jsonl` | 5,189 | exact headword + morphology FTS5 | `fa3a395a010281055676280f44220ebf1ad244d999393b95decedd5880cee68a` |
 
+## Compact public correction sources
+
+| Source | Purpose | License / version policy |
+| --- | --- | --- |
+| Open Multilingual Wordnet | sense-aligned English/Japanese/Chinese/French/Arabic meaning correction | install exact OMW 2.0 lexicons through Wn 1.1.1; retain each included lexicon's metadata |
+| JMdict | Japanese form, reading, and gloss correction | EDRDG CC BY-SA 4.0; record daily-build hash when added |
+| CC-CEDICT | Chinese form, pinyin, and gloss correction | CC BY-SA 4.0; record release hash when added |
+
+The local model remains responsible for concise explanation and composition.
+These resources provide a few retrieved correction facts, not full generated
+card content. Full Wiktionary dumps are intentionally excluded.
+
 ## Authority rules
 
 - Word Origins excerpts and page numbers are the authority for etymology and

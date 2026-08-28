@@ -226,3 +226,96 @@ into the brief.
   easy to recover in a headless device.
 - E-ink hardware is not installed yet; retain a clean adapter boundary and add
   the panel implementation after the final Waveshare model is purchased.
+
+## Investigation lineage and long-term history
+
+- Treat meaningful words inside Answer and Question cards as investigation
+  entry points. A follow-up can become a Word Card, Word Origin, Root, Affix,
+  Answer, or Question without losing the relationship to its source card.
+- Let the local model investigate an answer or question further in small,
+  focused tasks; preserve the originating card, selected word or passage, and
+  the resulting descendants as explicit lineage rather than an unstructured
+  chat transcript.
+- Save asking and investigation history for long-term use. Keep structured
+  cards, raw model generations, cleaned intermediate artifacts, and compact
+  history summaries distinct so storage can be managed without throwing away
+  provenance.
+- Provide search, archive, revision, deletion, and later compaction controls.
+  Storage capacity is expected to be sufficient for years, but the database
+  design must still avoid duplicating large immutable evidence or model blobs
+  unnecessarily.
+
+## Divide-and-conquer origin and language preparation
+
+- Make divide-and-conquer the default preparation rule whenever outputs can be
+  independently generated and validated. Run the small jobs sequentially on
+  the Pi, persist successful stages immediately, retry only failed stages, and
+  compose the final product after validation.
+- Do not ask one model call to invent an entire Word Origin graph. First split
+  the center word into candidate prefix, root, and suffix components; retrieve
+  and validate every component independently against the Word Origins, Root,
+  and Affix corpora.
+- Walk history backward one attested step at a time for each accepted component.
+  Recursively investigate meaningful parent forms, save each branch, deduplicate
+  shared ancestors, reject cycles, and only then compose the complete graph.
+  Preserve uncertainty and distinguish book-supported edges from model-led
+  hypotheses at every step.
+- Prepare English, Japanese, Chinese, Arabic, and rotating French output as
+  separate small tasks rather than one multilingual response. Japanese must
+  include token-level furigana, Chinese character-aligned pinyin, and Arabic
+  transliteration plus grapheme-level segmentation.
+- Give every language artifact its own prompt/model version, evidence,
+  validation state, quality score, and revision lineage. Regenerating one weak
+  language must not invalidate the graph or other accepted translations.
+- Compose the final compact card only from the best accepted graph and language
+  artifacts. This staged pipeline should work with 4B and may use 8B for slower
+  offline preparation when the guarded real-data benchmark proves it stable.
+- Promote validated components, historical forms, edges, and translations into
+  a reusable local knowledge graph. Query established knowledge before calling
+  a model, and generate only missing, stale, or rejected pieces.
+- Canonicalize shared records so related words reuse the same root, affix, and
+  historical nodes instead of duplicating them. Every reused artifact must keep
+  provenance, source hashes, confidence, prompt/model version, validation state,
+  and revision lineage so an established error can be corrected everywhere.
+- Store established knowledge in a dedicated normalized SQLite database with
+  separate tables for canonical terms and forms, pronunciation/phoneme/grapheme
+  segments, meanings and senses, ordered morpheme links, etymology nodes/edges,
+  dated history and semantic-change events, translations, grammar analyses and
+  parts, typed properties, evidence, revisions, jobs, and investigation lineage.
+- Keep history distinct from etymology: derivation and borrowing edges explain
+  form ancestry, while dated history events can describe attestations, usage,
+  and meaning shifts even when the written form does not change.
+- Use one transactional knowledge database rather than a different SQLite file
+  for every language. Language is data, so English, Japanese, Chinese, French,
+  Arabic, and later languages can share the same extensible translation/form
+  schema while retaining independent artifacts and validation.
+- Treat cards as reconstructable views over established atomic knowledge. The
+  database must support rebuilding a card without asking the model again.
+- Build a resumable, low-priority preparation queue that eventually walks every
+  reviewed Word Origins word/family, Root entry, Affix entry, Answer, and
+  Question. Run one bounded job at a time, checkpoint after each accepted
+  artifact, pause for interactive use, survive reboot, and skip source/model
+  work that is already established and current.
+- Let later model or validator versions revisit stale or low-quality artifacts.
+  Answers and Questions may contribute vocabulary, grammar, and investigation
+  candidates to established knowledge without crowding the visible card.
+- Add compact open-source dictionary RAG for English, Japanese, Chinese, French,
+  and Arabic. Prefer a shared multilingual WordNet layer plus high-quality
+  language resources such as JMdict and CC-CEDICT; use processed Wiktionary
+  selectively for gaps rather than placing every full dump on the 32 GB Pi.
+- Track dictionary source, license, release/version, source hash, locator, and
+  language in evidence. Keep each dictionary in its own rebuildable search
+  index and promote only validated results into established knowledge.
+- Keep dictionary RAG deliberately small: it exists to correct pronunciation,
+  reading, pinyin, core meaning, and sense alignment, while the local model does
+  explanation and card composition. Do not build a large dictionary zoo or
+  download full Wiktionary dumps unless a demonstrated gap later requires it.
+- Before the revised product becomes the default, audit existing cards and
+  remove malformed, wrong-mode, uncited, stale-layout, or incorrect-language
+  records from every visible tab/carousel. Rebuild current cards and slides from
+  accepted atomic knowledge plus current RAG evidence; regenerate only missing
+  or weak artifacts.
+- Keep failed/raw generations outside visible collections only as a minimal
+  provenance and debugging ledger until replacements are verified. Each tab
+  must load only accepted cards of its own mode, and each inner slide must show
+  the correct validated content rather than inherited dirty legacy payloads.

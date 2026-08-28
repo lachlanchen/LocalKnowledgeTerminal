@@ -13,6 +13,7 @@ from .card_books import CardBookIndex
 from .config import Settings
 from .corpus import CorpusIndex
 from .llm import LlamaCppClient, ModelUnavailable
+from .knowledge import KnowledgeStore
 from .morphology import MorphologyIndex
 from .pronunciation import chinese_ruby_tokens
 from .service import CardService, NoEvidence
@@ -109,6 +110,8 @@ def build_service(settings: Settings) -> tuple[CardService, LlamaCppClient]:
 def handler_factory(
     settings: Settings, service: CardService, model: LlamaCppClient
 ) -> type[BaseHTTPRequestHandler]:
+    knowledge = KnowledgeStore(settings.knowledge_db)
+
     class Handler(BaseHTTPRequestHandler):
         server_version = "LKT/0.1"
 
@@ -217,6 +220,7 @@ def handler_factory(
                         },
                         "card_books": card_books,
                         "morphology": morphology,
+                        "knowledge": knowledge.status(),
                         "model": {
                             "ready": model_ready,
                             "name": model.model_name,
