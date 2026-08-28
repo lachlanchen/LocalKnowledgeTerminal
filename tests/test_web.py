@@ -119,9 +119,21 @@ class WebInputTests(unittest.TestCase):
                 if mode == "knowledge":
                     self.assertIn("compose-word-card", job_types)
                     self.assertNotIn("expand-origin-branches", job_types)
+                    self.assertTrue(
+                        all(
+                            job["prompt_version"] == "interactive-word-card-v1"
+                            for job in jobs
+                        )
+                    )
                 else:
                     self.assertIn("expand-origin-branches", job_types)
                     self.assertIn("compose-origin-card", job_types)
+                    self.assertTrue(
+                        all(
+                            job["prompt_version"] == "interactive-origin-graph-v2"
+                            for job in jobs
+                        )
+                    )
                 state = word_card_preparation_state(plan, store, mode)
                 self.assertEqual(state["mode"], mode)
                 self.assertEqual(state["current_job"], "retrieve-evidence")

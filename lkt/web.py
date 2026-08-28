@@ -151,7 +151,7 @@ def plan_interactive_word(
     prompt_version = (
         "interactive-word-card-v1"
         if mode == "knowledge"
-        else "interactive-origin-graph-v1"
+        else "interactive-origin-graph-v2"
     )
     planner = PreparationPlanner(
         knowledge,
