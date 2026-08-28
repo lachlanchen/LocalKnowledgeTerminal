@@ -2137,7 +2137,7 @@ Do not add alternatives, markdown, etymology, or example sentences."""
         completion = self.model.complete_json(
             "You prepare one sense-aligned translation at a time. Preserve scripts accurately.",
             prompt,
-            max_tokens=176,
+            max_tokens=256 if language == "ar" else 176,
         )
         value = completion.get("value")
         if not isinstance(value, dict):
