@@ -10,8 +10,9 @@ LKT is organized around a versioned card document, not a display device.
    share a corpus but use different result limits; Answer and Question each own
    their book policy.
 3. `llm` receives only the query, mode, and retrieved evidence. Four independent
-   prompts return untrusted, JSON-Schema-bounded draft objects tailored to their
-   presentation. Hidden filler fields are not generated.
+   prompts return untrusted, mode-bounded draft objects tailored to their
+   presentation. JSON parsing, semantic completeness checks, and one repair
+   attempt prevent malformed or blank drafts from entering the ledger.
 4. `service` validates and normalizes the draft, then attaches deterministic
    evidence and a schema version.
 5. `store` persists complete card documents for history and re-rendering.

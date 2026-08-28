@@ -120,123 +120,6 @@ exactly one compact JSON object with no markdown or commentary:
 Use Unicode directly. Keep the response under 40 words. /no_think"""
 
 
-def _text_schema(max_length: int, min_length: int = 0) -> dict[str, Any]:
-    return {
-        "type": "string",
-        "minLength": min_length,
-        "maxLength": max_length,
-    }
-
-
-def _strict_object(properties: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "type": "object",
-        "properties": properties,
-        "required": list(properties),
-        "additionalProperties": False,
-    }
-
-
-_RUBY_SCHEMA = {
-    "type": "array",
-    "minItems": 1,
-    "maxItems": 8,
-    "items": _strict_object(
-        {"t": _text_schema(16, 1), "r": _text_schema(32)}
-    ),
-}
-_ENGLISH_SCHEMA = _strict_object(
-    {
-        "term": _text_schema(100, 1),
-        "pronunciation": _text_schema(100),
-        "meaning": _text_schema(180, 1),
-    }
-)
-_JAPANESE_SCHEMA = _strict_object(
-    {
-        "term": _text_schema(100, 1),
-        "reading": _text_schema(160, 1),
-        "meaning": _text_schema(160, 1),
-        "ruby_tokens": _RUBY_SCHEMA,
-    }
-)
-_CHINESE_SCHEMA = _strict_object(
-    {
-        "simplified": _text_schema(3000, 1),
-        "traditional": _text_schema(3000),
-        "pinyin": _text_schema(4000, 1),
-        "meaning": _text_schema(160, 1),
-    }
-)
-
-
-_ORIGIN_NODE_SCHEMA = _strict_object(
-    {
-        "id": _text_schema(48, 1),
-        "parent": _text_schema(48),
-        "stage": _text_schema(80, 1),
-        "form": _text_schema(80, 1),
-        "meaning": _text_schema(100, 1),
-        "basis": {"type": "string", "enum": ["book", "model"]},
-    }
-)
-_ALTERNATE_LANGUAGE_SCHEMA = _strict_object(
-    {
-        "term": _text_schema(100),
-        "pronunciation": _text_schema(100),
-        "meaning": _text_schema(160),
-    }
-)
-_ARABIC_SCHEMA = _strict_object(
-    {
-        "term": _text_schema(100),
-        "reading": _text_schema(160),
-        "meaning": _text_schema(160),
-    }
-)
-
-
-CARD_JSON_SCHEMAS = {
-    "word": _strict_object(
-        {
-            "title": _text_schema(120, 1),
-            "summary_en": _text_schema(300, 1),
-            "origin_graph": {
-                "type": "array",
-                "minItems": 3,
-                "maxItems": 7,
-                "items": _ORIGIN_NODE_SCHEMA,
-            },
-            "english": _ENGLISH_SCHEMA,
-            "japanese": _JAPANESE_SCHEMA,
-            "chinese": _CHINESE_SCHEMA,
-        }
-    ),
-    "knowledge": _strict_object(
-        {
-            "title": _text_schema(120, 1),
-            "english": _ENGLISH_SCHEMA,
-            "japanese": _JAPANESE_SCHEMA,
-            "chinese": _CHINESE_SCHEMA,
-            "french": _ALTERNATE_LANGUAGE_SCHEMA,
-            "arabic": _ARABIC_SCHEMA,
-        }
-    ),
-    "answer": _strict_object(
-        {
-            "title": _text_schema(120, 1),
-            "origin_story": _text_schema(300, 1),
-        }
-    ),
-    "question": _strict_object(
-        {
-            "title": _text_schema(120, 1),
-            "origin_story": _text_schema(300, 1),
-        }
-    ),
-}
-
-
 def _extract_json(text: str) -> dict[str, Any]:
     cleaned = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
     if cleaned.startswith("```"):
@@ -449,10 +332,6 @@ class LlamaCppClient:
             "presence_penalty": 1.5,
             "max_tokens": token_budgets[mode],
             "stream": False,
-            "response_format": {
-                "type": "json_object",
-                "schema": CARD_JSON_SCHEMAS[mode],
-            },
         }
         for attempt in range(2):
             body, _elapsed = self._request(payload)

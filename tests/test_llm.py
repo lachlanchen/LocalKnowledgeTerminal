@@ -63,7 +63,7 @@ class LlmParsingTests(unittest.TestCase):
         sent = json.loads(urlopen.call_args.args[0].data)
         self.assertIn("CURRENT CARD", sent["messages"][0]["content"])
 
-    def test_card_generation_constrains_json_and_repairs_once(self) -> None:
+    def test_card_generation_repairs_invalid_json_once(self) -> None:
         client = LlamaCppClient("http://localhost/v1/chat/completions", "test")
         invalid = {"choices": [{"message": {"content": "not json"}}]}
         valid_content = {
@@ -94,12 +94,8 @@ class LlmParsingTests(unittest.TestCase):
         self.assertEqual(request.call_count, 2)
         first_payload = request.call_args_list[0].args[0]
         repair_payload = request.call_args_list[1].args[0]
-        self.assertEqual(first_payload["response_format"]["type"], "json_object")
-        schema = first_payload["response_format"]["schema"]
-        self.assertFalse(schema["additionalProperties"])
-        self.assertEqual(schema["properties"]["origin_graph"]["maxItems"], 7)
-        self.assertEqual(schema["properties"]["origin_graph"]["minItems"], 3)
-        self.assertEqual(schema["properties"]["title"]["minLength"], 1)
+        self.assertEqual(first_payload["max_tokens"], 380)
+        self.assertNotIn("response_format", first_payload)
         self.assertEqual(repair_payload["temperature"], 0.0)
         self.assertIn("Repair the previous response", repair_payload["messages"][-1]["content"])
 
