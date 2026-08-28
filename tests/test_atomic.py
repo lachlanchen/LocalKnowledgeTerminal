@@ -9,6 +9,7 @@ from typing import Any
 from lkt.atomic import (
     PreparationWorker,
     _book_anchored_shape,
+    _book_origin_steps,
     _clean_usage_note,
     _collapse_repeated_arabic_alternative,
     _has_repeated_arabic_content_word,
@@ -213,6 +214,22 @@ class AtomicWorkerTests(unittest.TestCase):
         self.assertEqual(
             _clean_morpheme_meaning("to look, to see"), "to look or to see"
         )
+
+    def test_explicit_book_chain_is_extracted_without_model_inference(self) -> None:
+        steps = _book_origin_steps(
+            [
+                {
+                    "evidence_id": "evidence-spectacle",
+                    "excerpt": (
+                        "Latin specere ‘look’ (a descendant of the "
+                        "Indo-European base *spek- ‘look’)"
+                    ),
+                }
+            ]
+        )
+        self.assertEqual([step["form"] for step in steps], ["*spek-", "specere"])
+        self.assertEqual([step["language"] for step in steps], ["ine-pro", "la"])
+        self.assertTrue(all(step["evidence_ids"] == ["evidence-spectacle"] for step in steps))
 
     def test_morphology_context_rejects_incidental_fts_hits(self) -> None:
         def item(headword: str, kind: str) -> Evidence:

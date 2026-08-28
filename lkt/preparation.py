@@ -234,6 +234,32 @@ class PreparationPlanner:
         )
         return PreparationPlan(term_id, subject_key, {"split-morphemes": split})
 
+    def plan_origin(
+        self,
+        text: str,
+        *,
+        language: str = "en",
+    ) -> PreparationPlan:
+        """Revisit only historical branches from the accepted decomposition."""
+        term_id = self.store.upsert_term(language, text, status="draft")
+        subject_key = f"term:{term_id}"
+        splits = self.store.artifacts_for_subject(
+            subject_key,
+            stage="accepted-morpheme-split",
+            validation_state="accepted",
+        )
+        if not splits:
+            raise ValueError(f"no accepted morpheme split is available for {text!r}")
+        origin = self._job(
+            "expand-origin-branches",
+            subject_key,
+            term_id,
+            language=language,
+            priority=40,
+            depends_on=(str(splits[-1]["job_id"]),),
+        )
+        return PreparationPlan(term_id, subject_key, {"expand-origin-branches": origin})
+
     def plan_content(
         self,
         kind: str,

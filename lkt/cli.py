@@ -266,6 +266,24 @@ def command_plan_morphemes(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_plan_origin(args: argparse.Namespace) -> int:
+    settings = _settings()
+    planner = _planner(settings, args)
+    plan = planner.plan_origin(args.query, language=args.language)
+    print(
+        json.dumps(
+            {
+                "subject_entity_id": plan.subject_entity_id,
+                "subject_key": plan.subject_key,
+                "jobs": planner.store.jobs_for_subject(plan.subject_key),
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+    return 0
+
+
 def command_retire_morphemes(args: argparse.Namespace) -> int:
     settings = _settings()
     store = KnowledgeStore(settings.knowledge_db)
@@ -468,6 +486,16 @@ def parser() -> argparse.ArgumentParser:
     plan_morphemes.add_argument("--prompt-version", default="morphology-v2")
     plan_morphemes.add_argument("--source-fingerprint", default="")
     plan_morphemes.set_defaults(handler=command_plan_morphemes)
+
+    plan_origin = commands.add_parser(
+        "plan-origin",
+        help="revisit only cited historical branches from accepted components",
+    )
+    plan_origin.add_argument("query")
+    plan_origin.add_argument("--language", default="en")
+    plan_origin.add_argument("--prompt-version", default="origin-v2")
+    plan_origin.add_argument("--source-fingerprint", default="")
+    plan_origin.set_defaults(handler=command_plan_origin)
 
     retire_morphemes = commands.add_parser(
         "retire-morphemes",

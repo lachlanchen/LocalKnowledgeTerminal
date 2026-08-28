@@ -155,6 +155,10 @@ from older form to newer form or component. Only evidence attached to that
 exact component can make a historical node `book`; uncited model knowledge is
 capped at 0.75. At least one root history is required, and a malformed branch
 cannot publish an Origin card.
+An explicit “Latin X … descendant of Indo-European Y” book sentence is parsed
+deterministically before model fallback, avoiding a slow inference call for a
+chain already stated directly by the source. `plan-origin` retries only this
+stage after a validator or extractor revision.
 
 Answer and Question preparation follows the same rule: source text, each
 language, grammar parts, and investigation candidates are separate tasks. A

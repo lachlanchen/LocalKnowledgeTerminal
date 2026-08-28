@@ -136,6 +136,30 @@ class PreparationPlannerTests(unittest.TestCase):
             claimed = store.claim_next_job(("split-morphemes",))
             self.assertEqual(claimed["prompt_version"], "morphology-v2")
 
+    def test_origin_can_be_replanned_from_an_accepted_split(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")
+            term_id = store.upsert_term("en", "inspection", status="accepted")
+            subject_key = f"term:{term_id}"
+            split_job = store.enqueue_job(
+                "split-morphemes", subject_key, subject_entity_id=term_id
+            )
+            store.save_job_artifact(
+                split_job,
+                "accepted-morpheme-split",
+                {"term": "inspection", "parts": [{"surface": "spect"}]},
+                language="en",
+                validation_state="accepted",
+                quality_score=0.9,
+            )
+            store.finish_job(split_job)
+            plan = PreparationPlanner(
+                store, model="Qwen3-4B-Q4_K_M", prompt_version="origin-v2"
+            ).plan_origin("inspection")
+            self.assertEqual(set(plan.jobs), {"expand-origin-branches"})
+            claimed = store.claim_next_job(("expand-origin-branches",))
+            self.assertEqual(claimed["prompt_version"], "origin-v2")
+
     def test_answer_plan_prepares_languages_and_investigation_terms_separately(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")

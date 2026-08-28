@@ -202,6 +202,49 @@ def _clean_morpheme_meaning(value: Any) -> str:
     return re.sub(r"\s+", " ", text).strip(" .:-")
 
 
+def _book_origin_steps(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Extract an explicit Latin <- Indo-European chain without inference."""
+
+    quote = r"[‘'\"]"
+    close_quote = r"[’'\"]"
+    pattern = re.compile(
+        rf"Latin\s+([^\W\d_][\w-]*)\s+{quote}([^’'\"]+){close_quote}"
+        rf".{{0,180}}?Indo-European base\s+(\*[A-Za-z-]+)\s+"
+        rf"{quote}([^’'\"]+){close_quote}",
+        flags=re.IGNORECASE,
+    )
+    for record in records:
+        match = pattern.search(str(record.get("excerpt", "")))
+        if not match:
+            continue
+        evidence_id = str(record.get("evidence_id", ""))
+        if not evidence_id:
+            continue
+        pie_meaning = _clean_morpheme_meaning(match.group(4))
+        latin_meaning = _clean_morpheme_meaning(match.group(2))
+        if not pie_meaning or not latin_meaning:
+            continue
+        return [
+            {
+                "form": match.group(3),
+                "language": "ine-pro",
+                "period": "Proto-Indo-European",
+                "meaning": pie_meaning,
+                "confidence": 0.95,
+                "evidence_ids": [evidence_id],
+            },
+            {
+                "form": match.group(1),
+                "language": "la",
+                "period": "Latin",
+                "meaning": latin_meaning,
+                "confidence": 0.95,
+                "evidence_ids": [evidence_id],
+            },
+        ]
+    return []
+
+
 def _collapse_repeated_arabic_alternative(value: str) -> str:
     """Remove only the objectively redundant `word or same-word` construction."""
     return re.sub(
@@ -813,6 +856,10 @@ model knowledge. Never merge, shorten, rename, or reclassify a required part."""
         )
         if focus is None:
             raise ValueError("no cited root is available for origin expansion")
+        focus_evidence = self.store.evidence_records(
+            sorted(allowed_by_component[str(focus["component_id"])])
+        )
+        extracted_steps = _book_origin_steps(focus_evidence)
         prompt = f"""ONE ORIGIN BRANCH
 MODERN WORD: {source['text']}
 FIXED COMPONENT AND EVIDENCE: {json.dumps(focus, ensure_ascii=False)}
@@ -832,15 +879,26 @@ invent dates, or add a sibling component.
 Book evidence is authoritative. Model knowledge must use an empty evidence_ids
 array. Stop a branch when another step is uncertain. Prefer a small accurate
 graph over a decorative graph."""
-        completion = self.model.complete_json(
-            "You expand exactly one bounded, backwards etymology branch.",
-            prompt,
-            max_tokens=288,
+        completion = (
+            {
+                "value": {
+                    "component_id": focus["component_id"],
+                    "steps": extracted_steps,
+                },
+                "model": "deterministic-book-extractor",
+                "metrics": {"model_calls": 0},
+            }
+            if extracted_steps
+            else self.model.complete_json(
+                "You expand exactly one bounded, backwards etymology branch.",
+                prompt,
+                max_tokens=288,
+            )
         )
         value = completion.get("value")
         self.store.save_job_artifact(
             job["job_id"],
-            "model-origin-draft",
+            "book-origin-draft" if extracted_steps else "model-origin-draft",
             {
                 "term": source["text"],
                 "value": value,
