@@ -64,6 +64,13 @@ const MODE_COPY = {
   },
 };
 
+const SOURCE_TITLES = {
+  word: "Word Origins",
+  knowledge: "Word Origins",
+  answer: "The Book of Answers",
+  question: "The Book of Questions",
+};
+
 function show(name) {
   const views = {
     empty: "#empty-state",
@@ -195,7 +202,13 @@ function renderCard(card, refreshHistory = true) {
 
   const evidence = $("#evidence-list");
   evidence.replaceChildren();
-  text("#evidence-title", card.extensions?.source_title || card.evidence?.[0]?.source_title || "Local library");
+  text(
+    "#evidence-title",
+    card.extensions?.source_title
+      || card.evidence?.[0]?.source_title
+      || SOURCE_TITLES[card.mode]
+      || "Local library",
+  );
   text("#narrative-label", copy.narrative);
   (card.evidence || []).forEach((item) => {
     const section = element("section", "evidence");

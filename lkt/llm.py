@@ -66,7 +66,9 @@ Required JSON shape:
   "memory_hook": "short memorable connection",
   "related_terms": [{"term": "", "note": ""}]
 }
-Use Unicode characters directly. Keep the total response under 900 words."""
+Use Unicode characters directly. For Japanese and Chinese terms, prefer the
+established modern lexical equivalent over a phonetic transliteration whenever
+one exists. Keep the total response under 900 words."""
 
 
 def _extract_json(text: str) -> dict[str, Any]:
