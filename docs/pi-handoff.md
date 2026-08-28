@@ -8,7 +8,7 @@ indexes, and captured screens are not stored in Git.
 
 | Layer | Verified revision/state |
 |---|---|
-| LKT runtime code | `6908cbd6a584d2a3596965f2254da1b9cf5ce98a` |
+| LKT runtime code | `ba282c64c32a9e51d895e65a075e53806de74eb0` |
 | Model | `Qwen3-4B-Q4_K_M.gguf`, 2,497,280,256 bytes |
 | Model SHA-256 | `7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5` |
 | llama.cpp package | pinned `v0.3.0`, source commit `c1d0e7a004015f23bc0233470b747b596f29b264` |
@@ -57,8 +57,9 @@ generation.
 - Answer and Question backfill walks all 609 reviewed book records without
   repeating a source record. It balances the two completion percentages and
   pauses on current undervoltage, throttling, high temperature, or low available
-  memory. At audit, the visible decks held 25 Answers and 23 Questions and were
-  still growing.
+  memory. At audit, `/api/health` reported 52 of 609 accepted: 27 Answers and
+  25 Questions, with 557 remaining. The same compact progress appears in the
+  browser header, and the decks were still growing.
 - Each selected tab loads all its accepted cards, keeps the newest first, and
   shuffles the remainder without replacement for each carousel pass. Lexical
   modes are inquiry/queue driven, then reuse accepted atoms rather than
@@ -115,10 +116,10 @@ not imported by the core service.
 
 ## Validation performed
 
-- Windows development checkout: 109 unit tests passed; `compileall` passed.
-- Pi checkout after fast-forward: 109 unit tests passed; `compileall` passed.
+- Windows development checkout: 110 unit tests passed; `compileall` passed.
+- Pi checkout after fast-forward: 110 unit tests passed; `compileall` passed.
 - Live `/api/health`: ready, including all book, morphology, model, knowledge,
-  and FreeDict correction status.
+  FreeDict correction, and autonomous deck progress status.
 - Real book card: generated and retrieved with its source-owned evidence.
 - One-page kiosk: visually audited at 1920×1080; exactly one Chromium page left
   open.
