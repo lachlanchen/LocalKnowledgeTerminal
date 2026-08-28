@@ -130,7 +130,7 @@ class WebInputTests(unittest.TestCase):
                     self.assertIn("compose-origin-card", job_types)
                     self.assertTrue(
                         all(
-                            job["prompt_version"] == "interactive-origin-graph-v2"
+                            job["prompt_version"] == "interactive-origin-graph-v3"
                             for job in jobs
                         )
                     )

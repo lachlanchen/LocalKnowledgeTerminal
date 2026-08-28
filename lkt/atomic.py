@@ -701,7 +701,9 @@ translations, examples, markdown, or claims absent from the evidence."""
         }
         context = [
             {
-                "evidence_id": record.get("knowledge_evidence_id", ""),
+                "evidence_id": (
+                    "" if explicit_shape else record.get("knowledge_evidence_id", "")
+                ),
                 "source": record.get("source_title", record.get("corpus_id", "")),
                 "headword": record.get("headword", ""),
                 "kind": record.get("kind", ""),
@@ -728,6 +730,12 @@ translations, examples, markdown, or claims absent from the evidence."""
             if required_shape
             else "No exact reviewed-book root anchor was found.\n"
         )
+        evidence_instruction = (
+            "evidence_ids: always an empty array; fixed book provenance is attached "
+            "by the system after validation"
+            if explicit_shape
+            else "evidence_ids: only supplied evidence IDs that explicitly support this part"
+        )
         prompt = f"""MORPHEME SPLIT
 TERM: {source['text']}
 CURRENT EVIDENCE: {json.dumps(context, ensure_ascii=False)}
@@ -741,7 +749,7 @@ kind: prefix, root, suffix, or free
 language: en or la
 meaning: at most 10 English words
 confidence: number from 0 to 1
-evidence_ids: only supplied evidence IDs that explicitly support this part
+{evidence_instruction}
 
 The concatenated surfaces must reproduce TERM exactly. Include every letter once,
 include at least one root, and do not invent an extra part merely to add detail.
@@ -757,7 +765,7 @@ model knowledge. Never merge, shorten, rename, or reclassify a required part."""
                 else "You perform one conservative, reusable morphology split at a time."
             ),
             prompt,
-            max_tokens=320,
+            max_tokens=384 if explicit_shape else 320,
         )
         value = completion.get("value")
         self.store.save_job_artifact(
