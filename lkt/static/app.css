@@ -865,7 +865,8 @@ body.display-mode .card-view { border-radius: 0; }
 }
 .investigation-term strong {
   color: var(--mode-accent);
-  font: 700 clamp(28px, 3vw, 46px)/1 var(--serif);
+  font: 700 clamp(28px, 2.6vw, 40px)/1 var(--serif);
+  white-space: nowrap;
 }
 .investigation-term span {
   font: 700 clamp(14px, 1.4vw, 20px)/1.3 var(--sans);
