@@ -1,112 +1,124 @@
 # Raspberry Pi 5 deployment handoff
 
-Verified 2026-08-29 on the private Pi deployment. This file records revisions
-and public-safe runtime facts only; credentials and private source files are not
-stored in Git.
+Verified 2026-08-29 on the private Pi deployment. This file records public-safe
+runtime facts only. Credentials, private source files, model weights, generated
+indexes, and captured screens are not stored in Git.
 
 ## Active runtime
 
 | Layer | Verified revision/state |
 |---|---|
-| LKT implementation | `28a313b807441f6b29699951a2ecd36aa73764ab` |
+| LKT runtime code | `6908cbd6a584d2a3596965f2254da1b9cf5ce98a` |
 | Model | `Qwen3-4B-Q4_K_M.gguf`, 2,497,280,256 bytes |
 | Model SHA-256 | `7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5` |
 | llama.cpp package | pinned `v0.3.0`, source commit `c1d0e7a004015f23bc0233470b747b596f29b264` |
 | llama-server self-report | `0.3.0-dev`, GNU 12.2.0, Linux aarch64 |
 | Kernel | Raspberry Pi aarch64 `6.6.51+rpt-rpi-2712` |
-| Inference policy | one local slot, Qwen3-4B default, one idle-time deck item |
+| Inference profile | one slot, 3,072-token context, batch 128, micro-batch 64 |
+| Background policy | one low-priority atomic/deck job at a time |
 
-`lkt-web`, `lkt-llm`, and the low-priority `lkt-worker` were active.
-`/api/health` returned `ready`, with the model reported as local and ready.
+`lkt-web`, `lkt-llm`, and `lkt-worker` were active. The live Python and browser
+code matched the runtime revision above, and the Pi worktree was clean.
+`/api/health` returned `ready`, with Qwen reported as local and ready. A later
+documentation-only handoff commit does not alter that runtime code revision.
 
-The live intent endpoint routed Word Card, Chat, Word Origin, Root, and Affix
-inputs in about 1 ms. Repeated `inspection` and Answer #012 requests returned
-their existing accepted card IDs in about 1 ms without inference. A real local
-chat smoke test returned from Qwen3-4B in 5.54 seconds at 3.52 tokens/second.
+The model service is bounded by systemd at `MemoryHigh=5 GiB`,
+`MemoryMax=6 GiB`, `MemorySwapMax=128 MiB`, and `OOMPolicy=stop`. At final audit
+the Pi had 2.6 GiB available memory, was 56 C, and reported `0x50000`: historical
+throttling only, with no current undervoltage or throttling condition.
 
-## Real-data smoke results
+## Required local sources
 
-- The autonomous worker prepared seven previously unseen real book records
-  during deployment without a web request or hand-entered payload: Questions
-  #257, #188, #258, and #250 plus Answers #096, #127, and #164. Each accepted
-  card retains its exact stable source ID and reviewed EN/JA/ZH text; local
-  Qwen generated the small title/reflection and then selected bounded vocabulary
-  from the exact English source. The live decks reached six Answers and five
-  Questions while the audit was running.
-- Question #257 became card `cc8f6e34-c31c-4e86-84f0-5f8c089c8842`, titled
-  “Future Travel Dilemma.” Its local investigation accepted the exact in-source
-  terms `travel`, `companions`, and `future`. A 1920×1080 fullscreen audit showed
-  seven clean language/sentence slides with no overlap or scrolling.
-- The worker balances the percentage completed in each book, never repeats an
-  accepted source entry, attempts one item per 120-second idle interval, and
-  stops after all 609 reviewed book entries are accepted. Current undervoltage,
-  throttling, or temperature at/above 78 C pauses background inference while
-  leaving browsing available. During verification the Pi briefly reported
-  `0x50005`; after recovery it reported historical-only `0x50000` at 56 C.
-- The browser API now loads the complete selected mode up to 1,000 cards. Each
-  tab keeps its newest card first and shuffles the rest once per carousel pass.
-  Exactly one fullscreen Chromium top-level window was left open.
-- The corrected accepted `breakthrough` Word Card is
-  `948eecea-4ccc-4f05-b945-e004d06f9321`. Its Arabic translation was generated
-  locally as `إنجاز نوعي`; strict script validation rejected earlier mixed
-  output, and deterministic offline eSpeak supplied its saved pronunciation.
+The live health contract reported every required source as ready:
 
-- Three accepted Answer cards were drawn from the real Book of Answers index:
-  Answer #012 (“Learn to cherish”), Answer #031 (“Breathe fresh air”), and
-  Answer #279 (“Unnecessary concession”). The newest answer opens first; the
-  remaining answers are shuffled and the full-screen carousel advances every
-  30 seconds without repeating a card within that pass.
-- Accepted Question card `4b118a06-4820-466e-a69f-977773a9c62b` is reviewed
-  Book Question #100 (“Technology and Sacrifice”), quality `0.95`. Its long
-  text fits 1280×800 without scrolling as six automatic slides: two English,
-  two Japanese with furigana, and two Chinese with pinyin. Sentence boundaries
-  follow punctuation, and numeric counters such as `50万人` remain intact.
-- `sync-card-knowledge` acquired all four accepted Answer/Question cards as 12
-  independent reviewed EN/JA/ZH content atoms with book-owned evidence and
-  typed translation edges. Running the migration twice left the same 12 atoms
-  and 31 total knowledge edges, confirming idempotence. Reusing Question #100
-  through the live API also preserved those counts.
-- A real two-turn Qwen3-4B discussion of Question #100 created one durable
-  inquiry thread and two events. The second event points to the first as its
-  parent; both retain the Question card ID and its normalized English
-  `content-item`. The replies completed in 39.97 seconds (3.01 tokens/second)
-  and 7.52 seconds (2.56 tokens/second), respectively, while remaining uncited
-  Model Lab observations rather than book claims.
-- The accepted `inspection` Word Card uses one OMW sense plus reviewed atomic
-  Japanese, Chinese, French, and Arabic outputs and offline pronunciation.
-- The accepted `inspection` Word Origin card contains six nodes and five edges:
-  `in-`, `spect`, `-ion`, Proto-Indo-European `*spek-`, Latin `specere`, and the
-  modern word. Its source panel opens with Word Origins page 482, followed in
-  stored provenance by the polished Root Dictionary and OMW sense.
-- Independent accepted `inspection` Root and Affix cards reuse that graph at
-  quality `0.8`. Root card `b07db9a2-e9a8-477e-8185-0b0eafbb673b` opens on
-  `*spek- → specere → spect → inspection`; Affix card
-  `5b323783-cfc0-4e18-876b-8d10b6ab99a0` has prefix, suffix, and overview
-  slides. Both fit a 1280×800 screen without overlap; unrelated focus nodes are
-  hidden from the main canvas and retained in the corner overview.
-- The rebuilt LadybugDB projection contains 70 accepted nodes and 62 accepted
-  edges, fingerprint
-  `3ae9aa7ea8d9c440617343b25d15f7419bf51c059077c5aef70062df86e86f9f`.
+| Retrieval source | Records |
+|---|---:|
+| Word Origins | 6,994 |
+| Book of Answers | 318 |
+| Book of Questions | 291 |
+| New Oriental English Root Dictionary | 6,327 |
+| English Affix Dictionary | 5,189 |
+| FreeDict English-Arabic 0.6.3 | 89,028 exact pairs |
 
-## Browser entry points
+The GUI therefore reports 108,147 local source records. FreeDict is a compact
+SQLite correction index built from source revision
+`5bdceeac8d0dba3298c1bebe734f60d54dad30f7`; its verified TEI SHA-256 is
+`7572d3685c501975cd0d47b0dfb581b053b28fb18932d06f09d64d0479b06746`.
+Only the generated index is present on the Pi. `/api/health` now treats this
+correction source as required, so a missing index cannot silently weaken Arabic
+generation.
 
-- Bare/default ambient display: `http://127.0.0.1:8090/?display`
-- Ambient Answer display: `http://127.0.0.1:8090/?mode=answer&display`
-- Question display: `http://127.0.0.1:8090/?mode=question&display`
-- Word Card display: `http://127.0.0.1:8090/?mode=knowledge&display`
-- Word Origin display: `http://127.0.0.1:8090/?mode=word&display`
-- Root display: `http://127.0.0.1:8090/?mode=root&display`
-- Affix display: `http://127.0.0.1:8090/?mode=affix&display`
+## Autonomous generation and provenance
+
+- Accepted card values are prepared by local Qwen, reviewed book records, or
+  deterministic offline tools. They are not manually entered into the live
+  SQLite databases. Retrieval code owns citations; the model cannot invent or
+  rewrite them.
+- Answer and Question backfill walks all 609 reviewed book records without
+  repeating a source record. It balances the two completion percentages and
+  pauses on current undervoltage, throttling, high temperature, or low available
+  memory. At audit, the visible decks held 25 Answers and 23 Questions and were
+  still growing.
+- Each selected tab loads all its accepted cards, keeps the newest first, and
+  shuffles the remainder without replacement for each carousel pass. Lexical
+  modes are inquiry/queue driven, then reuse accepted atoms rather than
+  regenerating them on every view.
+- A live real-book smoke request was completed entirely on the Pi by
+  Qwen3-4B in 52.75 seconds. Card
+  `bae4877a-8ace-4100-aee9-a689221acb1a` preserved the exact reviewed
+  EN/JA/ZH text and citation for Book of Answers entry `answer-269` (page 275).
+  Its generated title and reflection remain model-owned fields, separate from
+  the book-owned answer.
+- The accepted `predecessor` Word Card is
+  `78844f32-31a8-4d81-91b4-2f001fdb6ef0`. Its earlier incorrect Arabic atom was
+  retired through the normal preparation CLI, not edited in SQL. Local Qwen then
+  selected exact FreeDict candidate `السلف`; the system attached dictionary
+  evidence ID `freedict-eng-ara:4de4094d8e920b618dfe` and deterministic offline
+  eSpeak IPA `ʔassˈalaf` before publication.
+- Independent accepted `predecessor` Word Origin, Root, and Affix views are
+  `a47f2207-4455-405d-a7b8-24deca3705e3`,
+  `7646e7ed-33da-40ef-9ed9-2221d84bd1ca`, and
+  `d90d7365-dd17-4a09-b132-4bdc1e5aa0a7`. Each reuses the same accepted atomic
+  history while keeping its own card mode and focus slides.
+
+The LadybugDB traversal projection was rebuilt atomically after the smoke card.
+It contains 286 accepted nodes and 243 accepted edges, fingerprint
+`df204bd4719abc3fddb51c3ecb13c576c4de1e636850d26fd6c233bdeedd9fd1`.
+The previous projection remains beside it for recovery; SQLite remains the
+source of truth.
+
+## Browser audit
+
+Exactly one Chromium top-level page was left open at the ambient display:
+`http://127.0.0.1:8090/?display`. A 1920×1080 desktop capture showed the Answer
+view with no document scroll or overlap, readable reviewed text, source evidence,
+slide controls, and the card discussion action. The live carousel was on slide
+four of four during capture, confirming automatic slide/card rotation.
+
+Direct entry points remain:
+
+- Answer/default: `http://127.0.0.1:8090/?display`
+- Question: `http://127.0.0.1:8090/?mode=question&display`
+- Word Card: `http://127.0.0.1:8090/?mode=knowledge&display`
+- Word Origin: `http://127.0.0.1:8090/?mode=word&display`
+- Root: `http://127.0.0.1:8090/?mode=root&display`
+- Affix: `http://127.0.0.1:8090/?mode=affix&display`
+
+The bare composer routes one English word to Word Card, ordinary sentences to
+local Chat, and explicit `origin:`, `root:`, or `affix:` inquiries to their
+independent modes. Tabs and `?mode=` URLs remain exact overrides. Intent routing
+itself is deterministic and does not call the model.
 
 The browser GUI remains the only implemented output adapter. E-ink and audio
-consume the same stored card contract later and are not imported into the core
-service.
+are reserved adapters that will consume the same stored card JSON later and are
+not imported by the core service.
 
-The bare ambient composer routes one English word to Word Card, a normal
-sentence or question to local Chat, and explicit `origin:`, `root:`, or
-`affix:` inquiries to their independent card modes. Tabs and `?mode=` URLs
-remain exact overrides; intent routing does not call the model.
+## Validation performed
 
-Root and Affix cards are composed as independent accepted views of the same
-atomic origin graph. This replaces the retired monolithic Root request, which
-exceeded four minutes without producing a publishable card.
+- Windows development checkout: 109 unit tests passed; `compileall` passed.
+- Pi checkout after fast-forward: 109 unit tests passed; `compileall` passed.
+- Live `/api/health`: ready, including all book, morphology, model, knowledge,
+  and FreeDict correction status.
+- Real book card: generated and retrieved with its source-owned evidence.
+- One-page kiosk: visually audited at 1920×1080; exactly one Chromium page left
+  open.
