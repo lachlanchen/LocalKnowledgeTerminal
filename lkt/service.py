@@ -120,6 +120,18 @@ def _origin_graph(
             root["parent"] = ""
             for item in roots[1:]:
                 item["parent"] = root["id"]
+            by_id = {item["id"]: item for item in result}
+            for item in result:
+                if item is root:
+                    continue
+                visited = {item["id"]}
+                parent = item["parent"]
+                while parent != root["id"]:
+                    if not parent or parent not in by_id or parent in visited:
+                        item["parent"] = root["id"]
+                        break
+                    visited.add(parent)
+                    parent = by_id[parent]["parent"]
         return result
     anchor = evidence[0]
     return [

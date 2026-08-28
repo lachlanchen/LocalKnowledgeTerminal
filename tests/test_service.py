@@ -63,6 +63,27 @@ class ServiceTests(unittest.TestCase):
         )
         self.assertEqual([node["parent"] for node in graph], ["", "modern", "modern"])
 
+    def test_origin_graph_repairs_a_disconnected_cycle(self) -> None:
+        evidence = [Evidence("entry-1", "word", "", "", (1,), "source")]
+        graph = _origin_graph(
+            [
+                {"id": "modern", "parent": "", "form": "word"},
+                {"id": "part-a", "parent": "part-b", "form": "a"},
+                {"id": "part-b", "parent": "part-a", "form": "b"},
+            ],
+            evidence,
+            "word",
+        )
+        by_id = {node["id"]: node for node in graph}
+        for node in graph[1:]:
+            visited = set()
+            current = node
+            while current["parent"]:
+                self.assertNotIn(current["id"], visited)
+                visited.add(current["id"])
+                current = by_id[current["parent"]]
+            self.assertEqual(current["id"], "modern")
+
     def test_builds_multilingual_grounded_card_and_history(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
