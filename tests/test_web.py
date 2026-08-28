@@ -26,6 +26,7 @@ class WebInputTests(unittest.TestCase):
         self.assertIn("carry.unshift(numericToken)", script)
         self.assertIn("[。！？?!、，；;]", script)
         self.assertIn('element("span", "ruby-cluster")', script)
+        self.assertIn("while (counterIndex < tokens.length", script)
         self.assertIn(".ruby-cluster { display: inline-block; white-space: nowrap; }", style)
 
     def test_old_cards_receive_chinese_ruby_without_database_migration(self) -> None:

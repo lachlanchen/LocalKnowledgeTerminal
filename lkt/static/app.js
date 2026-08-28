@@ -163,13 +163,19 @@ function renderRubyElement(container, tokens, term, fallbackReading = "") {
     };
     for (let index = 0; index < tokens.length; index += 1) {
       const token = tokens[index];
-      if (/^\d+$/.test(String(token.t || "")) && /^[万億年月日人個本枚台歳％%]/.test(String(tokens[index + 1]?.t || ""))) {
+      let counterIndex = index + 1;
+      while (counterIndex < tokens.length && /^\d+$/.test(String(tokens[counterIndex]?.t || ""))) counterIndex += 1;
+      if (/^\d+$/.test(String(token.t || "")) && /^[万億年月日人個本枚台歳％%]/.test(String(tokens[counterIndex]?.t || ""))) {
         const cluster = element("span", "ruby-cluster");
-        appendToken(cluster, token);
-        while (index + 1 < tokens.length && /^[万億年月日人個本枚台歳％%]+$/.test(String(tokens[index + 1]?.t || ""))) {
-          index += 1;
+        while (index < counterIndex) {
           appendToken(cluster, tokens[index]);
+          index += 1;
         }
+        while (index < tokens.length && /^[万億年月日人個本枚台歳％%]+$/.test(String(tokens[index]?.t || ""))) {
+          appendToken(cluster, tokens[index]);
+          index += 1;
+        }
+        index -= 1;
         container.append(cluster);
       } else {
         appendToken(container, token);
