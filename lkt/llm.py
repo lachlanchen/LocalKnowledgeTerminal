@@ -65,7 +65,7 @@ Required JSON shape:
   "japanese": {"term": "established equivalent", "reading": "exact hiragana or katakana", "meaning": "short meaning written in Japanese", "ruby_tokens": [{"t": "kanji or kana segment", "r": "exact kana reading; empty for plain kana"}]},
   "chinese": {"simplified": "established equivalent", "traditional": "", "pinyin": "tone-marked pinyin", "meaning": "short Chinese meaning"}
 }
-Make origin_graph a directed ancestry graph of 3 to 7 nodes like a compact dictionary etymology
+Make origin_graph a directed ancestry graph of 3 to 5 nodes like a compact dictionary etymology
 tree. Put the modern English word first as the single root with an empty parent. Its ancestors or
 component morphemes point to the later descendant using parent, so two roots/components may branch
 into one word. For a compound, use exactly this topology: modern-word parent "";
@@ -75,7 +75,7 @@ derived from the other. Do not force a linear timeline when the word has multipl
 Before returning, check that every parent is the later form receiving that node. Use Unicode
 directly and established Japanese/Chinese equivalents instead of phonetic imitations. Everything
 must fit one screen. Japanese ruby token text must concatenate exactly to japanese.term. Keep the
-response under 360 words. /no_think"""
+response under 260 words. /no_think"""
 
 
 WORD_CARD_PROMPT = """You are the independent multilingual Word Card engine in Local Knowledge
@@ -316,7 +316,7 @@ class LlamaCppClient:
             "answer": ANSWER_PROMPT,
             "question": QUESTION_PROMPT,
         }
-        token_budgets = {"word": 380, "knowledge": 300, "answer": 140, "question": 140}
+        token_budgets = {"word": 520, "knowledge": 300, "answer": 140, "question": 140}
         payload = {
             "model": self.model_name,
             "messages": [

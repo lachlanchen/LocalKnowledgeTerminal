@@ -94,7 +94,7 @@ class LlmParsingTests(unittest.TestCase):
         self.assertEqual(request.call_count, 2)
         first_payload = request.call_args_list[0].args[0]
         repair_payload = request.call_args_list[1].args[0]
-        self.assertEqual(first_payload["max_tokens"], 380)
+        self.assertEqual(first_payload["max_tokens"], 520)
         self.assertNotIn("response_format", first_payload)
         self.assertEqual(repair_payload["temperature"], 0.0)
         self.assertIn("Repair the previous response", repair_payload["messages"][-1]["content"])
