@@ -51,6 +51,8 @@ On the bare ambient screen, one English word opens Word Card and an ordinary
 sentence or question opens local Chat. Explicit `word:`, `origin:`, `root:`,
 `affix:`, `question:`, `answer:`, and `ask:` prefixes choose an exact path.
 Selecting a tab or using a `?mode=` URL also remains an exact override.
+An inquiry first reuses an accepted card with the same mode and query; callers
+can request deliberate regeneration with the API's `refresh: true` flag.
 
 ### Word Origin
 

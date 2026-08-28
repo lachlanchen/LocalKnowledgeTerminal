@@ -292,6 +292,25 @@ class CardStore:
             ).fetchall()
         return [json.loads(row[0]) for row in rows]
 
+    def find_active(self, mode: str, query: str) -> dict[str, Any] | None:
+        """Return established card knowledge before scheduling new inference."""
+
+        mode, query = mode.strip(), query.strip()
+        if not mode or not query:
+            return None
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                """SELECT payload FROM cards
+                   WHERE mode = ? AND query = ? COLLATE NOCASE
+                     AND status = 'active' AND validation_state = 'accepted'
+                   ORDER BY
+                     CASE WHEN updated_at = '' THEN created_at ELSE updated_at END DESC,
+                     created_at DESC
+                   LIMIT 1""",
+                (mode, query),
+            ).fetchone()
+        return json.loads(row[0]) if row else None
+
     def supersede_others(self, mode: str, query: str, keep_card_id: str) -> int:
         """Keep one accepted revision current for a mode/query collection key."""
         timestamp = datetime.now(UTC).isoformat()

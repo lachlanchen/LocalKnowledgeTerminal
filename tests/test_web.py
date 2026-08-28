@@ -53,6 +53,12 @@ class WebInputTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             chat_messages({"message": "  "})
 
+    def test_web_reuses_accepted_cards_unless_refresh_is_requested(self) -> None:
+        source = Path(__file__).resolve().parents[1] / "lkt" / "web.py"
+        script = source.read_text(encoding="utf-8")
+        self.assertIn('payload.get("refresh") is not True', script)
+        self.assertIn("service.store.find_active(requested_mode, query)", script)
+
     def test_card_chat_context_keeps_retrieved_source(self) -> None:
         context = card_chat_context(
             {

@@ -360,7 +360,14 @@ def handler_factory(
                     )
                     self._json(result, HTTPStatus.CREATED)
                     return
-                card = service.create(str(payload.get("query", "")), str(payload.get("mode", "word")))
+                query = str(payload.get("query", ""))
+                requested_mode = str(payload.get("mode", "word"))
+                if payload.get("refresh") is not True:
+                    established = service.store.find_active(requested_mode, query)
+                    if established is not None:
+                        self._json(renderable_card(established))
+                        return
+                card = service.create(query, requested_mode)
             except (ValueError, json.JSONDecodeError) as exc:
                 self._json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
                 return

@@ -97,6 +97,34 @@ class StoreTests(unittest.TestCase):
             self.assertTrue(store.archive("card-1"))
             self.assertEqual(store.recent(), [])
 
+    def test_established_card_is_reused_by_mode_and_normalized_query(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            database = Path(temp) / "knowledge.sqlite3"
+            store = CardStore(database)
+            payload = {
+                "card_id": "inspection-card",
+                "mode": "knowledge",
+                "query": "inspection",
+                "title": "inspection",
+            }
+            with closing(sqlite3.connect(database)) as connection:
+                connection.execute(
+                    """INSERT INTO cards(
+                        card_id, mode, query, title, created_at, payload,
+                        status, revision_of, updated_at, quality_score, review_note,
+                        validation_state, validation_errors
+                    ) VALUES ('inspection-card', 'knowledge', 'inspection',
+                              'inspection', 'now', ?, 'active', '', 'now',
+                              0.95, 'reviewed', 'accepted', '[]')""",
+                    (json.dumps(payload),),
+                )
+                connection.commit()
+            self.assertEqual(
+                store.find_active("knowledge", "  INSPECTION  ")["card_id"],
+                "inspection-card",
+            )
+            self.assertIsNone(store.find_active("word", "inspection"))
+
     def test_revision_preserves_source_and_supersedes_old_card(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             database = Path(temp) / "knowledge.sqlite3"
