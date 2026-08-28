@@ -55,10 +55,10 @@ Return exactly one JSON object, with no markdown and no commentary.
 
 Required JSON shape:
 {
-  "title": "short title",
-  "subtitle": "one-line orientation",
-  "summary_en": "clear English definition or answer",
-  "origin_story": "book-grounded etymology or explanation",
+  "title": "short title, no more than 8 words",
+  "subtitle": "one short line of orientation",
+  "summary_en": "clear English definition or answer in 1 to 2 sentences",
+  "origin_story": "concise book-grounded etymology, explanation, or reflection",
   "key_points": ["2 to 4 concise points"],
   "english": {"term": "", "pronunciation": "", "meaning": ""},
   "japanese": {"term": "", "reading": "hiragana/katakana reading", "meaning": "Japanese explanation"},
@@ -68,7 +68,8 @@ Required JSON shape:
 }
 Use Unicode characters directly. For Japanese and Chinese terms, prefer the
 established modern lexical equivalent over a phonetic transliteration whenever
-one exists. Keep the total response under 900 words."""
+one exists. Prefer card-sized phrases over paragraphs. Keep the total response
+under 500 words."""
 
 
 def _extract_json(text: str) -> dict[str, Any]:
@@ -205,7 +206,7 @@ class LlamaCppClient:
             "top_p": 0.8,
             "top_k": 20,
             "presence_penalty": 1.5,
-            "max_tokens": 1400,
+            "max_tokens": 900,
             "stream": False,
         }
         body, _elapsed = self._request(payload)
