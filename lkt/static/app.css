@@ -910,7 +910,8 @@ body.display-mode .card-view { border-radius: 0; }
   -webkit-line-clamp: 7;
 }
 .mode-answer .evidence .section,
-.mode-question .evidence .section { display: none; }
+.mode-question .evidence .section,
+.mode-word .evidence .section { display: none; }
 
 @media (max-height: 850px) {
   .mode-word .card-main,
