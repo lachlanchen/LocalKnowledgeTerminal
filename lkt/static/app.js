@@ -180,11 +180,17 @@ function splitText(text, maxCharacters) {
     const floor = Math.floor(maxCharacters * 0.58);
     const windowText = remaining.slice(0, maxCharacters + 1);
     let boundary = -1;
-    for (const marker of [". ", "? ", "! ", "; ", ", ", " "]) {
-      boundary = Math.max(boundary, windowText.lastIndexOf(marker));
+    for (const marker of [". ", "? ", "! ", "; ", ", "]) {
+      const candidate = windowText.lastIndexOf(marker);
+      if (candidate >= floor) {
+        boundary = candidate + 1;
+        break;
+      }
     }
-    if (boundary < floor) boundary = maxCharacters;
-    else boundary += 1;
+    if (boundary < floor) {
+      const wordBoundary = windowText.lastIndexOf(" ");
+      boundary = wordBoundary >= floor ? wordBoundary : maxCharacters;
+    }
     remainingParts.push(remaining.slice(0, boundary).trim());
     remaining = remaining.slice(boundary).trim();
   }
@@ -200,13 +206,22 @@ function splitRubyTokens(tokens, maxCharacters) {
   tokens.forEach((token) => {
     const tokenLength = String(token.t || "").length;
     if (chunk.length && length + tokenLength > maxCharacters) {
-      chunks.push(chunk);
-      chunk = [];
-      length = 0;
+      const nextText = String(token.t || "");
+      const carry = [];
+      if (/^[万億年月日人個本枚台歳％%]/.test(nextText)) {
+        while (chunk.length && /^\d+$/.test(String(chunk.at(-1)?.t || ""))) {
+          const numericToken = chunk.pop();
+          carry.unshift(numericToken);
+          length -= String(numericToken.t || "").length;
+        }
+      }
+      if (chunk.length) chunks.push(chunk);
+      chunk = carry;
+      length = carry.reduce((total, item) => total + String(item.t || "").length, 0);
     }
     chunk.push(token);
     length += tokenLength;
-    if (/[。！？?!]$/.test(String(token.t || "")) && length >= maxCharacters * 0.55) {
+    if (/[。！？?!、，；;]$/.test(String(token.t || "")) && length >= maxCharacters * 0.55) {
       chunks.push(chunk);
       chunk = [];
       length = 0;
