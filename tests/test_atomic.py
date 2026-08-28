@@ -8,6 +8,7 @@ from typing import Any
 
 from lkt.atomic import (
     PreparationWorker,
+    _artifact_quality,
     _book_anchored_shape,
     _book_origin_steps,
     _clean_usage_note,
@@ -185,6 +186,18 @@ class FakePronouncer:
 
 
 class AtomicWorkerTests(unittest.TestCase):
+    def test_artifact_quality_uses_payload_confidence_only_when_metadata_is_missing(
+        self,
+    ) -> None:
+        self.assertEqual(
+            _artifact_quality({"quality_score": None, "payload": {"confidence": 0.95}}),
+            0.95,
+        )
+        self.assertEqual(
+            _artifact_quality({"quality_score": 0.0, "payload": {"confidence": 0.95}}),
+            0.0,
+        )
+
     def test_exact_book_root_anchors_the_surface_split(self) -> None:
         records = [
             {

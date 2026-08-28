@@ -66,6 +66,19 @@ _ORIGIN_LANGUAGE_CODES = {
 }
 
 
+def _artifact_quality(artifact: dict[str, Any]) -> float:
+    """Prefer reviewed metadata, falling back to the accepted payload confidence."""
+
+    value = artifact.get("quality_score")
+    if value is None:
+        payload = artifact.get("payload")
+        value = payload.get("confidence") if isinstance(payload, dict) else None
+    try:
+        return max(0.0, min(1.0, float(value)))
+    except (TypeError, ValueError):
+        return 0.0
+
+
 class AtomicModel(Protocol):
     model_name: str
 
@@ -1355,10 +1368,10 @@ graph over a decorative graph."""
             ]
 
         quality_values = [
-            float(meaning["quality_score"] or 0),
-            float(grammar[-1]["quality_score"] or 0),
-            *(float(item["quality_score"] or 0) for item in translations.values()),
-            *(float(item["quality_score"] or 0) for item in pronunciations.values()),
+            _artifact_quality(meaning),
+            _artifact_quality(grammar[-1]),
+            *(_artifact_quality(item) for item in translations.values()),
+            *(_artifact_quality(item) for item in pronunciations.values()),
         ]
         quality = min(quality_values)
         definition = str(meaning["payload"]["definition"])
@@ -1673,7 +1686,7 @@ graph over a decorative graph."""
         french = translations["fr"]
         arabic = translations["ar"]
         quality = min(
-            float(item["quality_score"] or 0)
+            _artifact_quality(item)
             for item in (meaning, split, origin)
         )
         card = Card(
