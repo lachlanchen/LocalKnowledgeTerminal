@@ -89,6 +89,26 @@ language/pronunciation independently, validate, then compose. Successful stages
 are checkpointed immediately; one weak language or branch can be retried without
 discarding the rest.
 
+The installed low-priority worker also grows the reviewed Book Answer and Book
+Question decks autonomously. When the atomic queue is idle, it chooses exactly
+one source entry that has never produced an accepted card, balances progress
+between the two books, asks the Pi's local Qwen to prepare the small title and
+reflection, publishes only through the normal validation gate, and then queues
+one bounded vocabulary investigation. Stable source entry IDs prevent repeats
+across restarts. It stops after all 318 Answers and 291 Questions are accepted.
+
+This ownership boundary is deliberate: reviewed book sentences, translations,
+and citations come from the local corpus records and are never rewritten by the
+model; new explanatory or lexical data is produced by the configured local
+model, not hand-entered into SQLite. A bad draft stays outside the visible deck.
+Autonomous generation pauses during current Raspberry Pi undervoltage,
+throttling, or high temperature and resumes after the condition clears. The web
+client loads the complete selected mode (up to 1,000 accepted cards), keeps the
+newest first, and shuffles every other card once per carousel pass.
+Word Card, Word Origin, Root, and Affix remain inquiry-driven rather than
+precomputing thousands of slow model views; once a word or linked term is
+selected, their persisted local pipeline runs without human data entry.
+
 ```text
  Word Origin ──► best Word Origins entry ─────┐
    Word Card ──► multi-entry Word Origins ────┤
@@ -123,6 +143,8 @@ the configured book has no evidence, the app does not generate a card.
 | `lkt/corpus.py` | Word Origins ingestion, atomic SQLite index, exact + FTS retrieval |
 | `lkt/morphology.py` | Root/Affix polished-JSONL ingestion, provenance, exact + FTS retrieval |
 | `lkt/card_books.py` | Multilingual Answer/Question ingestion, search, and deterministic draws |
+| `lkt/deck.py` | One-at-a-time autonomous reviewed-book deck preparation |
+| `lkt/device.py` | Pi power/thermal readiness gate for background inference |
 | `lkt/retrieval.py` | Independent Word Origin, Word Card, Answer, and Question RAG policies |
 | `lkt/llm.py` | Small llama.cpp adapter and one strict prompt per experience |
 | `lkt/service.py` | Card composition and normalization |
@@ -172,6 +194,7 @@ python -m lkt.cli sync-card-knowledge
 python -m lkt.cli plan-word inspection --display-languages en ja zh fr ar
 python -m lkt.cli plan-translation inspection ar --prompt-version atomic-v2
 python -m lkt.cli work-atomic --limit 1
+python -m lkt.cli seed-deck --modes answer question
 ```
 
 With a llama.cpp server listening on port 8081:

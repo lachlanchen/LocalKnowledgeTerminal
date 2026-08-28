@@ -140,6 +140,16 @@ can request deliberate regeneration with the API's `refresh: true` flag.
   useful enhancement, not a requirement that makes offline browsing fragile.
 - Autoplay should be calm and predictable, with clear manual previous/next
   controls.
+- The low-priority local worker should gradually prepare every reviewed Answer
+  and Question record without human data entry. It must select unseen stable
+  source IDs, balance book coverage, prepare only one item while idle, and stop
+  cleanly when both books are complete.
+- The selected tab must load its complete accepted deck rather than a small
+  global recent-history window. Keep the newest card first, shuffle the rest
+  once per pass, and never mix modes.
+- Protect interactive use and data quality: pause autonomous inference during
+  current Pi undervoltage, throttling, or excessive temperature and resume
+  automatically after recovery.
 - Generated, formatted cards are saved to a local SQLite knowledge ledger. A
   repeated request may run the model again and save another version.
 - Save retrieved evidence, cleaned model draft, normalized card/graph, and final

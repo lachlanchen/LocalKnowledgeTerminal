@@ -397,3 +397,20 @@ source was live dictation and may contain recognition errors:
 - Keep these paths as separate retrieval and presentation modes. Do not combine
   an answer draw, a general answer, a word card, and a morphology graph into one
   crowded response.
+
+## Autonomous ownership and complete random loops
+
+- Do not hand-enter generated knowledge or card text into the runtime database.
+  Reviewed book/dictionary records remain the evidence, while new analysis,
+  titles, reflections, vocabulary selection, translations, pronunciations, and
+  composed card atoms are produced by the Pi's configured local model and
+  deterministic local adapters.
+- The terminal should work alone: gradually select unseen book records, prepare
+  one bounded item at a time, validate it, save it, and continue across restarts.
+  A failed or dirty result must stay out of the visible collection.
+- Random playback must traverse all accepted items in the selected tab, not
+  only a small recent subset. Keep each mode independent and avoid a repeat
+  until the current shuffled pass is complete.
+- Preserve the practical distinction between source and generation. Exact
+  reviewed book text and citations are corpus-owned rather than model-generated;
+  this is a correctness feature, not manual card editing.

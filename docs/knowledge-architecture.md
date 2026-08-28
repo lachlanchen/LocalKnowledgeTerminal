@@ -13,6 +13,29 @@ The graph database is never an independent source of truth. Every projected
 node and edge carries its SQLite ID. A projection has a deterministic source
 fingerprint and can be replaced or rebuilt without model inference.
 
+## Autonomous reviewed-book deck
+
+The installed atomic worker owns one additional idle-time action. When no
+claimable preparation job exists, it compares accepted-source coverage for the
+Answer and Question books and selects one unseen record from the less-complete
+mode. A seeded circular scan makes every record reachable; the stable book
+entry ID in each accepted card prevents repetition across service restarts.
+
+Retrieval chooses and owns that exact record. Local Qwen produces only the
+bounded card title/reflection, after which normal composition restores the
+reviewed English, Japanese, and Chinese text from evidence. Publication runs
+through the same clean-Unicode, provenance, and card-schema gate as an
+interactive request. Accepted text is acquired into normalized knowledge and
+one exact-source vocabulary investigation is queued. Failed drafts remain
+non-visible and the source stays eligible for a later retry.
+
+Only one record is attempted per idle interval. Current Pi undervoltage,
+throttling, or a temperature of 78 C or more returns a `paused` result instead
+of calling the model; preparation resumes automatically after recovery.
+Historical throttle flags do not block healthy work. Word Card and graph modes
+remain demand-driven because their source collections contain thousands of
+records, but every requested pipeline stage is likewise local and resumable.
+
 ## Publication boundary
 
 Persistence and publication are separate operations. A composed card is saved
