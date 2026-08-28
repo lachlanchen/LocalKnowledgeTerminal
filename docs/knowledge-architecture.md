@@ -147,8 +147,9 @@ Prefix/suffix hyphen direction and plain-phrase punctuation are deterministic
 display normalizations and are recorded on the accepted atom.
 
 `expand-origin-branches` starts only after a split is accepted. It retrieves
-Word Origins evidence independently for each fixed component, asks for no more
-than two backwards steps per branch, checkpoints the raw graph draft, and then
+Word Origins evidence independently for each fixed component, prepares one
+cited root branch per model call with at most three backwards steps, checkpoints
+the raw graph draft, and then
 stores each accepted historical form as its own entity. Historical edges point
 from older form to newer form or component. Only evidence attached to that
 exact component can make a historical node `book`; uncited model knowledge is

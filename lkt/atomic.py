@@ -194,7 +194,11 @@ def _morpheme_display_form(surface: str, kind: str) -> str:
 def _clean_morpheme_meaning(value: Any) -> str:
     """Keep a model meaning as one short, punctuation-free English phrase."""
 
-    text = re.sub(r"\s*[,;/]\s*", " or ", str(value).strip())
+    if isinstance(value, (list, tuple)):
+        text = " or ".join(str(item).strip() for item in value if str(item).strip())
+    else:
+        text = str(value).strip()
+    text = re.sub(r"\s*[,;/]\s*", " or ", text)
     return re.sub(r"\s+", " ", text).strip(" .:-")
 
 
@@ -799,14 +803,23 @@ model knowledge. Never merge, shorten, rename, or reclassify a required part."""
                 }
             )
 
-        prompt = f"""ORIGIN BRANCHES
+        focus = next(
+            (
+                item
+                for item in context
+                if item["kind"] == "root" and item["evidence"]
+            ),
+            None,
+        )
+        if focus is None:
+            raise ValueError("no cited root is available for origin expansion")
+        prompt = f"""ONE ORIGIN BRANCH
 MODERN WORD: {source['text']}
-FIXED COMPONENTS AND EVIDENCE: {json.dumps(context, ensure_ascii=False)}
+FIXED COMPONENT AND EVIDENCE: {json.dumps(focus, ensure_ascii=False)}
 
-Return exactly one JSON object with key `branches`. Include one branch for each
-supplied component_id. A branch has component_id and `steps`, an array ordered
-oldest to newest. Use zero to two historically useful steps per component and no
-more than five steps total. Each step has:
+Return exactly one JSON object with `component_id` copied exactly and `steps`, an
+array ordered oldest to newest. Use one to three historically useful steps. Each
+step has:
 form: concise attested or reconstructed historical form
 language: ISO-style code such as la, fro, fr, grc, ine-pro, or en
 period: concise era or language-stage label
@@ -814,15 +827,15 @@ meaning: at most 10 English words
 confidence: number from 0 to 1
 evidence_ids: only evidence IDs under that exact component
 
-The final step develops into its fixed component. Do not repeat the modern word,
-invent dates, chain sibling components, or flatten all branches into one line.
+The final step develops into the fixed component. Do not repeat the modern word,
+invent dates, or add a sibling component.
 Book evidence is authoritative. Model knowledge must use an empty evidence_ids
 array. Stop a branch when another step is uncertain. Prefer a small accurate
 graph over a decorative graph."""
         completion = self.model.complete_json(
-            "You expand one bounded, backwards etymology layer from fixed components.",
+            "You expand exactly one bounded, backwards etymology branch.",
             prompt,
-            max_tokens=384,
+            max_tokens=288,
         )
         value = completion.get("value")
         self.store.save_job_artifact(
@@ -837,15 +850,11 @@ graph over a decorative graph."""
             language=source["language"],
             validation_state="candidate",
         )
-        raw_branches = value.get("branches") if isinstance(value, dict) else None
-        if not isinstance(raw_branches, list):
-            raise ValueError("origin task returned no branches")
-        raw_by_component = {
-            str(branch.get("component_id", "")): branch
-            for branch in raw_branches
-            if isinstance(branch, dict)
-            and str(branch.get("component_id", "")) in allowed_by_component
-        }
+        if not isinstance(value, dict) or str(value.get("component_id", "")) != str(
+            focus["component_id"]
+        ):
+            raise ValueError("origin task changed the fixed component")
+        raw_by_component = {str(focus["component_id"]): value}
 
         cleaned_branches: list[dict[str, Any]] = []
         total_steps = 0
@@ -854,7 +863,7 @@ graph over a decorative graph."""
             component_id = str(part["morpheme_id"])
             branch = raw_by_component.get(component_id, {})
             raw_steps = branch.get("steps", []) if isinstance(branch, dict) else []
-            if not isinstance(raw_steps, list) or len(raw_steps) > 2:
+            if not isinstance(raw_steps, list) or len(raw_steps) > 3:
                 raise ValueError("an origin branch has too many steps")
             steps: list[dict[str, Any]] = []
             seen_forms: set[tuple[str, str, str]] = set()

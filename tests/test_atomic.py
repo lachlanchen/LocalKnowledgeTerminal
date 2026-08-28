@@ -79,37 +79,31 @@ class FakeAtomicModel:
     ) -> dict[str, Any]:
         match = re.search(r'"(evidence-[^"]+)"', prompt)
         assert match is not None
-        if "ORIGIN BRANCHES" in prompt:
+        if "ONE ORIGIN BRANCH" in prompt:
             component_ids = re.findall(r'"component_id": "([^"]+)"', prompt)
             evidence_ids = re.findall(r'"evidence_id": "(evidence-[^"]+)"', prompt)
-            assert len(component_ids) == 3
+            assert len(component_ids) == 1
             return {
                 "value": {
-                    "branches": [
-                        {"component_id": component_ids[0], "steps": []},
+                    "component_id": component_ids[0],
+                    "steps": [
                         {
-                            "component_id": component_ids[1],
-                            "steps": [
-                                {
-                                    "form": "*spek-",
-                                    "language": "ine-pro",
-                                    "period": "Proto-Indo-European",
-                                    "meaning": "look",
-                                    "confidence": 0.9,
-                                    "evidence_ids": [evidence_ids[-1]],
-                                },
-                                {
-                                    "form": "specere",
-                                    "language": "la",
-                                    "period": "Latin",
-                                    "meaning": "look at",
-                                    "confidence": 0.9,
-                                    "evidence_ids": [evidence_ids[-1]],
-                                },
-                            ],
+                            "form": "*spek-",
+                            "language": "ine-pro",
+                            "period": "Proto-Indo-European",
+                            "meaning": ["look"],
+                            "confidence": 0.9,
+                            "evidence_ids": [evidence_ids[-1]],
                         },
-                        {"component_id": component_ids[2], "steps": []},
-                    ]
+                        {
+                            "form": "specere",
+                            "language": "la",
+                            "period": "Latin",
+                            "meaning": "look at",
+                            "confidence": 0.9,
+                            "evidence_ids": [evidence_ids[-1]],
+                        },
+                    ],
                 },
                 "model": self.model_name,
                 "metrics": {"completion_tokens": 120},

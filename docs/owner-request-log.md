@@ -386,3 +386,14 @@ source was live dictation and may contain recognition errors:
 - Continue refining quietly from this foundation: keep the interface attractive
   and easy inside, without adding visible controls or detail merely because the
   underlying system can produce them.
+
+## Default draw and intentional inquiry routing
+
+- Treat the ambient/default terminal experience mainly as a random draw from
+  the Book of Answers; it should feel immediate and require no prompt.
+- User input is an intentional inquiry path. A general question may use the
+  local question/chat workflow, while a word lookup can open Word Card and then
+  branch into Word Origin, Root, or Affix views.
+- Keep these paths as separate retrieval and presentation modes. Do not combine
+  an answer draw, a general answer, a word card, and a morphology graph into one
+  crowded response.
