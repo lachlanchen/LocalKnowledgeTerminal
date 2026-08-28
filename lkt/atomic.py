@@ -21,6 +21,7 @@ from .store import CardStore
 SUPPORTED_ATOMIC_JOBS = (
     "retrieve-evidence",
     "prepare-meaning",
+    "split-morphemes",
     "prepare-translation",
     "prepare-pronunciation",
     "prepare-grammar-properties",
@@ -59,6 +60,8 @@ class AtomicModel(Protocol):
 
 class AtomicRetriever(Protocol):
     def retrieve(self, term: str) -> list[dict[str, Any]]: ...
+
+    def component_evidence(self, form: str, kind: str) -> list[dict[str, Any]]: ...
 
 
 class AtomicPronouncer(Protocol):
@@ -185,6 +188,17 @@ class WordEvidenceRetriever:
             result.append(record)
         return result
 
+    def component_evidence(self, form: str, kind: str) -> list[dict[str, Any]]:
+        index = self.roots if kind == "root" else self.affixes
+        records = index.exact(form.strip("-"), 4)
+        result: list[dict[str, Any]] = []
+        for item in records:
+            excerpt = item.excerpt.casefold()
+            if not any(marker in excerpt for marker in ("=", "意为", "means", "来自")):
+                continue
+            result.append(_book_record(item, self._hash(index)))
+        return result[:2]
+
 
 @dataclass(frozen=True)
 class AtomicRunResult:
@@ -223,6 +237,8 @@ class PreparationWorker:
                 artifact_id = self._retrieve(job)
             elif job["job_type"] == "prepare-meaning":
                 artifact_id = self._prepare_meaning(job)
+            elif job["job_type"] == "split-morphemes":
+                artifact_id = self._split_morphemes(job)
             elif job["job_type"] == "prepare-translation":
                 artifact_id = self._prepare_translation(job)
             elif job["job_type"] == "prepare-pronunciation":
@@ -385,6 +401,176 @@ translations, examples, markdown, or claims absent from the evidence."""
             language="en",
             validation_state="accepted",
             quality_score=confidence,
+        )
+
+    def _split_morphemes(self, job: dict[str, Any]) -> str:
+        source = self.store.term_record(str(job["subject_entity_id"]))
+        evidence_artifacts = self.store.artifacts_for_subject(
+            job["subject_key"],
+            stage="retrieved-evidence",
+            validation_state="candidate",
+        )
+        if not evidence_artifacts:
+            raise ValueError("current retrieval checkpoint is missing")
+        records = evidence_artifacts[-1]["payload"].get("records", [])
+        allowed_evidence = {
+            str(record.get("knowledge_evidence_id", "")) for record in records
+        }
+        context = [
+            {
+                "evidence_id": record.get("knowledge_evidence_id", ""),
+                "source": record.get("source_title", record.get("corpus_id", "")),
+                "headword": record.get("headword", ""),
+                "kind": record.get("kind", ""),
+                "excerpt": str(record.get("excerpt", ""))[:700],
+            }
+            for record in records
+        ]
+        prompt = f"""MORPHEME SPLIT
+TERM: {source['text']}
+CURRENT EVIDENCE: {json.dumps(context, ensure_ascii=False)}
+
+Return exactly one JSON object with key `parts`, an ordered array. Each part has:
+surface: exact consecutive letters from TERM
+canonical_form: standard display form, using a trailing hyphen for a prefix and
+  a leading hyphen for a suffix
+kind: prefix, root, suffix, or free
+language: en or la
+meaning: at most 10 English words
+confidence: number from 0 to 1
+evidence_ids: only supplied evidence IDs that explicitly support this part
+
+The concatenated surfaces must reproduce TERM exactly. Include every letter once,
+include at least one root, and do not invent an extra part merely to add detail.
+For inspection, distinguish productive word structure from deep history; history
+belongs to a later task. Use an empty evidence_ids array for model knowledge."""
+        completion = self.model.complete_json(
+            "You perform one conservative, reusable morphology split at a time.",
+            prompt,
+            max_tokens=320,
+        )
+        value = completion.get("value")
+        raw_parts = value.get("parts") if isinstance(value, dict) else None
+        if not isinstance(raw_parts, list) or not 2 <= len(raw_parts) <= 5:
+            raise ValueError("morpheme task returned an invalid number of parts")
+        cleaned: list[dict[str, Any]] = []
+        for item in raw_parts:
+            if not isinstance(item, dict):
+                raise ValueError("morpheme part is not an object")
+            surface = re.sub(r"[^A-Za-z]", "", str(item.get("surface", "")))
+            kind = str(item.get("kind", "")).strip().lower()
+            canonical = str(item.get("canonical_form", "")).strip()
+            language = str(item.get("language", "en")).strip().lower()
+            meaning = re.sub(r"\s+", " ", str(item.get("meaning", ""))).strip()
+            confidence = max(0.0, min(float(item.get("confidence", 0.0)), 1.0))
+            if not surface or kind not in {"prefix", "root", "suffix", "free"}:
+                raise ValueError("morpheme surface or kind is invalid")
+            if language not in {"en", "la"}:
+                raise ValueError("morpheme language is not en or la")
+            if not canonical or not meaning or len(meaning.split()) > 10:
+                raise ValueError("morpheme canonical form or meaning is invalid")
+            selected = [
+                str(evidence_id)
+                for evidence_id in item.get("evidence_ids", [])
+                if str(evidence_id) in allowed_evidence
+            ] if isinstance(item.get("evidence_ids"), list) else []
+            if confidence < 0.65:
+                raise ValueError("morpheme confidence is below threshold")
+            cleaned.append(
+                {
+                    "surface": surface,
+                    "canonical_form": canonical,
+                    "kind": kind,
+                    "language": language,
+                    "meaning": meaning,
+                    "confidence": confidence,
+                    "evidence_ids": list(dict.fromkeys(selected)),
+                }
+            )
+        if "".join(part["surface"] for part in cleaned).casefold() != str(
+            source["text"]
+        ).casefold():
+            raise ValueError("morpheme surfaces do not reproduce the source term")
+        if not any(part["kind"] == "root" for part in cleaned):
+            raise ValueError("morpheme split has no root")
+
+        for part in cleaned:
+            direct = self.retriever.component_evidence(
+                part["canonical_form"], part["kind"]
+            )
+            for record in direct:
+                evidence_id = self.store.add_evidence(
+                    str(record.get("corpus_id", "")),
+                    str(record.get("entry_id", "")),
+                    source_hash=str(record.get("source_hash", "")),
+                    locator=str(record.get("locator", "")),
+                    excerpt=str(record.get("excerpt", "")),
+                    payload=record,
+                )
+                if evidence_id not in part["evidence_ids"]:
+                    part["evidence_ids"].append(evidence_id)
+
+        accepted_parts: list[dict[str, Any]] = []
+        for ordinal, part in enumerate(cleaned):
+            basis = "book" if part["evidence_ids"] else "model"
+            confidence = min(
+                part["confidence"], 0.95 if basis == "book" else 0.8
+            )
+            morpheme_id = self.store.upsert_morpheme(
+                part["language"],
+                part["canonical_form"],
+                part["kind"],
+                part["meaning"],
+                status="accepted",
+                quality_score=confidence,
+            )
+            self.store.link_morpheme(
+                source["entity_id"],
+                morpheme_id,
+                ordinal,
+                part["surface"],
+                basis=basis,
+                confidence=confidence,
+            )
+            for evidence_id in part["evidence_ids"]:
+                self.store.link_evidence(
+                    morpheme_id,
+                    evidence_id,
+                    claim=f"{part['canonical_form']}: {part['meaning']}",
+                    confidence=confidence,
+                )
+            accepted_parts.append(
+                {
+                    **part,
+                    "morpheme_id": morpheme_id,
+                    "ordinal": ordinal,
+                    "basis": basis,
+                    "confidence": confidence,
+                }
+            )
+        accepted = {
+            "term_id": source["entity_id"],
+            "term": source["text"],
+            "parts": accepted_parts,
+            "model": completion.get("model", self.model.model_name),
+            "metrics": completion.get("metrics", {}),
+        }
+        self.store.record_revision(
+            source["entity_id"],
+            accepted,
+            model=str(accepted["model"]),
+            prompt_version=str(job.get("prompt_version", "")),
+            reason="atomic morpheme split",
+            accepted=True,
+        )
+        quality = min(part["confidence"] for part in accepted_parts)
+        return self.store.save_job_artifact(
+            job["job_id"],
+            "accepted-morpheme-split",
+            accepted,
+            language=source["language"],
+            validation_state="accepted",
+            quality_score=quality,
         )
 
     def _prepare_pronunciation(self, job: dict[str, Any]) -> str:

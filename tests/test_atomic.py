@@ -35,6 +35,22 @@ class FakeRetriever:
             }
         ]
 
+    def component_evidence(self, form: str, kind: str) -> list[dict[str, Any]]:
+        if form.strip("-").casefold() != "spect" or kind != "root":
+            return []
+        return [
+            {
+                "entry_id": "root-spect-1",
+                "corpus_id": "test-roots:1.0",
+                "source_title": "Test Root Dictionary",
+                "headword": "SPECT",
+                "excerpt": "SPECT comes from Latin and means to look or see.",
+                "source_hash": "roots123",
+                "locator": "root SPECT",
+                "kind": "morphology-root",
+            }
+        ]
+
 
 class FakeAtomicModel:
     model_name = "test-qwen-8b"
@@ -44,6 +60,42 @@ class FakeAtomicModel:
     ) -> dict[str, Any]:
         match = re.search(r'"(evidence-[^"]+)"', prompt)
         assert match is not None
+        if "MORPHEME SPLIT" in prompt:
+            return {
+                "value": {
+                    "parts": [
+                        {
+                            "surface": "in",
+                            "canonical_form": "in-",
+                            "kind": "prefix",
+                            "language": "la",
+                            "meaning": "in or into",
+                            "confidence": 0.9,
+                            "evidence_ids": [match.group(1)],
+                        },
+                        {
+                            "surface": "spect",
+                            "canonical_form": "spect",
+                            "kind": "root",
+                            "language": "la",
+                            "meaning": "look or see",
+                            "confidence": 0.9,
+                            "evidence_ids": [],
+                        },
+                        {
+                            "surface": "ion",
+                            "canonical_form": "-ion",
+                            "kind": "suffix",
+                            "language": "en",
+                            "meaning": "action or result",
+                            "confidence": 0.8,
+                            "evidence_ids": [],
+                        },
+                    ]
+                },
+                "model": self.model_name,
+                "metrics": {"completion_tokens": 90},
+            }
         if "TARGET LANGUAGE: Japanese" in prompt:
             return {
                 "value": {
@@ -135,7 +187,7 @@ class AtomicWorkerTests(unittest.TestCase):
                 "inspection", display_languages=("en", "ja")
             )
             worker = PreparationWorker(store, FakeRetriever(), FakeAtomicModel())
-            results = worker.run(3)
+            results = worker.run(4)
             self.assertEqual(results[-1].job_type, "prepare-translation")
             artifacts = store.artifacts_for_subject(
                 plan.subject_key, stage="accepted-translation"
@@ -172,7 +224,7 @@ class AtomicWorkerTests(unittest.TestCase):
             plan = PreparationPlanner(store, model="test-qwen-4b").plan_word(
                 "inspection", display_languages=("en", "fr")
             )
-            PreparationWorker(store, FakeRetriever(), FrenchModel()).run(3)
+            PreparationWorker(store, FakeRetriever(), FrenchModel()).run(4)
             artifact = store.artifacts_for_subject(
                 plan.subject_key,
                 stage="accepted-translation",
@@ -207,7 +259,7 @@ class AtomicWorkerTests(unittest.TestCase):
             plan = PreparationPlanner(store, model="test-qwen-4b").plan_word(
                 "inspection", display_languages=("en", "ar")
             )
-            results = PreparationWorker(store, FakeRetriever(), RepetitiveArabicModel()).run(3)
+            results = PreparationWorker(store, FakeRetriever(), RepetitiveArabicModel()).run(4)
             self.assertEqual(results[-1].status, "complete")
             artifact = store.artifacts_for_subject(
                 plan.subject_key,
@@ -248,7 +300,7 @@ class AtomicWorkerTests(unittest.TestCase):
                 store, FakeRetriever(), FakeAtomicModel(), FakePronouncer()
             )
             results = worker.run(10)
-            self.assertEqual(len(results), 4)
+            self.assertEqual(len(results), 5)
             self.assertEqual(results[-1].job_type, "prepare-grammar-properties")
             grammar = store.artifacts_for_subject(
                 plan.subject_key,
@@ -256,12 +308,19 @@ class AtomicWorkerTests(unittest.TestCase):
                 validation_state="accepted",
             )[0]
             self.assertEqual(grammar["payload"]["part_of_speech"], "noun")
+            split = store.artifacts_for_subject(
+                plan.subject_key,
+                stage="accepted-morpheme-split",
+                validation_state="accepted",
+            )[0]["payload"]["parts"]
+            self.assertEqual([part["surface"] for part in split], ["in", "spect", "ion"])
+            self.assertEqual([part["basis"] for part in split], ["book", "book", "model"])
             queued_types = {
                 job["job_type"]
                 for job in store.jobs_for_subject(plan.subject_key)
                 if job["status"] == "queued"
             }
-            self.assertIn("split-morphemes", queued_types)
+            self.assertIn("expand-origin-branches", queued_types)
             self.assertIn("compose-word-card", queued_types)
 
     def test_pronunciation_reuses_accepted_atoms_without_an_llm_call(self) -> None:
@@ -274,6 +333,7 @@ class AtomicWorkerTests(unittest.TestCase):
                 store, FakeRetriever(), FakeAtomicModel(), FakePronouncer()
             )
             worker.run(2)
+            store.finish_job(plan.jobs["split-morphemes"])
             meaning = store.artifacts_for_subject(
                 plan.subject_key,
                 stage="accepted-meaning",
@@ -418,6 +478,7 @@ class AtomicWorkerTests(unittest.TestCase):
                 quality_score=0.95,
             )
             store.finish_job(plan.jobs["grammar-properties"])
+            store.finish_job(plan.jobs["split-morphemes"])
 
             worker = PreparationWorker(
                 store, FakeRetriever(), FakeAtomicModel(), FakePronouncer(), cards

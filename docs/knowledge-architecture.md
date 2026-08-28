@@ -121,6 +121,14 @@ data or lexical filtering changes. The latest raw candidate supersedes—not
 deletes—the older candidate, so downstream work consumes one current evidence
 set while the provenance ledger still explains earlier decisions.
 
+`split-morphemes` asks the local model for one conservative surface-covering
+split, then enforces exact letter coverage, controlled kinds/languages, a root,
+short meanings, and confidence thresholds. Each proposed component is looked up
+again in the polished component book. Direct component evidence upgrades that
+part to `book`; unsupported but plausible structure is capped as `model`. The
+three parts of `inspection`, for example, are stored independently rather than
+flattened into a prose origin story.
+
 Answer and Question preparation follows the same rule: source text, each
 language, grammar parts, and investigation candidates are separate tasks. A
 meaningful selected word can start a child investigation while retaining the
