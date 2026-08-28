@@ -319,3 +319,20 @@ into the brief.
   provenance and debugging ledger until replacements are verified. Each tab
   must load only accepted cards of its own mode, and each inner slide must show
   the correct validated content rather than inherited dirty legacy payloads.
+
+## Offline experience sequence
+
+- Present the main product sequence as Question → Answer → Word Card → Word
+  Origin → Root → Affix. This is a learning relationship: a prompt opens the
+  experience, an answer follows, a selected word becomes a concise vocabulary
+  card, then the terminal can reveal its origin and finally its roots/affixes.
+- Question and Answer do not need strict synchronization. Independent or random
+  draws are acceptable; a loose thematic relationship is enough when available.
+- Keep the whole terminal simple and offline-first. Browsing prepared cards,
+  dictionary correction, private-book RAG, and local Qwen inference must work
+  without Internet access.
+- Use Whisper Tiny as the later offline speech-input baseline. Local speech
+  output is harder and is not required for the initial product.
+- Prefer Qwen 4B as the practical default when compact dictionary correction and
+  the retrieved source input give sufficient quality. Keep 8B as an optional
+  slower preparation model rather than a product requirement.

@@ -13,8 +13,8 @@
 Local Knowledge Terminal (LKT) turns a private book collection into cited,
 multilingual cards. Its first library combines structured editions of **Word
 Origins**, **The Book of Answers**, **The Book of Questions**, an **English Root
-Dictionary**, and an **English Affix Dictionary**. Qwen3-8B Q4_K_M runs locally
-on an 8 GB Raspberry Pi 5 with Qwen3-4B as a one-command fallback; retrieval,
+Dictionary**, and an **English Affix Dictionary**. Qwen3-4B Q4_K_M runs locally
+on an 8 GB Raspberry Pi 5 with Qwen3-8B as an optional slower profile; retrieval,
 inference, history,
 and the browser GUI operate without a cloud API.
 
@@ -198,10 +198,10 @@ The Pi service exposes one inference slot (`--parallel 1`). Card composition and
 Model Lab requests are therefore handled sequentially, keeping memory use and
 latency predictable instead of making four CPU cores compete across jobs.
 
-Qwen3-8B is proven usable and is the current quality-first default. On the
+Qwen3-8B is proven usable as an optional quality-first preparation model. On the
 deployed Pi it produced a 120-token multilingual probe at 1.78 tokens/s with
 about 6.28 GiB RSS, 1.85 GiB system memory still available, and no current
-thermal throttling. Qwen3-4B remains the responsive fallback. Model selection
+thermal throttling. Qwen3-4B is the responsive offline default. Model selection
 is explicit and reversible:
 
 ```bash

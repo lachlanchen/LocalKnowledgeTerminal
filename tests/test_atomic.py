@@ -6,8 +6,9 @@ import unittest
 from pathlib import Path
 from typing import Any
 
-from lkt.atomic import PreparationWorker
+from lkt.atomic import PreparationWorker, _lexically_related
 from lkt.knowledge import KnowledgeStore
+from lkt.models import Evidence
 from lkt.preparation import PreparationPlanner
 
 
@@ -49,6 +50,23 @@ class FakeAtomicModel:
 
 
 class AtomicWorkerTests(unittest.TestCase):
+    def test_morphology_context_rejects_incidental_fts_hits(self) -> None:
+        def item(headword: str, kind: str) -> Evidence:
+            return Evidence("id", headword, "", "", (), "excerpt", kind=kind)
+
+        self.assertTrue(
+            _lexically_related("inspection", item("inspect", "morphology-root"))
+        )
+        self.assertTrue(
+            _lexically_related("inspection", item("-ion", "morphology-affix"))
+        )
+        self.assertFalse(
+            _lexically_related("inspection", item("injurious", "morphology-root"))
+        )
+        self.assertFalse(
+            _lexically_related("inspection", item("autopsy", "morphology-affix"))
+        )
+
     def test_evidence_and_meaning_run_as_two_reusable_jobs(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")

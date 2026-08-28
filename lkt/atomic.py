@@ -51,6 +51,20 @@ def _book_record(item: Evidence, source_hash: str = "") -> dict[str, Any]:
     }
 
 
+def _lexically_related(term: str, item: Evidence) -> bool:
+    word = "".join(re.findall(r"[a-z]+", term.casefold()))
+    headword = "".join(re.findall(r"[a-z]+", item.headword.casefold()))
+    if not word or not headword:
+        return False
+    if word == headword:
+        return True
+    if item.kind == "morphology-affix" and len(headword) >= 2:
+        return word.startswith(headword) or word.endswith(headword)
+    return len(headword) >= 4 and (
+        word.startswith(headword) or headword.startswith(word)
+    )
+
+
 class WordEvidenceRetriever:
     """Small correction context from books plus sense-aligned OMW."""
 
@@ -74,6 +88,14 @@ class WordEvidenceRetriever:
             return ""
 
     def retrieve(self, term: str) -> list[dict[str, Any]]:
+        root_records = [
+            item for item in self.roots.search(term, 8) if _lexically_related(term, item)
+        ][:2]
+        affix_records = [
+            item
+            for item in self.affixes.search(term, 8)
+            if _lexically_related(term, item)
+        ][:2]
         records = [
             *(
                 _book_record(item, self._hash(self.corpus))
@@ -81,11 +103,11 @@ class WordEvidenceRetriever:
             ),
             *(
                 _book_record(item, self._hash(self.roots))
-                for item in self.roots.search(term, 2)
+                for item in root_records
             ),
             *(
                 _book_record(item, self._hash(self.affixes))
-                for item in self.affixes.search(term, 2)
+                for item in affix_records
             ),
         ]
         records.extend(self.lexicon.search(term, limit=3))
@@ -173,15 +195,15 @@ class PreparationWorker:
     @staticmethod
     def _meaning_context(records: list[dict[str, Any]]) -> str:
         compact = []
-        for record in records[:8]:
+        for record in records[:5]:
             compact.append(
                 {
                     "id": record.get("knowledge_evidence_id", ""),
                     "source": record.get("source_title", record.get("corpus_id", "")),
                     "headword": record.get("headword", ""),
                     "part_of_speech": record.get("part_of_speech", ""),
-                    "definition": str(record.get("definition", ""))[:360],
-                    "excerpt": str(record.get("excerpt", ""))[:600],
+                    "definition": str(record.get("definition", ""))[:280],
+                    "excerpt": str(record.get("excerpt", ""))[:320],
                 }
             )
         return json.dumps(compact, ensure_ascii=False)

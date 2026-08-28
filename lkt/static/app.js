@@ -2,7 +2,7 @@
 
 const $ = (selector) => document.querySelector(selector);
 const all = (selector) => [...document.querySelectorAll(selector)];
-let mode = "knowledge";
+let mode = "question";
 let activeCardId = null;
 let activeCard = null;
 let visibleView = "empty";
@@ -1134,7 +1134,7 @@ document.addEventListener("keydown", noteActivity);
 document.addEventListener("focusin", noteActivity);
 
 const initialParameters = new URLSearchParams(location.search);
-const initialMode = MODE_COPY[initialParameters.get("mode")] ? initialParameters.get("mode") : "knowledge";
+const initialMode = MODE_COPY[initialParameters.get("mode")] ? initialParameters.get("mode") : "question";
 setMode(initialMode);
 if (initialParameters.has("display")) document.body.classList.add("display-mode");
 loadHealth();

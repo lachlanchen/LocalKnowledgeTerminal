@@ -118,8 +118,10 @@ yet. They are future references only.
   or sentence segment.
 - Use an outer, mode-local carousel for saved cards: Origin cycles only through
   Origin, Word Card only through Word Card, and likewise for Answer/Question.
-- The six knowledge tabs are Word Card, Word Origin, Answer, Question, Root,
-  and Affix. Model Lab remains a separate uncited utility.
+- The six knowledge tabs follow the learning path Question, Answer, Word Card,
+  Word Origin, Root, and Affix. Model Lab remains a separate uncited utility.
+- Question and Answer may be independent seeded draws; thematic continuity is a
+  useful enhancement, not a requirement that makes offline browsing fragile.
 - Autoplay should be calm and predictable, with clear manual previous/next
   controls.
 - Generated, formatted cards are saved to a local SQLite knowledge ledger. A
@@ -133,8 +135,9 @@ yet. They are future references only.
 
 ## Local inference
 
-- Qwen3-8B Q4_K_M is proven usable on this Pi and is the current quality-first
-  default; Qwen3-4B remains the responsive one-command fallback.
+- Qwen3-4B Q4_K_M is the simple offline default when compact dictionary and book
+  RAG provide the needed correction. Qwen3-8B remains a proven, optional
+  quality-first preparation model.
 - Download the official Qwen3-8B Q4_K_M as an optional deep model, verify its
   SHA-256, and benchmark it safely.
 - Never run 4B and 8B together on an 8 GB Pi. Keep a one-command, automatic 4B
@@ -148,8 +151,9 @@ yet. They are future references only.
 
 ## Voice and hardware direction
 
-- Future voice path: microphone → VAD/noise handling → local speech recognition
-  → retrieval/card engine → Qwen → card/audio output.
+- Future voice path: microphone → VAD/noise handling → Whisper Tiny →
+  retrieval/card engine → Qwen → card output. Speech synthesis is optional and
+  deferred for the offline-first release.
 - Use Raspberry Pi Codec Zero for the first Pi 5 prototype: it is an official
   HAT with a built-in MEMS microphone, EEPROM configuration, and small-speaker
   output. Use a USB Audio Class microphone as the diagnostic fallback.
