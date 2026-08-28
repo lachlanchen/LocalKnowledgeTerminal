@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 import uuid
 from contextlib import closing
@@ -9,6 +10,100 @@ from pathlib import Path
 from typing import Any
 
 from .models import Card
+
+
+_VISIBLE_MODES = {"word", "knowledge", "answer", "question", "root", "affix"}
+_MOJIBAKE_MARKERS = ("\ufffd", "Ã", "Â", "â€", "åŒ", "æ˜", "çš")
+_HAN = re.compile(r"[\u3400-\u9fff]")
+
+
+def _text_values(value: Any) -> list[str]:
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, dict):
+        return [text for item in value.values() for text in _text_values(item)]
+    if isinstance(value, list):
+        return [text for item in value for text in _text_values(item)]
+    return []
+
+
+def _ruby_covers(term: str, tokens: Any) -> bool:
+    if not _HAN.search(term):
+        return True
+    if not isinstance(tokens, list) or not tokens:
+        return False
+    visible = "".join(
+        str(item.get("t", "")) for item in tokens if isinstance(item, dict)
+    )
+    if re.sub(r"\s+", "", visible) != re.sub(r"\s+", "", term):
+        return False
+    return all(
+        not _HAN.fullmatch(str(item.get("t", ""))) or bool(str(item.get("r", "")).strip())
+        for item in tokens
+        if isinstance(item, dict)
+    )
+
+
+def card_validation_errors(card: dict[str, Any]) -> list[str]:
+    """Return publication blockers for a visible product card.
+
+    This gate intentionally checks provenance and presentation integrity. Factual
+    claims still move through the atomic knowledge/revision workflow before a
+    composed card reaches this function.
+    """
+
+    errors: list[str] = []
+    mode = str(card.get("mode", "")).strip()
+    if mode not in _VISIBLE_MODES:
+        errors.append("unknown card mode")
+    for field in ("card_id", "query", "title"):
+        if not str(card.get(field, "")).strip():
+            errors.append(f"missing {field}")
+    if card.get("grounded") is not True:
+        errors.append("card is not grounded")
+    evidence = card.get("evidence")
+    if not isinstance(evidence, list) or not evidence:
+        errors.append("missing RAG evidence")
+    else:
+        for index, item in enumerate(evidence):
+            if not isinstance(item, dict) or not str(item.get("entry_id", "")).strip():
+                errors.append(f"evidence {index + 1} has no stable entry id")
+            if not isinstance(item, dict) or not str(item.get("corpus_id", "")).strip():
+                errors.append(f"evidence {index + 1} has no corpus id")
+
+    visible_text = "\n".join(_text_values(card))
+    if any(marker in visible_text for marker in _MOJIBAKE_MARKERS):
+        errors.append("text contains encoding damage")
+
+    english = card.get("english") if isinstance(card.get("english"), dict) else {}
+    japanese = card.get("japanese") if isinstance(card.get("japanese"), dict) else {}
+    chinese = card.get("chinese") if isinstance(card.get("chinese"), dict) else {}
+    if mode in {"word", "knowledge", "root", "affix"}:
+        if not str(english.get("term", "")).strip() or not str(
+            english.get("meaning", "")
+        ).strip():
+            errors.append("English term or meaning is missing")
+        japanese_term = str(japanese.get("term", "")).strip()
+        chinese_term = str(chinese.get("simplified", "")).strip()
+        if not japanese_term or not str(japanese.get("meaning", "")).strip():
+            errors.append("Japanese term or meaning is missing")
+        elif not _ruby_covers(japanese_term, japanese.get("ruby_tokens")):
+            errors.append("Japanese ruby does not cover every kanji")
+        if not chinese_term or not str(chinese.get("meaning", "")).strip():
+            errors.append("Chinese term or meaning is missing")
+        elif not _ruby_covers(chinese_term, chinese.get("ruby_tokens")):
+            errors.append("Chinese ruby does not cover every Han character")
+
+    if mode in {"word", "root", "affix"}:
+        extensions = card.get("extensions")
+        graph = extensions.get("morphology_graph") if isinstance(extensions, dict) else None
+        nodes = graph.get("nodes") if isinstance(graph, dict) else None
+        edges = graph.get("edges") if isinstance(graph, dict) else None
+        if not isinstance(nodes, list) or len(nodes) < 2:
+            errors.append("origin graph has fewer than two nodes")
+        if not isinstance(edges, list) or not edges:
+            errors.append("origin graph has no relationships")
+    return list(dict.fromkeys(errors))
 
 
 def _merge_dict(base: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]:
@@ -48,6 +143,8 @@ class CardStore:
                 "updated_at": "TEXT NOT NULL DEFAULT ''",
                 "quality_score": "REAL",
                 "review_note": "TEXT NOT NULL DEFAULT ''",
+                "validation_state": "TEXT NOT NULL DEFAULT 'legacy-unreviewed'",
+                "validation_errors": "TEXT NOT NULL DEFAULT '[]'",
             }
             for column, definition in card_migrations.items():
                 if column not in card_columns:
@@ -57,6 +154,10 @@ class CardStore:
             connection.execute(
                 "CREATE INDEX IF NOT EXISTS idx_cards_status_created "
                 "ON cards(status, created_at DESC)"
+            )
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_cards_publication "
+                "ON cards(status, validation_state, mode, created_at DESC)"
             )
             connection.execute(
                 """CREATE TABLE IF NOT EXISTS observations (
@@ -117,13 +218,17 @@ class CardStore:
         return sqlite3.connect(self.database, timeout=10)
 
     def save(self, card: Card) -> None:
+        """Persist a candidate without making it visible in a carousel."""
+
         payload = json.dumps(card.to_dict(), ensure_ascii=False)
         with closing(self._connect()) as connection:
             connection.execute(
                 """INSERT OR REPLACE INTO cards(
                     card_id, mode, query, title, created_at, payload,
-                    status, revision_of, updated_at, quality_score, review_note
-                ) VALUES (?, ?, ?, ?, ?, ?, 'active', '', ?, NULL, '')""",
+                    status, revision_of, updated_at, quality_score, review_note,
+                    validation_state, validation_errors
+                ) VALUES (?, ?, ?, ?, ?, ?, 'candidate', '', ?, NULL, '',
+                          'candidate', '[]')""",
                 (
                     card.card_id,
                     card.mode,
@@ -136,12 +241,52 @@ class CardStore:
             )
             connection.commit()
 
+    def publish(
+        self,
+        card_id: str,
+        *,
+        quality_score: float | None = None,
+        review_note: str = "validated LLM + RAG card",
+    ) -> dict[str, Any]:
+        if quality_score is not None:
+            quality_score = float(quality_score)
+            if not 0 <= quality_score <= 1:
+                raise ValueError("quality_score must be between 0 and 1")
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                "SELECT payload FROM cards WHERE card_id = ?", (card_id,)
+            ).fetchone()
+            if row is None:
+                raise KeyError(card_id)
+            payload = json.loads(row[0])
+            errors = card_validation_errors(payload)
+            timestamp = datetime.now(UTC).isoformat()
+            connection.execute(
+                """UPDATE cards
+                   SET status = ?, validation_state = ?, validation_errors = ?,
+                       quality_score = ?, review_note = ?, updated_at = ?
+                   WHERE card_id = ?""",
+                (
+                    "candidate" if errors else "active",
+                    "rejected" if errors else "accepted",
+                    json.dumps(errors, ensure_ascii=False),
+                    quality_score,
+                    review_note.strip()[:1000],
+                    timestamp,
+                    card_id,
+                ),
+            )
+            connection.commit()
+        if errors:
+            raise ValueError("card failed publication: " + "; ".join(errors))
+        return payload
+
     def recent(self, limit: int = 20) -> list[dict[str, Any]]:
         limit = max(1, min(limit, 100))
         with closing(self._connect()) as connection:
             rows = connection.execute(
                 """SELECT payload FROM cards
-                   WHERE status = 'active'
+                   WHERE status = 'active' AND validation_state = 'accepted'
                    ORDER BY created_at DESC LIMIT ?""",
                 (limit,),
             ).fetchall()
@@ -244,6 +389,29 @@ class CardStore:
             connection.commit()
         return result.rowcount == 1
 
+    def quarantine_unvalidated(self) -> dict[str, int]:
+        """Archive non-visible legacy/candidate rows without deleting their audit trail."""
+
+        timestamp = datetime.now(UTC).isoformat()
+        with closing(self._connect()) as connection:
+            counts = {
+                str(row[0]): int(row[1])
+                for row in connection.execute(
+                    """SELECT validation_state, COUNT(*) FROM cards
+                       WHERE status IN ('active', 'candidate')
+                         AND validation_state <> 'accepted'
+                       GROUP BY validation_state"""
+                )
+            }
+            connection.execute(
+                """UPDATE cards SET status = 'archived', updated_at = ?
+                   WHERE status IN ('active', 'candidate')
+                     AND validation_state <> 'accepted'""",
+                (timestamp,),
+            )
+            connection.commit()
+        return counts
+
     def revise(
         self,
         card_id: str,
@@ -294,8 +462,10 @@ class CardStore:
             connection.execute(
                 """INSERT INTO cards(
                     card_id, mode, query, title, created_at, payload,
-                    status, revision_of, updated_at, quality_score, review_note
-                ) VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?)""",
+                    status, revision_of, updated_at, quality_score, review_note,
+                    validation_state, validation_errors
+                ) VALUES (?, ?, ?, ?, ?, ?, 'candidate', ?, ?, ?, ?,
+                          'candidate', '[]')""",
                 (
                     revised_id,
                     str(revised.get("mode", original.get("mode", ""))),
@@ -315,6 +485,11 @@ class CardStore:
                 (revised_at, card_id),
             )
             connection.commit()
+        self.publish(
+            revised_id,
+            quality_score=quality_score,
+            review_note=review_note or "reviewed revision",
+        )
         return revised
 
     def save_observation(

@@ -127,6 +127,9 @@ yet. They are future references only.
 - Save retrieved evidence, cleaned model draft, normalized card/graph, and final
   published revision as reusable preparation artifacts. Archive weak cards from
   the active carousel without destructive deletion.
+- Treat model completion, database save, and visible publication as three
+  separate states. Only accepted, grounded, correctly encoded cards may enter a
+  mode-local carousel; legacy and rejected candidates remain invisible.
 
 ## Local inference
 

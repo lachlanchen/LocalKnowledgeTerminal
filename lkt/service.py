@@ -416,6 +416,17 @@ class CardService:
         japanese["ruby_tokens"] = _ruby_tokens_for_term(
             generated_japanese.get("ruby_tokens"), japanese["term"]
         )
+        if (
+            not japanese["ruby_tokens"]
+            and re.search(r"[\u3400-\u9fff]", japanese["term"])
+            and japanese["reading"]
+        ):
+            # A compound-level ruby is honest and complete when the model has
+            # not supplied a trustworthy token alignment. Atomic preparation
+            # can later replace it with reviewed per-kanji segments.
+            japanese["ruby_tokens"] = [
+                {"t": japanese["term"], "r": japanese["reading"]}
+            ]
         chinese = _language(
             generated.get("chinese"),
             ("simplified", "traditional", "pinyin", "meaning"),
@@ -509,6 +520,11 @@ class CardService:
             preparation_run_id, "normalized-card", card.to_dict()
         )
         self.store.save(card)
+        self.store.publish(
+            card.card_id,
+            quality_score=0.7,
+            review_note="grounded schema and presentation validation passed",
+        )
         self.store.save_preparation_artifact(
             preparation_run_id, "published-card", card.to_dict()
         )

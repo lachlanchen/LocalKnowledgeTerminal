@@ -13,6 +13,17 @@ The graph database is never an independent source of truth. Every projected
 node and edge carries its SQLite ID. A projection has a deterministic source
 fingerprint and can be replaced or rebuilt without model inference.
 
+## Publication boundary
+
+Persistence and publication are separate operations. A composed card is saved
+as a candidate first. It enters a tab or carousel only after the publication
+gate confirms its mode, stable RAG evidence IDs, grounded state, required
+language fields, complete ruby coverage, graph integrity where applicable, and
+clean Unicode text. Legacy rows migrate to `legacy-unreviewed`, so old payloads
+cannot silently become visible. Rejected and legacy candidates retain a small
+audit trail and may be quarantined as archived; accepted replacements are built
+from current atomic knowledge and current source evidence.
+
 ## Atomic SQLite layers
 
 - `entities` provides canonical IDs, validation status, quality, and typed

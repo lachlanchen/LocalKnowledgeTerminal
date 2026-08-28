@@ -40,9 +40,10 @@ class StoreTests(unittest.TestCase):
             connection.execute(
                 """INSERT INTO cards(
                     card_id, mode, query, title, created_at, payload,
-                    status, revision_of, updated_at, quality_score, review_note
+                    status, revision_of, updated_at, quality_score, review_note,
+                    validation_state, validation_errors
                 ) VALUES ('card-1', 'root', 'spect', 'SPECT', 'now', ?,
-                          'active', '', 'now', NULL, '')""",
+                          'active', '', 'now', NULL, '', 'accepted', '[]')""",
                 ('{"card_id":"card-1","mode":"root"}',),
             )
             connection.commit()
@@ -58,19 +59,27 @@ class StoreTests(unittest.TestCase):
             connection = sqlite3.connect(database)
             payload = {
                 "card_id": "card-1",
-                "mode": "root",
-                "query": "spect",
-                "title": "SPECT",
+                "mode": "answer",
+                "query": "What now?",
+                "title": "Begin",
                 "created_at": "now",
-                "evidence": [{"entry_id": "root-1", "pages": [58]}],
-                "extensions": {"morphology_graph": {"nodes": []}},
+                "grounded": True,
+                "evidence": [
+                    {
+                        "entry_id": "answer-1",
+                        "corpus_id": "book-of-answers",
+                        "pages": [58],
+                    }
+                ],
+                "extensions": {},
             }
             connection.execute(
                 """INSERT INTO cards(
                     card_id, mode, query, title, created_at, payload,
-                    status, revision_of, updated_at, quality_score, review_note
-                ) VALUES ('card-1', 'root', 'spect', 'SPECT', 'now', ?,
-                          'active', '', 'now', NULL, '')""",
+                    status, revision_of, updated_at, quality_score, review_note,
+                    validation_state, validation_errors
+                ) VALUES ('card-1', 'answer', 'What now?', 'Begin', 'now', ?,
+                          'active', '', 'now', NULL, '', 'accepted', '[]')""",
                 (json.dumps(payload),),
             )
             connection.commit()
@@ -85,6 +94,25 @@ class StoreTests(unittest.TestCase):
             self.assertEqual(revised["evidence"], payload["evidence"])
             self.assertEqual(revised["extensions"]["revision_of"], "card-1")
             self.assertEqual([card["card_id"] for card in store.recent()], [revised["card_id"]])
+
+    def test_legacy_and_rejected_cards_never_enter_visible_carousels(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            database = Path(temp) / "knowledge.sqlite3"
+            store = CardStore(database)
+            connection = sqlite3.connect(database)
+            connection.execute(
+                """INSERT INTO cards(
+                    card_id, mode, query, title, created_at, payload,
+                    status, revision_of, updated_at, quality_score, review_note
+                ) VALUES ('dirty-1', 'knowledge', 'word', 'Dirty', 'now', ?,
+                          'active', '', 'now', NULL, '')""",
+                ('{"card_id":"dirty-1","mode":"knowledge"}',),
+            )
+            connection.commit()
+            connection.close()
+            self.assertEqual(store.recent(), [])
+            self.assertEqual(store.quarantine_unvalidated(), {"legacy-unreviewed": 1})
+            self.assertEqual(store.recent(), [])
 
     def test_raw_model_observations_are_persistent_and_marked_uncited(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
