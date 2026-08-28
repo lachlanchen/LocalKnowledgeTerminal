@@ -1,0 +1,30 @@
+[Unit]
+Description=Local Knowledge Terminal atomic preparation worker
+Requires=lkt-llm.service
+After=lkt-llm.service network-online.target
+
+[Service]
+Type=simple
+User=lachlan
+Group=lachlan
+EnvironmentFile=/etc/lkt.env
+EnvironmentFile=-/etc/lkt-model.env
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONPATH=/home/lachlan/LocalKnowledgeTerminal/source
+WorkingDirectory=/home/lachlan/LocalKnowledgeTerminal/source
+ExecStartPre=/usr/bin/test -x /home/lachlan/LocalKnowledgeTerminal/runtime/knowledge-venv/bin/python
+ExecStartPre=/bin/bash -c 'for attempt in {1..120}; do /usr/bin/curl --silent --fail http://127.0.0.1:8081/health >/dev/null && exit 0; /bin/sleep 2; done; exit 1'
+ExecStart=/home/lachlan/LocalKnowledgeTerminal/runtime/knowledge-venv/bin/python -m lkt.cli work-atomic --watch --recover-running --idle-seconds 2 --job-delay 1
+Restart=on-failure
+RestartSec=3
+Nice=10
+CPUWeight=25
+IOSchedulingClass=idle
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/lachlan/LocalKnowledgeTerminal/data /home/lachlan/LocalKnowledgeTerminal/logs
+
+[Install]
+WantedBy=multi-user.target

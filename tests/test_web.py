@@ -1,9 +1,17 @@
 from __future__ import annotations
 
 import unittest
+import tempfile
 from pathlib import Path
 
-from lkt.web import card_chat_context, chat_messages, renderable_card
+from lkt.knowledge import KnowledgeStore
+from lkt.preparation import PreparationPlanner
+from lkt.web import (
+    card_chat_context,
+    chat_messages,
+    renderable_card,
+    word_card_preparation_state,
+)
 
 
 class WebInputTests(unittest.TestCase):
@@ -33,6 +41,9 @@ class WebInputTests(unittest.TestCase):
         self.assertIn('language: "investigation"', script)
         self.assertIn("{ source_card_id: slide.sourceCardId }", script)
         self.assertIn(".investigation-term", style)
+        self.assertIn('response.status === 202', script)
+        self.assertIn("Each finished step is saved", script)
+        self.assertIn('id="loading-kicker"', page)
 
     def test_old_cards_receive_chinese_ruby_without_database_migration(self) -> None:
         card = {"chinese": {"simplified": "中国", "pinyin": "zhōng guó"}}
@@ -72,6 +83,26 @@ class WebInputTests(unittest.TestCase):
         script = source.read_text(encoding="utf-8")
         self.assertIn('payload.get("refresh") is not True', script)
         self.assertIn("service.store.find_active(requested_mode, query)", script)
+
+    def test_linked_word_preparation_exposes_bounded_polling_progress(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")
+            plan = PreparationPlanner(
+                store,
+                model="Qwen3-4B-Q4_K_M",
+                prompt_version="linked-word-v1",
+            ).plan_word_card("breakthrough")
+            state = word_card_preparation_state(plan, store)
+            self.assertEqual(state["status"], "preparing")
+            self.assertEqual(state["current_job"], "retrieve-evidence")
+            self.assertEqual(state["completed_jobs"], 0)
+            self.assertGreater(state["total_jobs"], 1)
+
+            retrieval = store.claim_next_job()
+            store.finish_job(retrieval["job_id"])
+            state = word_card_preparation_state(plan, store)
+            self.assertEqual(state["completed_jobs"], 1)
+            self.assertEqual(state["current_job"], "prepare-meaning")
 
     def test_card_chat_context_keeps_retrieved_source(self) -> None:
         context = card_chat_context(

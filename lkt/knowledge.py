@@ -1741,6 +1741,27 @@ class KnowledgeStore:
             )
             connection.commit()
 
+    def recover_running_jobs(self) -> int:
+        """Requeue leases left behind by an interrupted single worker.
+
+        The interrupted attempt is not charged: its model response was never
+        validated or committed as a completed job. Accepted artifacts remain
+        idempotent and will be superseded if the retried stage succeeds.
+        """
+
+        with closing(self._connect()) as connection:
+            cursor = connection.execute(
+                """UPDATE preparation_jobs
+                   SET status = 'queued',
+                       attempts = CASE WHEN attempts > 0 THEN attempts - 1 ELSE 0 END,
+                       error = 'worker interrupted; safely requeued',
+                       locked_at = '', updated_at = ?
+                   WHERE status = 'running'""",
+                (_now(),),
+            )
+            connection.commit()
+            return int(cursor.rowcount)
+
     def graph_snapshot(self) -> dict[str, list[dict[str, Any]]]:
         with closing(self._connect()) as connection:
             nodes = [

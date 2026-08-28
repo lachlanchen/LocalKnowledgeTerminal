@@ -59,6 +59,28 @@ class PreparationPlannerTests(unittest.TestCase):
             connection.close()
             self.assertEqual(status, "accepted")
 
+    def test_linked_word_card_plan_excludes_independent_origin_work(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")
+            plan = PreparationPlanner(
+                store,
+                model="Qwen3-4B-Q4_K_M",
+                prompt_version="linked-word-v1",
+            ).plan_word_card(
+                "breakthrough", display_languages=("en", "ja", "zh", "fr", "ar")
+            )
+            self.assertIn("compose-word-card", plan.jobs)
+            self.assertIn("translation:ja", plan.jobs)
+            self.assertIn("grammar-properties", plan.jobs)
+            self.assertNotIn("split-morphemes", plan.jobs)
+            self.assertNotIn("expand-origin-branches", plan.jobs)
+            self.assertNotIn("compose-origin-card", plan.jobs)
+            job_types = {
+                item["job_type"] for item in store.jobs_for_subject(plan.subject_key)
+            }
+            self.assertNotIn("split-morphemes", job_types)
+            self.assertNotIn("expand-origin-branches", job_types)
+
     def test_one_translation_can_be_replanned_without_the_full_pipeline(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")

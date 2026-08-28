@@ -16,6 +16,7 @@ from .intent import route_intent
 from .llm import LlamaCppClient, ModelUnavailable
 from .knowledge import KnowledgeStore
 from .morphology import MorphologyIndex
+from .preparation import PreparationPlan, PreparationPlanner
 from .pronunciation import chinese_ruby_tokens
 from .service import CardService, NoEvidence
 from .store import CardStore
@@ -23,6 +24,15 @@ from .store import CardStore
 
 LOG = logging.getLogger("lkt.web")
 STATIC_DIR = Path(__file__).resolve().parent / "static"
+
+_PREPARATION_LABELS = {
+    "retrieve-evidence": "Reading books and dictionaries",
+    "prepare-meaning": "Choosing the central meaning",
+    "prepare-translation": "Preparing one language",
+    "prepare-pronunciation": "Aligning pronunciation",
+    "prepare-grammar-properties": "Separating grammar properties",
+    "compose-word-card": "Publishing the Word Card",
+}
 
 
 def renderable_card(card: dict[str, Any]) -> dict[str, Any]:
@@ -85,6 +95,44 @@ def card_chat_context(card: dict[str, Any]) -> str:
         ]
     )
     return context[:8000]
+
+
+def word_card_preparation_state(
+    plan: PreparationPlan, knowledge: KnowledgeStore
+) -> dict[str, Any]:
+    """Return a small polling contract for one independently prepared card."""
+
+    planned_ids = list(dict.fromkeys(plan.jobs.values()))
+    by_id = {
+        str(job["job_id"]): job
+        for job in knowledge.jobs_for_subject(plan.subject_key)
+        if str(job["job_id"]) in planned_ids
+    }
+    jobs = [by_id[job_id] for job_id in planned_ids if job_id in by_id]
+    failed = [job for job in jobs if job["status"] == "failed"]
+    completed = sum(job["status"] == "complete" for job in jobs)
+    current = next((job for job in jobs if job["status"] == "running"), None)
+    if current is None:
+        current = next((job for job in jobs if job["status"] == "queued"), None)
+    payload: dict[str, Any] = {
+        "status": "failed" if failed else "preparing",
+        "mode": "knowledge",
+        "subject_entity_id": plan.subject_entity_id,
+        "subject_key": plan.subject_key,
+        "completed_jobs": completed,
+        "total_jobs": len(jobs),
+        "current_job": str(current["job_type"]) if current else "compose-word-card",
+        "current_label": _PREPARATION_LABELS.get(
+            str(current["job_type"]) if current else "compose-word-card",
+            "Preparing accepted knowledge",
+        ),
+        "poll_after_ms": 3000,
+    }
+    if failed:
+        payload["error"] = str(failed[0].get("error", ""))[:500] or (
+            "atomic Word Card preparation failed validation"
+        )
+    return payload
 
 
 def build_service(settings: Settings) -> tuple[CardService, LlamaCppClient]:
@@ -474,6 +522,30 @@ def handler_factory(
                         knowledge.acquire_card_book_card(established)
                         self._json(record_card_investigation(established, linked_context))
                         return
+                if linked_context is not None:
+                    plan = PreparationPlanner(
+                        knowledge,
+                        model=settings.llm_model,
+                        prompt_version="linked-word-v1",
+                    ).plan_word_card(query)
+                    preparation = word_card_preparation_state(plan, knowledge)
+                    preparation.update(
+                        {
+                            "query": query.strip(),
+                            "source_card_id": linked_context["source_card_id"],
+                            "source_entity_id": linked_context["source_entity_id"],
+                            "result_entity_id": linked_context["result_entity_id"],
+                        }
+                    )
+                    self._json(
+                        preparation,
+                        (
+                            HTTPStatus.UNPROCESSABLE_ENTITY
+                            if preparation["status"] == "failed"
+                            else HTTPStatus.ACCEPTED
+                        ),
+                    )
+                    return
                 card = service.create(query, requested_mode)
                 knowledge.acquire_card_book_card(card.to_dict())
             except (ValueError, json.JSONDecodeError) as exc:

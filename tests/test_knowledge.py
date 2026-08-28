@@ -213,6 +213,18 @@ class KnowledgeStoreTests(unittest.TestCase):
             self.assertIsNone(store.claim_next_job())
             self.assertEqual(store.status()["counts"]["preparation_jobs"], 1)
 
+    def test_interrupted_worker_lease_is_safely_requeued(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")
+            job_id = store.enqueue_job("prepare-meaning", "term:breakthrough")
+            claimed = store.claim_next_job()
+            self.assertEqual(claimed["job_id"], job_id)
+            self.assertEqual(claimed["attempts"], 1)
+            self.assertEqual(store.recover_running_jobs(), 1)
+            recovered = store.claim_next_job()
+            self.assertEqual(recovered["job_id"], job_id)
+            self.assertEqual(recovered["attempts"], 1)
+
     def test_artifact_validation_is_migrated_and_new_acceptance_supersedes_old(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             database = Path(temp) / "knowledge.sqlite3"

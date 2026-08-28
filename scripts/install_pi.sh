@@ -13,10 +13,12 @@ ROOTS_SOURCE="${4:-}"
 AFFIXES_SOURCE="${5:-}"
 MODEL_PATH="${LKT_HOME}/models/Qwen3-4B-Q4_K_M.gguf"
 LLAMA_SERVER="${LKT_HOME}/runtime/llama.cpp-0.3.0/build/bin/llama-server"
+KNOWLEDGE_PYTHON="${LKT_HOME}/runtime/knowledge-venv/bin/python"
 
 [ -f "$SOURCE_DIR/lkt/web.py" ] || { echo "Missing Git checkout at $SOURCE_DIR" >&2; exit 1; }
 [ -x "$LLAMA_SERVER" ] || { echo "Missing llama-server; run scripts/bootstrap_runtime.sh first" >&2; exit 1; }
 [ -f "$MODEL_PATH" ] || { echo "Missing Qwen model; run scripts/bootstrap_runtime.sh first" >&2; exit 1; }
+[ -x "$KNOWLEDGE_PYTHON" ] || { echo "Missing knowledge runtime; run scripts/install_knowledge_runtime.sh first" >&2; exit 1; }
 [ -f "$CORPUS_SOURCE" ] || {
   echo "Usage: sudo $0 /path/to/entries.jsonl [/path/to/answers.jsonl /path/to/questions.jsonl /path/to/roots.jsonl /path/to/affixes.jsonl]" >&2
   exit 1
@@ -98,6 +100,7 @@ runuser -u "$LKT_USER" -- env \
 
 install -o root -g root -m 0644 "$SOURCE_DIR/systemd/lkt-llm.service" /etc/systemd/system/
 install -o root -g root -m 0644 "$SOURCE_DIR/systemd/lkt-web.service" /etc/systemd/system/
+install -o root -g root -m 0644 "$SOURCE_DIR/systemd/lkt-worker.service" /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable --now lkt-llm.service
 
@@ -112,4 +115,5 @@ for attempt in $(seq 1 120); do
 done
 
 systemctl enable --now lkt-web.service
+systemctl enable --now lkt-worker.service
 printf 'LKT installed. Open http://127.0.0.1:8090\n'

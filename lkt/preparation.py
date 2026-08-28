@@ -63,6 +63,42 @@ class PreparationPlanner:
         language: str = "en",
         display_languages: Iterable[str] = DISPLAY_LANGUAGES,
     ) -> PreparationPlan:
+        return self._plan_word(
+            text,
+            language=language,
+            display_languages=display_languages,
+            include_origin=True,
+        )
+
+    def plan_word_card(
+        self,
+        text: str,
+        *,
+        language: str = "en",
+        display_languages: Iterable[str] = DISPLAY_LANGUAGES,
+    ) -> PreparationPlan:
+        """Prepare only the multilingual Word Card requested by the user.
+
+        Origin decomposition is an independent product path. Keeping it out of
+        a linked vocabulary click makes that click faster and prevents a weak
+        historical branch from blocking an otherwise valid Word Card.
+        """
+
+        return self._plan_word(
+            text,
+            language=language,
+            display_languages=display_languages,
+            include_origin=False,
+        )
+
+    def _plan_word(
+        self,
+        text: str,
+        *,
+        language: str,
+        display_languages: Iterable[str],
+        include_origin: bool,
+    ) -> PreparationPlan:
         term_id = self.store.upsert_term(language, text, status="draft")
         subject_key = f"term:{term_id}"
         jobs: dict[str, str] = {}
@@ -79,24 +115,26 @@ class PreparationPlanner:
             depends_on=(retrieval,),
         )
         jobs[f"meaning:{language}"] = meaning
-        morphology = self._job(
-            "split-morphemes",
-            subject_key,
-            term_id,
-            language=language,
-            priority=30,
-            depends_on=(retrieval, meaning),
-        )
-        jobs["split-morphemes"] = morphology
-        origin = self._job(
-            "expand-origin-branches",
-            subject_key,
-            term_id,
-            language=language,
-            priority=40,
-            depends_on=(morphology,),
-        )
-        jobs["expand-origin-branches"] = origin
+        origin = ""
+        if include_origin:
+            morphology = self._job(
+                "split-morphemes",
+                subject_key,
+                term_id,
+                language=language,
+                priority=30,
+                depends_on=(retrieval, meaning),
+            )
+            jobs["split-morphemes"] = morphology
+            origin = self._job(
+                "expand-origin-branches",
+                subject_key,
+                term_id,
+                language=language,
+                priority=40,
+                depends_on=(morphology,),
+            )
+            jobs["expand-origin-branches"] = origin
 
         language_jobs: list[str] = []
         for output_language in dict.fromkeys(display_languages):
@@ -139,15 +177,16 @@ class PreparationPlanner:
             priority=90,
             depends_on=(*language_jobs, grammar),
         )
-        origin_card = self._job(
-            "compose-origin-card",
-            subject_key,
-            term_id,
-            priority=90,
-            depends_on=(origin, *language_jobs),
-        )
         jobs["compose-word-card"] = word_card
-        jobs["compose-origin-card"] = origin_card
+        if include_origin:
+            origin_card = self._job(
+                "compose-origin-card",
+                subject_key,
+                term_id,
+                priority=90,
+                depends_on=(origin, *language_jobs),
+            )
+            jobs["compose-origin-card"] = origin_card
         return PreparationPlan(term_id, subject_key, jobs)
 
     def plan_translation(

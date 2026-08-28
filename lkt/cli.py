@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import signal
 import sys
 from pathlib import Path
+from threading import Event
+from typing import Any, Callable
 
 from .atomic import build_worker
 from .card_books import CardBookIndex, build_card_book_index
@@ -381,10 +384,40 @@ def command_plan_card_investigations(args: argparse.Namespace) -> int:
     return 0
 
 
+def run_atomic_watch(
+    worker: Any,
+    stop_event: Any,
+    *,
+    idle_seconds: float,
+    job_delay: float,
+    emit: Callable[[Any], None],
+) -> int:
+    """Run one persisted task at a time until the service is stopped."""
+
+    while not stop_event.is_set():
+        result = worker.run_once()
+        if result is None:
+            stop_event.wait(idle_seconds)
+            continue
+        emit(result)
+        stop_event.wait(job_delay)
+    return 0
+
+
 def command_work_atomic(args: argparse.Namespace) -> int:
     settings = _settings()
+    knowledge = KnowledgeStore(settings.knowledge_db)
+    if args.recover_running:
+        recovered = knowledge.recover_running_jobs()
+        if recovered:
+            print(
+                json.dumps(
+                    {"event": "recovered-interrupted-jobs", "count": recovered}
+                ),
+                flush=True,
+            )
     worker = build_worker(
-        KnowledgeStore(settings.knowledge_db),
+        knowledge,
         CorpusIndex(settings.corpus_db),
         MorphologyIndex(settings.roots_db),
         MorphologyIndex(settings.affixes_db),
@@ -394,6 +427,23 @@ def command_work_atomic(args: argparse.Namespace) -> int:
         ),
         CardStore(settings.cards_db),
     )
+    if args.watch:
+        stop_event = Event()
+
+        def stop_worker(_signum: int, _frame: Any) -> None:
+            stop_event.set()
+
+        signal.signal(signal.SIGTERM, stop_worker)
+        signal.signal(signal.SIGINT, stop_worker)
+        return run_atomic_watch(
+            worker,
+            stop_event,
+            idle_seconds=max(0.25, min(float(args.idle_seconds), 60.0)),
+            job_delay=max(0.0, min(float(args.job_delay), 60.0)),
+            emit=lambda result: print(
+                json.dumps(result.__dict__, ensure_ascii=False), flush=True
+            ),
+        )
     print(
         json.dumps(
             [result.__dict__ for result in worker.run(args.limit)],
@@ -610,6 +660,18 @@ def parser() -> argparse.ArgumentParser:
         help="run bounded evidence/meaning jobs and checkpoint accepted results",
     )
     work_atomic.add_argument("--limit", type=int, default=1)
+    work_atomic.add_argument(
+        "--watch",
+        action="store_true",
+        help="keep polling for queued work until interrupted",
+    )
+    work_atomic.add_argument("--idle-seconds", type=float, default=2.0)
+    work_atomic.add_argument("--job-delay", type=float, default=1.0)
+    work_atomic.add_argument(
+        "--recover-running",
+        action="store_true",
+        help="requeue an interrupted worker lease before starting",
+    )
     work_atomic.set_defaults(handler=command_work_atomic)
 
     clean_cards = commands.add_parser(

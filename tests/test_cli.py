@@ -1,0 +1,56 @@
+from __future__ import annotations
+
+import unittest
+from types import SimpleNamespace
+from pathlib import Path
+
+from lkt.cli import run_atomic_watch
+
+
+class _StopAfterWaits:
+    def __init__(self, waits: int):
+        self.remaining = waits
+
+    def is_set(self) -> bool:
+        return self.remaining <= 0
+
+    def wait(self, _seconds: float) -> bool:
+        self.remaining -= 1
+        return self.is_set()
+
+
+class _Worker:
+    def __init__(self, results: list[object | None]):
+        self.results = list(results)
+
+    def run_once(self) -> object | None:
+        return self.results.pop(0) if self.results else None
+
+
+class AtomicWatchTests(unittest.TestCase):
+    def test_watch_emits_completed_work_and_waits_when_idle(self) -> None:
+        emitted: list[str] = []
+        worker = _Worker(
+            [SimpleNamespace(job_id="job-1", status="complete"), None]
+        )
+        status = run_atomic_watch(
+            worker,
+            _StopAfterWaits(2),
+            idle_seconds=2,
+            job_delay=1,
+            emit=lambda result: emitted.append(result.job_id),
+        )
+        self.assertEqual(status, 0)
+        self.assertEqual(emitted, ["job-1"])
+
+    def test_system_worker_is_single_job_low_priority_and_recoverable(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        unit = (root / "systemd" / "lkt-worker.service").read_text(encoding="utf-8")
+        self.assertIn("work-atomic --watch --recover-running", unit)
+        self.assertIn("--job-delay 1", unit)
+        self.assertIn("Nice=10", unit)
+        self.assertIn("CPUWeight=25", unit)
+
+
+if __name__ == "__main__":
+    unittest.main()

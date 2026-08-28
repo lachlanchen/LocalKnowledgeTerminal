@@ -2,6 +2,7 @@
 
 const $ = (selector) => document.querySelector(selector);
 const all = (selector) => [...document.querySelectorAll(selector)];
+const wait = (milliseconds) => new Promise((resolve) => window.setTimeout(resolve, milliseconds));
 let mode = "answer";
 let activeCardId = null;
 let activeCard = null;
@@ -1054,16 +1055,30 @@ async function submitQuery(query, requestedMode = mode, context = {}) {
   }
   $("#query").value = query;
   $("#generate-button").disabled = true;
+  text("#loading-kicker", "READING LOCALLY");
+  text("#loading-title", "Composing the next card…");
+  text("#loading-detail", "Qwen is working on this Raspberry Pi. Your text stays here.");
   show("loading");
   try {
-    const response = await fetch("/api/cards", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query, mode, ...context }),
-    });
-    const payload = await response.json();
-    if (!response.ok) throw new Error(payload.error || `Request failed (${response.status})`);
-    renderCard(payload);
+    for (let poll = 0; poll < 300; poll += 1) {
+      const response = await fetch("/api/cards", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query, mode, ...context }),
+      });
+      const payload = await response.json();
+      if (response.status === 202 && payload.status === "preparing") {
+        text("#loading-kicker", `LOCAL PIPELINE · ${payload.completed_jobs} / ${payload.total_jobs}`);
+        text("#loading-title", payload.current_label || "Preparing accepted knowledge");
+        text("#loading-detail", "Each finished step is saved. You may reconnect without losing progress.");
+        await wait(Math.max(1000, Math.min(Number(payload.poll_after_ms) || 3000, 10000)));
+        continue;
+      }
+      if (!response.ok) throw new Error(payload.error || `Request failed (${response.status})`);
+      renderCard(payload);
+      return;
+    }
+    throw new Error("Preparation is still running. Reopen this word to resume its saved progress.");
   } catch (error) {
     text("#error-message", error.message);
     show("error");
