@@ -4,6 +4,12 @@ const $ = (selector) => document.querySelector(selector);
 const all = (selector) => [...document.querySelectorAll(selector)];
 let mode = "word";
 let activeCardId = null;
+let visibleView = "empty";
+let chatHistory = [];
+let carouselCards = [];
+let carouselIndex = -1;
+let autoplayEnabled = true;
+let autoplayTimer = null;
 
 const MODE_COPY = {
   word: {
@@ -46,12 +52,30 @@ const MODE_COPY = {
     description: "Search by theme; when no direct match exists, LKT draws a reproducible question.",
     narrative: "REFLECTION PROMPT",
   },
+  chat: {
+    card: "MODEL LAB",
+    label: "Prompt the local model",
+    placeholder: "Try “Explain recursion simply”",
+    examples: ["Explain recursion simply", "用中文解释RAG", "日本語で短い物語を書いて"],
+    kicker: "RAW QWEN · QUALITY + SPEED",
+    title: "Test the local model without visual noise.",
+    description: "This benchmark reports time and token speed; it does not attach book citations.",
+    narrative: "RAW RESPONSE",
+  },
 };
 
 function show(name) {
-  ["empty", "loading", "error", "card"].forEach((item) => {
-    $(`#${item}-${item === "card" ? "view" : "state"}`).classList.toggle("hidden", item !== name);
+  const views = {
+    empty: "#empty-state",
+    loading: "#loading-state",
+    error: "#error-state",
+    card: "#card-view",
+    chat: "#chat-view",
+  };
+  Object.entries(views).forEach(([item, selector]) => {
+    $(selector).classList.toggle("hidden", item !== name);
   });
+  visibleView = name;
 }
 
 function text(selector, value) {
@@ -63,6 +87,40 @@ function element(tag, className, value) {
   if (className) node.className = className;
   if (value !== undefined) node.textContent = value;
   return node;
+}
+
+function renderChatMessage(role, content, metrics = null, pending = false) {
+  const article = element("article", `chat-message ${role}${pending ? " pending" : ""}`);
+  article.append(element("span", "", role === "user" ? "YOU" : "QWEN · LOCAL"));
+  article.append(element("p", "", content));
+  if (metrics) {
+    const row = element("div", "chat-metrics");
+    const values = [
+      ["TOTAL", `${Number(metrics.elapsed_seconds || 0).toFixed(2)} s`],
+      ["OUTPUT", `${metrics.completion_tokens || 0} tokens`],
+      ["SPEED", `${Number(metrics.tokens_per_second || 0).toFixed(2)} tok/s`],
+      ["PROMPT", `${metrics.prompt_tokens || 0} tokens`],
+    ];
+    if (metrics.saved) values.push(["LEDGER", "SAVED"]);
+    values.forEach(([label, value]) => {
+      const item = element("span");
+      item.append(element("strong", "", `${label} `), document.createTextNode(value));
+      row.append(item);
+    });
+    article.append(row);
+  }
+  $("#chat-messages").append(article);
+  $("#chat-messages").scrollTop = $("#chat-messages").scrollHeight;
+  return article;
+}
+
+function resetChat() {
+  chatHistory = [];
+  $("#chat-messages").replaceChildren();
+  renderChatMessage(
+    "assistant",
+    "Enter a prompt below. I will answer locally and report generation speed. Use the four book modes when you need citations.",
+  );
 }
 
 function pagesLabel(pages) {
@@ -77,11 +135,16 @@ function locatorLabel(item) {
 }
 
 function renderCard(card, refreshHistory = true) {
+  setMode(card.mode, true);
   activeCardId = card.card_id;
   const copy = MODE_COPY[card.mode] || MODE_COPY.word;
+  const cardView = $("#card-view");
+  cardView.className = `card-view mode-${card.mode}`;
   text("#card-mode", copy.card);
   text("#card-model", `${card.model} · LOCAL`);
-  text("#card-title", card.title);
+  const primaryTitle = card.mode === "answer" ? (card.english.term || card.title) : card.title;
+  text("#card-title", primaryTitle);
+  cardView.classList.toggle("long-title", primaryTitle.length > 80);
   text("#card-subtitle", card.subtitle);
   text("#card-summary", card.summary_en);
   text("#origin-story", card.origin_story);
@@ -89,7 +152,11 @@ function renderCard(card, refreshHistory = true) {
   text("#english-pronunciation", card.english.pronunciation);
   text("#english-meaning", card.english.meaning);
   text("#japanese-meaning", card.japanese.meaning);
-  text("#chinese-term", [card.chinese.simplified, card.chinese.traditional && card.chinese.traditional !== card.chinese.simplified ? `／${card.chinese.traditional}` : ""].join(""));
+  const showTraditional = card.chinese.traditional
+    && card.chinese.traditional !== card.chinese.simplified
+    && card.chinese.simplified.length < 20;
+  text("#chinese-term", `${card.chinese.simplified}${showTraditional ? `／${card.chinese.traditional}` : ""}`);
+  $("#chinese-term").title = card.chinese.traditional || "";
   text("#chinese-pinyin", card.chinese.pinyin);
   text("#chinese-meaning", card.chinese.meaning);
   text("#memory-hook", card.memory_hook);
@@ -134,20 +201,25 @@ function renderCard(card, refreshHistory = true) {
     const section = element("section", "evidence");
     section.append(element("h4", "", item.headword));
     section.append(element("span", "page", locatorLabel(item)));
-    section.append(element("blockquote", "", `“${item.excerpt}”`));
+    const excerpt = item.excerpt?.length > 520 ? `${item.excerpt.slice(0, 517)}…` : item.excerpt;
+    section.append(element("blockquote", "", `“${excerpt}”`));
     if (item.section) section.append(element("span", "section", item.section));
     evidence.append(section);
   });
   show("card");
+  updateCarouselChrome();
   if (refreshHistory) loadHistory();
 }
 
-function setMode(nextMode) {
-  mode = nextMode;
+function setMode(nextMode, preserveView = false) {
+  const previousMode = mode;
+  mode = MODE_COPY[nextMode] ? nextMode : "word";
   const copy = MODE_COPY[mode] || MODE_COPY.word;
   all(".mode").forEach((button) => button.classList.toggle("active", button.dataset.mode === mode));
   text("#query-label", copy.label);
   $("#query").placeholder = copy.placeholder;
+  $("#query").maxLength = mode === "chat" ? 2000 : 240;
+  $("#generate-button").textContent = mode === "chat" ? "Send" : "Create";
   text("#empty-kicker", copy.kicker);
   text("#empty-title", copy.title);
   text("#empty-description", copy.description);
@@ -156,12 +228,62 @@ function setMode(nextMode) {
     button.dataset.mode = mode;
     button.textContent = copy.examples[index];
   });
+  if (preserveView) return;
+  if (mode === "chat") {
+    show("chat");
+  } else if (visibleView === "chat" || previousMode !== mode) {
+    show("empty");
+  }
+}
+
+async function submitChat(message) {
+  const priorHistory = chatHistory.slice(-10);
+  renderChatMessage("user", message);
+  chatHistory.push({ role: "user", content: message });
+  $("#query").value = "";
+  $("#generate-button").disabled = true;
+  const pending = renderChatMessage("assistant", "Generating locally…", null, true);
+  try {
+    const response = await fetch("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message, history: priorHistory }),
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || `Request failed (${response.status})`);
+    pending.remove();
+    chatHistory.push({ role: "assistant", content: payload.message });
+    renderChatMessage("assistant", payload.message, { ...payload.metrics, saved: Boolean(payload.observation_id) });
+  } catch (error) {
+    pending.remove();
+    renderChatMessage("assistant", `Chat failed: ${error.message}`);
+  } finally {
+    $("#generate-button").disabled = false;
+  }
+}
+
+async function loadObservations() {
+  try {
+    const response = await fetch("/api/observations?limit=3");
+    const observations = await response.json();
+    if (!response.ok || !Array.isArray(observations) || !observations.length) return;
+    observations.reverse().forEach((item) => {
+      renderChatMessage("user", item.prompt);
+      renderChatMessage("assistant", item.response, { ...item.metrics, saved: true });
+    });
+  } catch (_error) {
+    // Model Lab remains usable even if the optional ledger cannot be read.
+  }
 }
 
 async function submitQuery(query, requestedMode = mode) {
   query = String(query || "").trim();
   if (!query) return;
   setMode(requestedMode);
+  if (mode === "chat") {
+    await submitChat(query);
+    return;
+  }
   $("#query").value = query;
   $("#generate-button").disabled = true;
   show("loading");
@@ -200,22 +322,68 @@ async function loadHealth() {
 async function loadHistory() {
   const history = $("#history");
   try {
-    const response = await fetch("/api/cards?limit=10");
+    const response = await fetch("/api/cards?limit=30");
     const cards = await response.json();
+    carouselCards = cards;
     history.replaceChildren();
     if (!cards.length) {
+      carouselIndex = -1;
       history.append(element("p", "quiet", "No cards yet."));
+      updateCarouselChrome();
       return;
     }
-    cards.forEach((card) => {
-      const button = element("button", "", card.title);
-      button.append(element("small", "", card.mode));
-      button.addEventListener("click", () => renderCard(card));
+    carouselIndex = Math.max(0, cards.findIndex((card) => card.card_id === activeCardId));
+    cards.forEach((card, index) => {
+      const button = element("button");
+      button.title = `${card.title} · ${MODE_COPY[card.mode]?.card || card.mode}`;
+      button.classList.toggle("active", index === carouselIndex);
+      button.addEventListener("click", () => {
+        carouselIndex = index;
+        renderCard(card, false);
+      });
       history.append(button);
     });
     if (!activeCardId) renderCard(cards[0], false);
+    updateCarouselChrome();
+    scheduleCarousel();
   } catch (_error) {
     history.replaceChildren(element("p", "quiet", "History unavailable."));
+  }
+}
+
+function updateCarouselChrome() {
+  const found = carouselCards.findIndex((card) => card.card_id === activeCardId);
+  if (found >= 0) carouselIndex = found;
+  text("#carousel-position", carouselCards.length ? `${carouselIndex + 1} / ${carouselCards.length}` : "0 / 0");
+  all("#history button").forEach((button, index) => button.classList.toggle("active", index === carouselIndex));
+  $("#toggle-autoplay").textContent = autoplayEnabled ? "Ⅱ" : "▶";
+  $("#toggle-autoplay").title = autoplayEnabled ? "Pause carousel" : "Play carousel";
+}
+
+function navigateCards(step) {
+  if (!carouselCards.length || visibleView === "loading") return;
+  carouselIndex = (carouselIndex + step + carouselCards.length) % carouselCards.length;
+  renderCard(carouselCards[carouselIndex], false);
+}
+
+function scheduleCarousel() {
+  if (autoplayTimer) clearInterval(autoplayTimer);
+  if (!autoplayEnabled) return;
+  autoplayTimer = setInterval(() => {
+    if (mode !== "chat" && carouselCards.length > 1) navigateCards(1);
+  }, 30000);
+}
+
+async function toggleFullscreen() {
+  try {
+    if (!document.fullscreenElement) {
+      document.body.classList.add("display-mode");
+      await document.documentElement.requestFullscreen();
+    } else {
+      await document.exitFullscreen();
+    }
+  } catch (_error) {
+    document.body.classList.toggle("display-mode");
   }
 }
 
@@ -223,8 +391,24 @@ all(".mode").forEach((button) => button.addEventListener("click", () => setMode(
 all(".examples button").forEach((button) => button.addEventListener("click", () => submitQuery(button.dataset.query, button.dataset.mode || mode)));
 $("#card-form").addEventListener("submit", (event) => { event.preventDefault(); submitQuery($("#query").value); });
 $("#refresh-history").addEventListener("click", loadHistory);
+$("#clear-chat").addEventListener("click", resetChat);
+$("#previous-card").addEventListener("click", () => navigateCards(-1));
+$("#next-card").addEventListener("click", () => navigateCards(1));
+$("#toggle-autoplay").addEventListener("click", () => {
+  autoplayEnabled = !autoplayEnabled;
+  updateCarouselChrome();
+  scheduleCarousel();
+});
+$("#fullscreen-button").addEventListener("click", toggleFullscreen);
+document.addEventListener("fullscreenchange", () => {
+  if (!document.fullscreenElement && !new URLSearchParams(location.search).has("display")) {
+    document.body.classList.remove("display-mode");
+  }
+});
 
 setMode("word");
+if (new URLSearchParams(location.search).has("display")) document.body.classList.add("display-mode");
 loadHealth();
 loadHistory();
+loadObservations();
 setInterval(loadHealth, 30000);

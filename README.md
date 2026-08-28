@@ -33,6 +33,25 @@ retains token-level furigana; Chinese views add tone-marked pinyin. The web GUI
 renders that JSON today; e-ink and audio adapters will consume it later without
 changing corpus, retrieval, or model code.
 
+A separate **Chat / Benchmark** workspace talks directly to Qwen and reports
+wall time, prompt/output tokens, and generation speed. It is visibly marked as
+raw, uncited model output and is never stored as a grounded book card. Its
+observations are retained in a separate table of the local knowledge ledger.
+Every repeated prompt still runs Qwen again; the ledger is history, not a cache.
+
+## Product display
+
+The browser is an editorial card stage rather than a chat dashboard. It keeps
+large multilingual type, book evidence, and memory cues on one responsive
+surface. Saved cards form an autoplaying carousel with previous/next controls.
+Fullscreen display mode hides all application chrome, and `/?display=1` opens
+the same card document as a kiosk-friendly screen surface. Print CSS and the
+versioned card JSON provide clean boundaries for later e-ink rendering.
+
+Every generated card receives a new ID and remains in the local SQLite acquired-
+knowledge history. Asking the same question again creates a fresh Qwen result;
+the carousel can retain and compare both versions.
+
 ```text
  Word Origins ──► exact + lexical retrieval ──┐
 Book Answers ──► reproducible cited draw ─────┼──► evidence
@@ -73,6 +92,7 @@ generate a card.
 | `scripts/` | Reproducible Pi runtime, install, update, and smoke-test tools |
 | `systemd/` | Hardened model and application services |
 | `docs/lineage.md` | Exact legacy-project and corpus provenance |
+| `docs/mode-roadmap.md` | Extension plan for future suffix, affix, and root books |
 
 ## Local development
 

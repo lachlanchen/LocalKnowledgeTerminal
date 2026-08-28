@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 import urllib.error
 import urllib.request
 from typing import Any, Protocol
@@ -98,6 +99,81 @@ class LlamaCppClient:
         except (urllib.error.URLError, TimeoutError):
             return False
 
+    def _request(self, payload: dict[str, Any]) -> tuple[dict[str, Any], float]:
+        request = urllib.request.Request(
+            self.url,
+            data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        started = time.monotonic()
+        try:
+            with urllib.request.urlopen(request, timeout=self.timeout) as response:
+                body = json.load(response)
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", "replace")[:1000]
+            raise ModelUnavailable(f"model HTTP {exc.code}: {detail}") from exc
+        except (urllib.error.URLError, TimeoutError) as exc:
+            raise ModelUnavailable(f"local model unavailable: {exc}") from exc
+        if not isinstance(body, dict):
+            raise ModelUnavailable("unexpected response from local model")
+        return body, time.monotonic() - started
+
+    @staticmethod
+    def _content(body: dict[str, Any]) -> str:
+        try:
+            content = body["choices"][0]["message"]["content"]
+        except (KeyError, IndexError, TypeError) as exc:
+            raise ModelUnavailable("unexpected response from local model") from exc
+        return str(content)
+
+    def chat(self, messages: list[dict[str, str]]) -> dict[str, Any]:
+        payload = {
+            "model": self.model_name,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are the local Qwen model inside Local Knowledge Terminal. "
+                        "Answer clearly and directly in the language used by the user. "
+                        "This is raw chat, so never imply that an answer is book-cited."
+                    ),
+                },
+                *messages[:-1],
+                {
+                    **messages[-1],
+                    "content": f"{messages[-1]['content']}\n\n/no_think",
+                },
+            ],
+            "temperature": 0.7,
+            "top_p": 0.8,
+            "top_k": 20,
+            "presence_penalty": 1.2,
+            "max_tokens": 640,
+            "stream": False,
+        }
+        body, elapsed = self._request(payload)
+        content = re.sub(
+            r"<think>.*?</think>", "", self._content(body), flags=re.DOTALL
+        ).strip()
+        usage = body.get("usage") if isinstance(body.get("usage"), dict) else {}
+        timings = body.get("timings") if isinstance(body.get("timings"), dict) else {}
+        completion_tokens = int(usage.get("completion_tokens") or timings.get("predicted_n") or 0)
+        prompt_tokens = int(usage.get("prompt_tokens") or timings.get("prompt_n") or 0)
+        measured_rate = completion_tokens / elapsed if elapsed > 0 else 0.0
+        generation_rate = float(timings.get("predicted_per_second") or measured_rate)
+        return {
+            "message": content,
+            "model": self.model_name,
+            "grounded": False,
+            "metrics": {
+                "elapsed_seconds": round(elapsed, 2),
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "tokens_per_second": round(generation_rate, 2),
+            },
+        }
+
     def generate(self, query: str, mode: str, evidence: list[Evidence]) -> dict[str, Any]:
         instructions = {
             "word": "Create a WORD ORIGIN card grounded in the retrieved dictionary entry",
@@ -130,24 +206,8 @@ class LlamaCppClient:
             "max_tokens": 1400,
             "stream": False,
         }
-        request = urllib.request.Request(
-            self.url,
-            data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        try:
-            with urllib.request.urlopen(request, timeout=self.timeout) as response:
-                body = json.load(response)
-        except urllib.error.HTTPError as exc:
-            detail = exc.read().decode("utf-8", "replace")[:1000]
-            raise ModelUnavailable(f"model HTTP {exc.code}: {detail}") from exc
-        except (urllib.error.URLError, TimeoutError) as exc:
-            raise ModelUnavailable(f"local model unavailable: {exc}") from exc
-        try:
-            content = body["choices"][0]["message"]["content"]
-        except (KeyError, IndexError, TypeError) as exc:
-            raise ModelUnavailable("unexpected response from local model") from exc
+        body, _elapsed = self._request(payload)
+        content = self._content(body)
         try:
             return _extract_json(str(content))
         except ValueError as exc:

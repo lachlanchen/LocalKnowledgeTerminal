@@ -21,6 +21,28 @@ LOG = logging.getLogger("lkt.web")
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 
+def chat_messages(payload: dict[str, Any]) -> list[dict[str, str]]:
+    message = str(payload.get("message", "")).strip()
+    if not message:
+        raise ValueError("enter a chat message")
+    if len(message) > 2000:
+        raise ValueError("chat message is too long")
+    history = payload.get("history", [])
+    if not isinstance(history, list):
+        raise ValueError("chat history must be a list")
+    messages: list[dict[str, str]] = []
+    for item in history[-10:]:
+        if not isinstance(item, dict) or item.get("role") not in {"user", "assistant"}:
+            continue
+        content = str(item.get("content", "")).strip()[:4000]
+        if content:
+            messages.append({"role": str(item["role"]), "content": content})
+    if sum(len(item["content"]) for item in messages) > 16_000:
+        raise ValueError("chat history is too long; clear the conversation")
+    messages.append({"role": "user", "content": message})
+    return messages
+
+
 def build_service(settings: Settings) -> tuple[CardService, LlamaCppClient]:
     model = LlamaCppClient(
         settings.llm_url, settings.llm_model, settings.request_timeout
@@ -161,19 +183,41 @@ def handler_factory(
                     parsed_limit = 12
                 self._json(service.store.recent(parsed_limit))
                 return
+            if parsed.path == "/api/observations":
+                limit = parse_qs(parsed.query).get("limit", ["12"])[0]
+                try:
+                    parsed_limit = int(limit)
+                except ValueError:
+                    parsed_limit = 12
+                self._json(service.store.recent_observations(parsed_limit))
+                return
             self._json({"error": "not found"}, HTTPStatus.NOT_FOUND)
 
         def do_POST(self) -> None:  # noqa: N802
-            if urlparse(self.path).path != "/api/cards":
+            path = urlparse(self.path).path
+            if path not in {"/api/cards", "/api/chat"}:
                 self._json({"error": "not found"}, HTTPStatus.NOT_FOUND)
                 return
             try:
                 length = int(self.headers.get("Content-Length", "0"))
-                if length < 2 or length > 16_384:
+                if length < 2 or length > 32_768:
                     raise ValueError("invalid request size")
                 payload = json.loads(self.rfile.read(length).decode("utf-8"))
                 if not isinstance(payload, dict):
                     raise ValueError("request must be a JSON object")
+                if path == "/api/chat":
+                    messages = chat_messages(payload)
+                    result = model.chat(messages)
+                    observation = service.store.save_observation(
+                        messages[-1]["content"],
+                        result["message"],
+                        result["model"],
+                        result["metrics"],
+                    )
+                    result["observation_id"] = observation["observation_id"]
+                    result["created_at"] = observation["created_at"]
+                    self._json(result, HTTPStatus.CREATED)
+                    return
                 card = service.create(str(payload.get("query", "")), str(payload.get("mode", "word")))
             except (ValueError, json.JSONDecodeError) as exc:
                 self._json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)

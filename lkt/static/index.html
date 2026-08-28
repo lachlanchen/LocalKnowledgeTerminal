@@ -8,111 +8,144 @@
     <link rel="stylesheet" href="/assets/app.css" />
   </head>
   <body>
-    <div class="ambient ambient-one"></div>
-    <div class="ambient ambient-two"></div>
-    <header class="topbar">
-      <a class="brand" href="/" aria-label="Local Knowledge Terminal home">
-        <span class="brand-mark">LKT</span>
-        <span><strong>Local Knowledge Terminal</strong><small>book-grounded · private · local</small></span>
-      </a>
-      <div class="system-state" id="system-state">
-        <span class="pulse"></span><span id="state-label">Checking the terminal…</span>
-      </div>
-    </header>
+    <div class="product-frame">
+      <header class="topbar product-chrome">
+        <a class="brand" href="/" aria-label="Local Knowledge Terminal home">
+          <span class="brand-mark">LKT</span>
+          <span><strong>Local Knowledge Terminal</strong><small>PRIVATE BOOK INTELLIGENCE</small></span>
+        </a>
 
-    <main class="shell">
-      <aside class="console-panel">
-        <p class="kicker">CREATE A CARD</p>
-        <h1>Your books,<br />made memorable.</h1>
-        <p class="intro">Explore word origins, draw a book answer, or open a question across English, Japanese, and Chinese.</p>
+        <nav class="mode-switch" aria-label="Experience">
+          <button class="mode active" data-mode="word"><span>01</span>Word origin</button>
+          <button class="mode" data-mode="knowledge"><span>02</span>Word card</button>
+          <button class="mode" data-mode="answer"><span>03</span>Answer</button>
+          <button class="mode" data-mode="question"><span>04</span>Question</button>
+          <button class="mode" data-mode="chat"><span>LAB</span>Model lab</button>
+        </nav>
 
-        <div class="mode-switch" role="group" aria-label="Card mode">
-          <button class="mode active" data-mode="word"><span>Aa</span>Word origin</button>
-          <button class="mode" data-mode="knowledge"><span>▤</span>Word card</button>
-          <button class="mode" data-mode="answer"><span>✦</span>Book answer</button>
-          <button class="mode" data-mode="question"><span>?</span>Book question</button>
-        </div>
-
-        <form id="card-form">
-          <label for="query" id="query-label">Enter a word</label>
-          <div class="query-box">
-            <input id="query" name="query" maxlength="240" autocomplete="off" placeholder="Try “abacus”" required />
-            <button type="submit" id="generate-button" aria-label="Generate card">→</button>
+        <div class="header-tools">
+          <div class="system-state" id="system-state">
+            <span class="pulse"></span><span id="state-label">Starting…</span>
           </div>
-        </form>
-
-        <div class="examples" aria-label="Examples">
-          <button data-query="abacus">abacus</button>
-          <button data-query="algorithm">algorithm</button>
-          <button data-query="memory">memory</button>
+          <button class="fullscreen-button" id="fullscreen-button" type="button" title="Fullscreen display">⛶</button>
         </div>
+      </header>
 
-        <div class="divider"></div>
-        <div class="history-head"><span>RECENT CARDS</span><button id="refresh-history" title="Refresh">↻</button></div>
-        <div id="history" class="history"><p class="quiet">No cards yet.</p></div>
+      <main class="stage" aria-live="polite">
+        <section class="empty-state" id="empty-state">
+          <div class="empty-index">字</div>
+          <div>
+            <p class="kicker" id="empty-kicker">WORD ORIGINS · MULTILINGUAL MEMORY</p>
+            <h1 id="empty-title">Trace a word through time, then carry it across languages.</h1>
+            <p id="empty-description">Every historical claim stays beside the passage and page that supports it.</p>
+          </div>
+        </section>
 
-        <footer>
-          <span>Qwen3 · on-device</span>
-          <span>No cloud required</span>
-        </footer>
-      </aside>
+        <section class="loading-state hidden" id="loading-state">
+          <div class="loading-mark"><i></i><i></i><i></i></div>
+          <p class="kicker">READING LOCALLY</p>
+          <h1>Composing the next card…</h1>
+          <p>Qwen is working on this Raspberry Pi. Your text stays here.</p>
+        </section>
 
-      <section class="workspace" aria-live="polite">
-        <div class="empty-state" id="empty-state">
-          <div class="orbit"><span>字</span><span>語</span><span>源</span></div>
-          <p class="kicker" id="empty-kicker">WORD ORIGINS · MULTILINGUAL MEMORY</p>
-          <h2 id="empty-title">Trace a word through time,<br />then carry it across languages.</h2>
-          <p id="empty-description">Every historical claim stays beside the passage and page that supports it.</p>
-        </div>
+        <section class="error-state hidden" id="error-state">
+          <span class="error-mark">!</span>
+          <p class="kicker">CARD NOT CREATED</p>
+          <h1>Something interrupted the composition.</h1>
+          <p id="error-message"></p>
+        </section>
 
-        <div class="loading-state hidden" id="loading-state">
-          <div class="loader"><i></i><i></i><i></i></div>
-          <p class="kicker">READING THE BOOK</p>
-          <h2>Composing locally on the Pi…</h2>
-          <p>A 4B model values patience. Your text never leaves this device.</p>
-        </div>
-
-        <div class="error-state hidden" id="error-state">
-          <span>!</span><h2>That card could not be composed.</h2><p id="error-message"></p>
-        </div>
+        <section class="chat-view hidden" id="chat-view">
+          <header class="lab-head">
+            <div>
+              <p class="kicker">MODEL LAB · RAW LOCAL OUTPUT</p>
+              <h1>Qwen3-4B quality &amp; speed</h1>
+            </div>
+            <div class="lab-note">Uncited · saved separately · never mixed with book cards</div>
+          </header>
+          <div class="chat-messages" id="chat-messages">
+            <article class="chat-message assistant">
+              <header><span>QWEN · LOCAL</span></header>
+              <p>Enter a prompt below. The response will include generation time and token speed. Choose a book mode when you need cited knowledge.</p>
+            </article>
+          </div>
+          <footer class="lab-actions"><button id="clear-chat" type="button">Clear visible session</button></footer>
+        </section>
 
         <article class="card-view hidden" id="card-view">
-          <div class="card-main">
-            <div class="card-meta"><span id="card-mode">WORD ORIGIN</span><span id="card-model"></span></div>
-            <h2 id="card-title"></h2>
-            <p class="subtitle" id="card-subtitle"></p>
+          <main class="card-main">
+            <header class="card-header">
+              <div class="card-meta"><span id="card-mode">WORD ORIGIN</span><span id="card-model"></span></div>
+              <h1 id="card-title"></h1>
+              <p class="subtitle" id="card-subtitle"></p>
+            </header>
+
             <p class="summary" id="card-summary"></p>
 
-            <section class="origin-section">
+            <section class="narrative-section">
               <p class="section-label" id="narrative-label">ORIGIN STORY</p>
               <p id="origin-story"></p>
             </section>
 
-            <section class="language-grid">
-              <div class="language-block english-block">
-                <span>EN</span><h3 id="english-term"></h3><small id="english-pronunciation"></small><p id="english-meaning"></p>
-              </div>
-              <div class="language-block japanese-block">
-                <span>日本語</span><h3 id="japanese-ruby"></h3><p id="japanese-meaning"></p>
-              </div>
-              <div class="language-block chinese-block">
-                <span>中文</span><h3 id="chinese-term"></h3><small id="chinese-pinyin"></small><p id="chinese-meaning"></p>
-              </div>
+            <section class="language-grid" aria-label="Multilingual card">
+              <article class="language-block english-block">
+                <span>ENGLISH</span><h2 id="english-term"></h2><small id="english-pronunciation"></small><p id="english-meaning"></p>
+              </article>
+              <article class="language-block japanese-block">
+                <span>日本語</span><h2 id="japanese-ruby"></h2><p id="japanese-meaning"></p>
+              </article>
+              <article class="language-block chinese-block">
+                <span>中文</span><h2 id="chinese-term"></h2><small id="chinese-pinyin"></small><p id="chinese-meaning"></p>
+              </article>
             </section>
 
-            <section class="memory-section"><span>REMEMBER</span><p id="memory-hook"></p></section>
-            <section class="points-section"><p class="section-label">KEEP IN MIND</p><ul id="key-points"></ul></section>
-            <section class="related-section"><p class="section-label">CONNECTED WORDS</p><div id="related-terms"></div></section>
-          </div>
+            <div class="card-notes">
+              <section class="memory-section"><span>REMEMBER</span><p id="memory-hook"></p></section>
+              <section class="points-section"><p class="section-label">ESSENTIAL</p><ul id="key-points"></ul></section>
+            </div>
+            <section class="related-section"><p class="section-label">CONTINUE WITH</p><div id="related-terms"></div></section>
+          </main>
 
           <aside class="evidence-panel">
-            <div class="evidence-head"><span class="book-icon">▰</span><div><p>BOOK EVIDENCE</p><strong id="evidence-title">Word Origins</strong></div></div>
+            <header class="evidence-head">
+              <span class="book-icon">B</span>
+              <div><p>BOOK EVIDENCE</p><strong id="evidence-title">Word Origins</strong></div>
+            </header>
             <div id="evidence-list"></div>
-            <div class="grounded-seal"><span>✓</span><div><strong>Grounded output</strong><small>Citations are attached by retrieval, not invented by the model.</small></div></div>
+            <footer class="grounded-seal"><span>✓</span><div><strong>Grounded</strong><small>Citations come from retrieval, not the model.</small></div></footer>
           </aside>
         </article>
-      </section>
-    </main>
+      </main>
+
+      <footer class="control-deck product-chrome">
+        <section class="library-strip">
+          <div class="library-head"><span>ACQUIRED KNOWLEDGE</span><button id="refresh-history" title="Refresh">↻</button></div>
+          <div class="history" id="history"><p class="quiet">No cards yet.</p></div>
+        </section>
+
+        <nav class="transport" aria-label="Card carousel">
+          <button id="previous-card" type="button" title="Previous card">←</button>
+          <button id="toggle-autoplay" type="button" title="Pause carousel">Ⅱ</button>
+          <button id="next-card" type="button" title="Next card">→</button>
+          <span id="carousel-position">0 / 0</span>
+        </nav>
+
+        <section class="composer">
+          <form id="card-form">
+            <label for="query" id="query-label">Enter a word</label>
+            <div class="query-box">
+              <input id="query" name="query" maxlength="2000" autocomplete="off" placeholder="Try “abacus”" required />
+              <button type="submit" id="generate-button" aria-label="Create">Create</button>
+            </div>
+          </form>
+          <div class="examples" aria-label="Quick prompts">
+            <button data-query="abacus">abacus</button>
+            <button data-query="algorithm">algorithm</button>
+            <button data-query="memory">memory</button>
+          </div>
+        </section>
+      </footer>
+    </div>
     <script src="/assets/app.js" defer></script>
   </body>
 </html>

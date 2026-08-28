@@ -18,6 +18,20 @@ The browser does not call llama.cpp directly. The e-ink adapter will not call
 retrieval or the model. This keeps slow generation, source fidelity, display
 refresh, and speech synthesis independently testable.
 
+The browser treats saved cards as a carousel over the acquired-knowledge
+ledger. Its fullscreen `display` mode removes navigation/composer chrome but
+renders the same card JSON, so screen, print, and future e-ink output share
+content semantics without sharing device code.
+
+Raw Chat is a deliberate diagnostic side path: the web service forwards bounded
+conversation history to the same local model and returns timing/token metrics.
+Its response has `grounded: false`, receives no citation payload, and is not
+written to card history. It is stored separately as an uncited observation with
+model, prompt, response, timestamp, and timing metrics. Repeating a request
+always invokes the model again; saved knowledge is an audit/history layer, not
+an inference cache. This prevents a quality benchmark from masquerading as RAG
+output.
+
 ## Retrieval choice
 
 Word Origins is a structured dictionary with 6,994 validated entries. Exact
