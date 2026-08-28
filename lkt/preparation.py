@@ -181,6 +181,28 @@ class PreparationPlanner:
             {f"translation:{target_language}": translation},
         )
 
+    def plan_evidence(
+        self,
+        text: str,
+        *,
+        language: str = "en",
+    ) -> PreparationPlan:
+        """Refresh retrieval alone after a source or lexical-filter revision."""
+        term_id = self.store.upsert_term(language, text, status="draft")
+        subject_key = f"term:{term_id}"
+        retrieval = self._job(
+            "retrieve-evidence",
+            subject_key,
+            term_id,
+            language=language,
+            priority=10,
+        )
+        return PreparationPlan(
+            term_id,
+            subject_key,
+            {"retrieve-evidence": retrieval},
+        )
+
     def plan_content(
         self,
         kind: str,

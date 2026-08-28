@@ -230,6 +230,24 @@ def command_plan_translation(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_plan_evidence(args: argparse.Namespace) -> int:
+    settings = _settings()
+    planner = _planner(settings, args)
+    plan = planner.plan_evidence(args.query, language=args.language)
+    print(
+        json.dumps(
+            {
+                "subject_entity_id": plan.subject_entity_id,
+                "subject_key": plan.subject_key,
+                "jobs": planner.store.jobs_for_subject(plan.subject_key),
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+    return 0
+
+
 def command_plan_content(args: argparse.Namespace) -> int:
     settings = _settings()
     planner = _planner(settings, args)
@@ -398,6 +416,16 @@ def parser() -> argparse.ArgumentParser:
     plan_translation.add_argument("--prompt-version", default="atomic-v2")
     plan_translation.add_argument("--source-fingerprint", default="")
     plan_translation.set_defaults(handler=command_plan_translation)
+
+    plan_evidence = commands.add_parser(
+        "plan-evidence",
+        help="refresh retrieval after a source or lexical-filter revision",
+    )
+    plan_evidence.add_argument("query")
+    plan_evidence.add_argument("--language", default="en")
+    plan_evidence.add_argument("--prompt-version", default="retrieval-v2")
+    plan_evidence.add_argument("--source-fingerprint", default="")
+    plan_evidence.set_defaults(handler=command_plan_evidence)
 
     plan_content = commands.add_parser(
         "plan-content",

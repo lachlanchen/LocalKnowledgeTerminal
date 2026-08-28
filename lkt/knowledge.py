@@ -1413,17 +1413,17 @@ class KnowledgeStore:
             quality_score = max(0.0, min(float(quality_score), 1.0))
         artifact_id = str(uuid.uuid4())
         with closing(self._connect()) as connection:
-            if validation_state == "accepted":
+            if validation_state in {"accepted", "candidate"}:
                 connection.execute(
                     """UPDATE job_artifacts SET validation_state = 'superseded'
-                       WHERE validation_state = 'accepted' AND stage = ? AND language = ?
+                       WHERE validation_state = ? AND stage = ? AND language = ?
                          AND job_id IN (
                              SELECT earlier.job_id FROM preparation_jobs AS earlier
                              JOIN preparation_jobs AS current
                                ON current.subject_key = earlier.subject_key
                              WHERE current.job_id = ?
                          )""",
-                    (stage.strip(), language, job_id),
+                    (validation_state, stage.strip(), language, job_id),
                 )
             connection.execute(
                 """INSERT INTO job_artifacts(

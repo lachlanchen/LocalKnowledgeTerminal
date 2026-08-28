@@ -86,6 +86,21 @@ class PreparationPlannerTests(unittest.TestCase):
             self.assertEqual(claimed["language"], "ar")
             self.assertEqual(claimed["prompt_version"], "atomic-v2")
 
+    def test_evidence_can_be_refreshed_without_replanning_downstream_work(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")
+            planner = PreparationPlanner(
+                store,
+                model="Qwen3-4B-Q4_K_M",
+                prompt_version="retrieval-v2",
+                source_fingerprint="polished-books-v2",
+            )
+            plan = planner.plan_evidence("inspection")
+            self.assertEqual(set(plan.jobs), {"retrieve-evidence"})
+            claimed = store.claim_next_job(("retrieve-evidence",))
+            self.assertEqual(claimed["prompt_version"], "retrieval-v2")
+            self.assertEqual(claimed["source_fingerprint"], "polished-books-v2")
+
     def test_answer_plan_prepares_languages_and_investigation_terms_separately(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")

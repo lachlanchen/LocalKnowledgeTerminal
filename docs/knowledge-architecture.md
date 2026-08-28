@@ -116,6 +116,11 @@ the ordinary card publication gate. Only after that gate passes does the card
 enter the Word Card carousel. A later accepted composition for the same term
 supersedes the earlier card while preserving its ledger row and atomic inputs.
 
+`plan-evidence` refreshes only the raw retrieval checkpoint after polished source
+data or lexical filtering changes. The latest raw candidate supersedes—not
+deletes—the older candidate, so downstream work consumes one current evidence
+set while the provenance ledger still explains earlier decisions.
+
 Answer and Question preparation follows the same rule: source text, each
 language, grammar parts, and investigation candidates are separate tasks. A
 meaningful selected word can start a child investigation while retaining the

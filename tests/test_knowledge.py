@@ -210,6 +210,25 @@ class KnowledgeStoreTests(unittest.TestCase):
                 ["superseded", "accepted"],
             )
             self.assertEqual(artifacts[-1]["quality_score"], 0.95)
+            retrieval_v1 = store.enqueue_job(
+                "retrieve-evidence", "term:inspection", prompt_version="retrieval-v1"
+            )
+            retrieval_v2 = store.enqueue_job(
+                "retrieve-evidence", "term:inspection", prompt_version="retrieval-v2"
+            )
+            store.save_job_artifact(
+                retrieval_v1, "retrieved-evidence", {"records": ["old"]}
+            )
+            store.save_job_artifact(
+                retrieval_v2, "retrieved-evidence", {"records": ["polished"]}
+            )
+            retrievals = store.artifacts_for_subject(
+                "term:inspection", stage="retrieved-evidence"
+            )
+            self.assertEqual(
+                [artifact["validation_state"] for artifact in retrievals],
+                ["superseded", "candidate"],
+            )
             self.assertEqual(store.status()["schema_version"], "2")
 
     def test_inquiry_history_keeps_parent_child_lineage(self) -> None:
