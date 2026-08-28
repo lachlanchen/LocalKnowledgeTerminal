@@ -12,6 +12,7 @@ class LlmParsingTests(unittest.TestCase):
     def test_origin_prompt_defines_compound_siblings(self) -> None:
         self.assertIn("component-a parent earlier-compound", WORD_ORIGIN_PROMPT)
         self.assertIn("Components are siblings", WORD_ORIGIN_PROMPT)
+        self.assertIn("ruby token text must concatenate exactly", WORD_ORIGIN_PROMPT)
 
     def test_extracts_fenced_json_after_thinking(self) -> None:
         result = _extract_json(

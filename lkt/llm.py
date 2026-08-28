@@ -64,7 +64,7 @@ Required JSON shape:
   ],
   "key_points": ["at most 2 concise points"],
   "english": {"term": "", "pronunciation": "", "meaning": ""},
-  "japanese": {"term": "established equivalent", "reading": "hiragana or katakana", "meaning": "short Japanese meaning"},
+  "japanese": {"term": "established equivalent", "reading": "exact hiragana or katakana", "meaning": "short meaning written in Japanese", "ruby_tokens": [{"t": "kanji or kana segment", "r": "exact kana reading; omit for plain kana"}]},
   "chinese": {"simplified": "established equivalent", "traditional": "", "pinyin": "tone-marked pinyin", "meaning": "short Chinese meaning"},
   "memory_hook": "short memorable connection",
   "related_terms": []
@@ -78,7 +78,8 @@ earlier-compound. Components are siblings and must never parent one another unle
 derived from the other. Do not force a linear timeline when the word has multiple components.
 Before returning, check that every parent is the later form receiving that node. Use Unicode
 directly and established Japanese/Chinese equivalents instead of phonetic imitations. Everything
-must fit one screen. Keep the response under 360 words. /no_think"""
+must fit one screen. Japanese ruby token text must concatenate exactly to japanese.term. Keep the
+response under 360 words. /no_think"""
 
 
 WORD_CARD_PROMPT = """You are the independent multilingual Word Card engine in Local Knowledge
@@ -90,19 +91,23 @@ Required JSON shape:
 {
   "title": "the English word",
   "subtitle": "one vivid orientation line",
-  "summary_en": "one concise definition",
+  "summary_en": "one concise modern definition, not the literal ancient origin",
   "origin_story": "one short useful note grounded in the excerpts",
   "key_points": ["at most 2 concise points"],
-  "english": {"term": "", "pronunciation": "IPA", "meaning": "short meaning"},
-  "japanese": {"term": "established equivalent", "reading": "hiragana or katakana", "meaning": "short Japanese meaning"},
-  "chinese": {"simplified": "established equivalent", "traditional": "", "pinyin": "tone-marked pinyin", "meaning": "short Chinese meaning"},
-  "french": {"term": "established equivalent", "pronunciation": "IPA if known", "meaning": "short French meaning"},
-  "arabic": {"term": "established equivalent", "reading": "simple transliteration", "meaning": "short Arabic meaning"},
+  "english": {"term": "", "pronunciation": "IPA", "meaning": "short modern English meaning"},
+  "japanese": {"term": "established equivalent", "reading": "exact kana reading", "meaning": "short meaning written in Japanese", "ruby_tokens": [{"t": "kanji or kana segment", "r": "exact kana reading; omit for plain kana"}]},
+  "chinese": {"simplified": "established equivalent", "traditional": "", "pinyin": "tone-marked pinyin", "meaning": "short meaning written in Chinese"},
+  "french": {"term": "established equivalent", "pronunciation": "IPA if known", "meaning": "short meaning written in French"},
+  "arabic": {"term": "established modern Arabic equivalent", "reading": "simple transliteration", "meaning": "short meaning written in Arabic"},
   "memory_hook": "one memorable cross-language connection",
   "related_terms": []
 }
-Prefer lexical equivalents over transliterations. Use Unicode directly. Keep every meaning to one
-short phrase and the whole response under 300 words so it fits one screen. /no_think"""
+All five term fields must express the same current everyday sense, not merely the literal ancient
+root. Prefer common lexical equivalents over transliterations. Japanese ruby token text must
+concatenate exactly to japanese.term. If you are not confident in a French or Arabic equivalent,
+return an empty object for that language instead of guessing. Before returning, verify each reading
+against its term and keep every meaning in its requested language. Use Unicode directly. Keep every
+meaning to one short phrase and the whole response under 300 words so it fits one screen. /no_think"""
 
 
 ANSWER_PROMPT = """You are the independent Book Answer engine in Local Knowledge Terminal.

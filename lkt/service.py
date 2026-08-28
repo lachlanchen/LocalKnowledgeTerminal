@@ -49,6 +49,15 @@ def _ruby_tokens(value: Any) -> list[dict[str, str]]:
     return result
 
 
+def _ruby_tokens_for_term(value: Any, term: str) -> list[dict[str, str]]:
+    """Accept generated ruby only when its visible text exactly covers the term."""
+
+    tokens = _ruby_tokens(value)
+    visible = re.sub(r"\s+", "", "".join(item["t"] for item in tokens))
+    expected = re.sub(r"\s+", "", term)
+    return tokens if tokens and visible == expected else []
+
+
 def _related(value: Any) -> list[dict[str, str]]:
     if not isinstance(value, list):
         return []
@@ -174,6 +183,14 @@ class CardService:
         )
         japanese = _language(
             generated.get("japanese"), ("term", "reading", "meaning")
+        )
+        generated_japanese = (
+            generated.get("japanese")
+            if isinstance(generated.get("japanese"), dict)
+            else {}
+        )
+        japanese["ruby_tokens"] = _ruby_tokens_for_term(
+            generated_japanese.get("ruby_tokens"), japanese["term"]
         )
         chinese = _language(
             generated.get("chinese"),

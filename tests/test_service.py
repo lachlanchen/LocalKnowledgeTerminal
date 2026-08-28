@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from lkt.models import Evidence
-from lkt.service import CardService, _origin_graph
+from lkt.service import CardService, _origin_graph, _ruby_tokens_for_term
 from lkt.store import CardStore
 
 from test_card_books import make_card_book, record
@@ -40,6 +40,14 @@ class FakeModel:
 
 
 class ServiceTests(unittest.TestCase):
+    def test_generated_ruby_must_cover_the_exact_term(self) -> None:
+        tokens = [
+            {"t": "\u4e00\u6642", "r": "\u3044\u3061\u3058"},
+            {"t": "\u7684", "r": "\u3066\u304d"},
+        ]
+        self.assertEqual(tokens, _ruby_tokens_for_term(tokens, "\u4e00\u6642\u7684"))
+        self.assertEqual([], _ruby_tokens_for_term(tokens, "\u77ed\u6682"))
+
     def test_origin_graph_preserves_branching_parent_links(self) -> None:
         evidence = [
             Evidence("entry-1", "sycophant", "Greek", "", (1,), "Greek roots")
