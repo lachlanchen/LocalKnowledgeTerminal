@@ -155,8 +155,8 @@ $env:LKT_DATA_DIR="$PWD\var"
 python -m lkt.cli ingest "C:\path\to\word-origins-pdf2tex\json\entries.jsonl"
 python -m lkt.cli ingest-card-book answer "C:\path\to\book-of-answers\json\multilingual-items.jsonl"
 python -m lkt.cli ingest-card-book question "C:\path\to\book-of-questions\json\multilingual-items.jsonl"
-python -m lkt.cli ingest-morphology root "C:\path\to\root-dictionary\json\entries-polished.jsonl"
-python -m lkt.cli ingest-morphology affix "C:\path\to\affix-dictionary\json\entries-polished.jsonl"
+python -m lkt.cli ingest-morphology root "C:\path\to\root-dictionary\output\json\entries-editorial.jsonl"
+python -m lkt.cli ingest-morphology affix "C:\path\to\affix-dictionary\output\json\entries-editorial.jsonl"
 python -m lkt.cli search abacus
 python -m lkt.cli search technology --corpus question
 python -m lkt.cli knowledge-status
@@ -241,8 +241,8 @@ sudo ./scripts/install_pi.sh \
   /path/to/entries.jsonl \
   /path/to/answers/multilingual-items.jsonl \
   /path/to/questions/multilingual-items.jsonl \
-  /path/to/root/entries-polished.jsonl \
-  /path/to/affix/entries-polished.jsonl
+  /path/to/root/entries-editorial.jsonl \
+  /path/to/affix/entries-editorial.jsonl
 ./scripts/smoke_test.sh
 ```
 

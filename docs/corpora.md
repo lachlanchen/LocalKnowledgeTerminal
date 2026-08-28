@@ -9,8 +9,14 @@ content hashes are documented here.
 | Word Origins `entries.jsonl` | 6,994 | exact headword + lexical FTS5 | `b65a2845e649451a1f5d20013d150b4a7668afcb09e794756867fd843918adf5` |
 | `book-of-answers-paul-card-book` multilingual items | 318 | deterministic query-seeded draw | `247f7b0e56e81703453f60462ff0bf73f6fe6b9c9feec014e5b5da670977e8f1` |
 | `book-of-questions-stock-card-book` multilingual items | 291 | multilingual FTS5 + deterministic fallback | `f265ac47905cf6475027159da8821fb82e1857bee885c95d6127166e8ba73ff0` |
-| New Oriental English Root Dictionary `entries-polished.jsonl` | 6,327 | exact headword + morphology FTS5 | `102385447293126471ba47015a235c307f15d4473399c14203972738efe07d8f` |
-| English Affix Dictionary `entries-polished.jsonl` | 5,189 | exact headword + morphology FTS5 | `fa3a395a010281055676280f44220ebf1ad244d999393b95decedd5880cee68a` |
+| New Oriental English Root Dictionary editorial `entries-editorial.jsonl` | 6,327 | exact headword + morphology FTS5 | `c5014c0d820a03bc16d0e88a5b583053c08e4c99c76665426d14ea66fb3135c5` |
+| English Affix Dictionary editorial `entries-editorial.jsonl` | 5,189 | exact headword + morphology FTS5 | `a0d419c7c1a053313413cf448299f32d8adc6d0efbfef9257e6b2d481053b574` |
+
+The two editorial sources were promoted only after their Nutstore validation
+reports recorded canonical content equality, zero ungrounded text, and a passed
+layout/content gate. Runtime deployment copies only these JSONL files and builds
+5.8 MB of SQLite indexes; PDFs, TeX, images, and editorial work queues stay off
+the Pi. The pre-editorial SQLite pair is retained as a rollback snapshot.
 
 ## Compact public correction sources
 

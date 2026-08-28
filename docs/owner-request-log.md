@@ -355,3 +355,15 @@ source was live dictation and may contain recognition errors:
   word. Keep these views distinct from the complete Word Origin history.
 - Continue refining a calm, artistic, attractive one-page presentation while
   protecting readability and offline robustness.
+
+## Polished Root and Affix RAG sources
+
+- Use the completed polished/editorial versions of both the ROOT and AFFIX
+  dictionaries in the Nutstore `Share/LLMRAG` editorial-polish workspace.
+- Transfer only the finished JSON/JSONL needed to build retrieval indexes. Do
+  not copy PDFs, TeX, page images, review tasks, or the whole book workspace to
+  the Pi; storage efficiency matters.
+- Treat these books as dynamic retrieval references. SQLite/JSONL is an
+  implementation choice: retrieve a small relevant context, combine it with
+  compact dictionary correction, and let local Qwen produce bounded dynamic
+  results. Optimize for correctness, stable output, speed, and robustness.
