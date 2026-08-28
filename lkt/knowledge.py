@@ -485,12 +485,20 @@ class KnowledgeStore:
         kind = kind.strip().lower() or "word"
         canonical_key = f"term:{language}:{kind}:{normalized}"
         with closing(self._connect()) as connection:
+            resolved_payload = payload
+            if resolved_payload is None:
+                existing = connection.execute(
+                    "SELECT payload FROM entities WHERE canonical_key = ?",
+                    (canonical_key,),
+                ).fetchone()
+                if existing is not None:
+                    resolved_payload = json.loads(existing["payload"])
             entity_id = self._upsert_entity(
                 connection,
                 "term",
                 canonical_key,
                 text,
-                payload,
+                resolved_payload,
                 status,
                 quality_score,
             )
@@ -1517,6 +1525,86 @@ class KnowledgeStore:
         result = dict(row)
         result["payload"] = json.loads(result["payload"])
         return result
+
+    def content_record(self, entity_id: str) -> dict[str, Any]:
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                """SELECT content.entity_id, content.kind, content.language,
+                          content.text, content.normalized, content.source_key,
+                          entity.status, entity.quality_score, entity.payload
+                   FROM content_items AS content JOIN entities AS entity
+                     ON entity.entity_id = content.entity_id
+                   WHERE content.entity_id = ?""",
+                (entity_id,),
+            ).fetchone()
+        if row is None:
+            raise KeyError(entity_id)
+        result = dict(row)
+        result["payload"] = json.loads(result["payload"])
+        return result
+
+    def content_for_card(
+        self, card_id: str, language: str = "en"
+    ) -> dict[str, Any] | None:
+        card_id = card_id.strip()
+        if not card_id:
+            return None
+        language = _language(language)
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                """SELECT content.entity_id
+                   FROM content_items AS content
+                   JOIN entity_properties AS property
+                     ON property.entity_id = content.entity_id
+                   WHERE property.name = 'source_card_id' AND property.value = ?
+                     AND content.language = ?
+                   LIMIT 1""",
+                (json.dumps(card_id, ensure_ascii=False), language),
+            ).fetchone()
+        return self.content_record(str(row["entity_id"])) if row else None
+
+    def evidence_for_entity(self, entity_id: str) -> list[dict[str, Any]]:
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """SELECT evidence.evidence_id, evidence.corpus_id,
+                          evidence.source_entry_id, evidence.source_hash,
+                          evidence.locator, evidence.excerpt, evidence.payload,
+                          link.claim, link.confidence
+                   FROM entity_evidence AS link
+                   JOIN evidence_records AS evidence
+                     ON evidence.evidence_id = link.evidence_id
+                   WHERE link.entity_id = ?
+                   ORDER BY evidence.corpus_id, evidence.source_entry_id""",
+                (entity_id,),
+            ).fetchall()
+        return [
+            {**dict(row), "payload": json.loads(row["payload"])} for row in rows
+        ]
+
+    def investigation_terms(self, content_entity_id: str) -> list[dict[str, Any]]:
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """SELECT term.entity_id, term.text, term.normalized, term.kind,
+                          edge.confidence, edge.properties
+                   FROM entity_edges AS edge
+                   JOIN terms AS term ON term.entity_id = edge.target_entity_id
+                   JOIN entities AS entity ON entity.entity_id = term.entity_id
+                   WHERE edge.source_entity_id = ?
+                     AND edge.relation = 'contains-investigation-term'
+                     AND edge.status = 'accepted' AND entity.status = 'accepted'""",
+                (content_entity_id,),
+            ).fetchall()
+        values = [
+            {
+                "entity_id": str(row["entity_id"]),
+                "term": str(row["text"]),
+                "kind": str(row["kind"]),
+                "confidence": float(row["confidence"]),
+                **json.loads(row["properties"]),
+            }
+            for row in rows
+        ]
+        return sorted(values, key=lambda item: (int(item.get("ordinal", 999)), item["term"]))
 
     def artifacts_for_subject(
         self,

@@ -24,6 +24,7 @@ SUPPORTED_ATOMIC_JOBS = (
     "prepare-meaning",
     "split-morphemes",
     "expand-origin-branches",
+    "extract-investigation-terms",
     "prepare-translation",
     "prepare-pronunciation",
     "prepare-grammar-properties",
@@ -51,6 +52,12 @@ _LANGUAGE_NAMES = {
     "ar": "Arabic",
 }
 _ARABIC_CONNECTORS = {"أو", "او", "و"}
+_INVESTIGATION_STOPWORDS = {
+    "about", "after", "again", "against", "between", "could", "from",
+    "have", "into", "more", "other", "people", "same", "than", "that",
+    "their", "there", "these", "they", "this", "those", "through", "very",
+    "what", "when", "where", "which", "while", "with", "would", "your",
+}
 
 
 _ORIGIN_LANGUAGE_CODES = {
@@ -393,6 +400,8 @@ class PreparationWorker:
                 artifact_id = self._split_morphemes(job)
             elif job["job_type"] == "expand-origin-branches":
                 artifact_id = self._expand_origin_branches(job)
+            elif job["job_type"] == "extract-investigation-terms":
+                artifact_id = self._extract_investigation_terms(job)
             elif job["job_type"] == "prepare-translation":
                 artifact_id = self._prepare_translation(job)
             elif job["job_type"] == "prepare-pronunciation":
@@ -1071,6 +1080,154 @@ graph over a decorative graph."""
             "accepted-origin-branches",
             accepted,
             language=source["language"],
+            validation_state="accepted",
+            quality_score=quality,
+        )
+
+    def _extract_investigation_terms(self, job: dict[str, Any]) -> str:
+        source = self.store.content_record(str(job["subject_entity_id"]))
+        if source["language"] != "en" or source["kind"] not in {"answer", "question"}:
+            raise ValueError("investigation extraction requires English Answer/Question content")
+        evidence = self.store.evidence_for_entity(source["entity_id"])
+        if not evidence:
+            raise ValueError("reviewed content evidence is missing")
+        words = re.findall(r"[A-Za-z]+(?:['-][A-Za-z]+)*", source["text"])
+        by_normalized: dict[str, str] = {}
+        for word in words:
+            by_normalized.setdefault(word.casefold(), word)
+        prompt = f"""REVIEWED {source['kind'].upper()} TEXT:
+{source['text']}
+
+Return exactly one JSON object with `terms`, an array of one to three useful
+English vocabulary items. Each item has:
+surface: one complete word copied exactly from the reviewed text
+note: why it is worth investigating, at most 10 English words
+confidence: number from 0 to 1
+
+Choose meaningful content words, not names, numbers, auxiliaries, determiners,
+or generic glue words. Do not change an inflected form, invent a lemma, explain
+the sentence, add translations, or include markdown."""
+        completion = self.model.complete_json(
+            "You select a few reusable words from fixed reviewed text.",
+            prompt,
+            max_tokens=192,
+        )
+        value = completion.get("value")
+        self.store.save_job_artifact(
+            job["job_id"],
+            "model-investigation-draft",
+            {
+                "source_entity_id": source["entity_id"],
+                "value": value,
+                "model": completion.get("model", self.model.model_name),
+                "metrics": completion.get("metrics", {}),
+            },
+            language="en",
+            validation_state="candidate",
+        )
+        raw_terms = value.get("terms") if isinstance(value, dict) else None
+        if not isinstance(raw_terms, list) or not 1 <= len(raw_terms) <= 3:
+            raise ValueError("investigation task returned an invalid number of terms")
+
+        cleaned: list[dict[str, Any]] = []
+        rejected: list[dict[str, str]] = []
+        seen: set[str] = set()
+        for raw in raw_terms:
+            if not isinstance(raw, dict):
+                rejected.append({"surface": "", "reason": "not an object"})
+                continue
+            requested = str(raw.get("surface", "")).strip()
+            normalized = requested.casefold()
+            surface = by_normalized.get(normalized, "")
+            if not surface:
+                rejected.append({"surface": requested, "reason": "absent from source text"})
+                continue
+            if normalized in _INVESTIGATION_STOPWORDS or len(normalized) < 4:
+                rejected.append({"surface": requested, "reason": "too generic"})
+                continue
+            if normalized in seen:
+                rejected.append({"surface": requested, "reason": "duplicate"})
+                continue
+            note = _clean_usage_note(raw.get("note", ""))
+            if not note or len(note.split()) > 10:
+                rejected.append({"surface": requested, "reason": "invalid note"})
+                continue
+            try:
+                confidence = max(0.0, min(float(raw.get("confidence", 0.0)), 0.75))
+            except (TypeError, ValueError):
+                rejected.append({"surface": requested, "reason": "invalid confidence"})
+                continue
+            if confidence < 0.55:
+                rejected.append({"surface": requested, "reason": "low confidence"})
+                continue
+            seen.add(normalized)
+            cleaned.append(
+                {
+                    "surface": surface,
+                    "term": normalized,
+                    "note": note,
+                    "confidence": confidence,
+                }
+            )
+        if not cleaned:
+            raise ValueError("investigation task produced no distinct terms")
+
+        evidence_ids = [str(item["evidence_id"]) for item in evidence]
+        accepted_terms: list[dict[str, Any]] = []
+        for ordinal, item in enumerate(cleaned):
+            term_id = self.store.upsert_term(
+                "en",
+                item["term"],
+                status="accepted",
+                quality_score=item["confidence"],
+            )
+            self.store.add_edge(
+                source["entity_id"],
+                term_id,
+                "contains-investigation-term",
+                basis="model",
+                confidence=item["confidence"],
+                properties={
+                    "ordinal": ordinal,
+                    "surface": item["surface"],
+                    "note": item["note"],
+                    "selection_basis": "bounded-model-selection",
+                    "source_key": source["source_key"],
+                },
+            )
+            for evidence_id in evidence_ids:
+                self.store.link_evidence(
+                    term_id,
+                    evidence_id,
+                    claim=f"appears in reviewed {source['kind']} text as {item['surface']!r}",
+                    confidence=1.0,
+                )
+            accepted_terms.append({**item, "term_id": term_id, "ordinal": ordinal})
+
+        accepted = {
+            "source_entity_id": source["entity_id"],
+            "source_key": source["source_key"],
+            "kind": source["kind"],
+            "terms": accepted_terms,
+            "rejected_terms": rejected,
+            "evidence_ids": evidence_ids,
+            "model": completion.get("model", self.model.model_name),
+            "metrics": completion.get("metrics", {}),
+        }
+        self.store.record_revision(
+            source["entity_id"],
+            accepted,
+            model=str(accepted["model"]),
+            prompt_version=str(job.get("prompt_version", "")),
+            reason="bounded investigation-term extraction",
+            accepted=True,
+        )
+        quality = min(item["confidence"] for item in accepted_terms)
+        return self.store.save_job_artifact(
+            job["job_id"],
+            "accepted-investigation-terms",
+            accepted,
+            language="en",
             validation_state="accepted",
             quality_score=quality,
         )

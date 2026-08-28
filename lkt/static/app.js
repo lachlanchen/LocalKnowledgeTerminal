@@ -276,6 +276,17 @@ function buildSentenceSlides(card) {
       slides.push({ language: "chinese", label: "中文 · PINYIN", term, tokens: [], reading: card.chinese.pinyin });
     });
   }
+  const investigationTerms = Array.isArray(card.extensions?.investigation_terms)
+    ? card.extensions.investigation_terms.slice(0, 3)
+    : [];
+  if (investigationTerms.length) {
+    slides.push({
+      language: "investigation",
+      label: "EXPLORE · WORD CARD",
+      terms: investigationTerms,
+      sourceCardId: card.card_id,
+    });
+  }
   return slides;
 }
 
@@ -296,6 +307,28 @@ function showSentenceSlide(requestedIndex) {
   const stage = $("#sentence-stage");
   stage.className = `sentence-stage language-${slide.language}`;
   text("#sentence-language", slide.label);
+  if (slide.language === "investigation") {
+    const panel = element("div", "investigation-slide");
+    panel.append(element("span", "investigation-kicker", "CHOOSE ONE WORD TO CONTINUE"));
+    slide.terms.forEach((item) => {
+      const button = element("button", "investigation-term");
+      button.type = "button";
+      button.append(
+        element("strong", "", item.term),
+        element("span", "", item.note || "Open its multilingual Word Card"),
+      );
+      button.addEventListener("click", () => submitQuery(
+        item.term,
+        "knowledge",
+        { source_card_id: slide.sourceCardId },
+      ));
+      panel.append(button);
+    });
+    stage.replaceChildren(panel);
+    text("#sentence-position", `${sentenceSlideIndex + 1} / ${sentenceSlides.length}`);
+    all("#sentence-dots button").forEach((button, index) => button.classList.toggle("active", index === sentenceSlideIndex));
+    return;
+  }
   const content = element("p", "sentence-text");
   stage.replaceChildren(content);
   if (slide.language === "english") {
@@ -1011,7 +1044,7 @@ async function loadObservations() {
   }
 }
 
-async function submitQuery(query, requestedMode = mode) {
+async function submitQuery(query, requestedMode = mode, context = {}) {
   query = String(query || "").trim();
   if (!query) return;
   setMode(requestedMode);
@@ -1026,7 +1059,7 @@ async function submitQuery(query, requestedMode = mode) {
     const response = await fetch("/api/cards", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query, mode }),
+      body: JSON.stringify({ query, mode, ...context }),
     });
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || `Request failed (${response.status})`);

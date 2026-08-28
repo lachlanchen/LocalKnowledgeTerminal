@@ -363,6 +363,24 @@ def command_plan_content(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_plan_card_investigations(args: argparse.Namespace) -> int:
+    settings = _settings()
+    planner = _planner(settings, args)
+    plan = planner.plan_card_investigations(args.card_id)
+    print(
+        json.dumps(
+            {
+                "subject_entity_id": plan.subject_entity_id,
+                "subject_key": plan.subject_key,
+                "jobs": planner.store.jobs_for_subject(plan.subject_key),
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+    return 0
+
+
 def command_work_atomic(args: argparse.Namespace) -> int:
     settings = _settings()
     worker = build_worker(
@@ -577,6 +595,15 @@ def parser() -> argparse.ArgumentParser:
     plan_content.add_argument("--prompt-version", default="atomic-v1")
     plan_content.add_argument("--source-fingerprint", default="")
     plan_content.set_defaults(handler=command_plan_content)
+
+    plan_card_investigations = commands.add_parser(
+        "plan-card-investigations",
+        help="enqueue one bounded vocabulary selection from an accepted book card",
+    )
+    plan_card_investigations.add_argument("card_id")
+    plan_card_investigations.add_argument("--prompt-version", default="content-terms-v1")
+    plan_card_investigations.add_argument("--source-fingerprint", default="")
+    plan_card_investigations.set_defaults(handler=command_plan_card_investigations)
 
     work_atomic = commands.add_parser(
         "work-atomic",

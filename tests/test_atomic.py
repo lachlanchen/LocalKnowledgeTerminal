@@ -186,6 +186,124 @@ class FakePronouncer:
 
 
 class AtomicWorkerTests(unittest.TestCase):
+    @staticmethod
+    def _question_card() -> dict[str, Any]:
+        return {
+            "card_id": "question-card-100",
+            "mode": "question",
+            "english": {
+                "term": "Would a technological breakthrough justify an enormous cost for people?"
+            },
+            "japanese": {"term": "技術的進歩は大きな代償を正当化しますか？"},
+            "chinese": {"simplified": "技术突破能证明巨大代价是合理的吗？"},
+            "evidence": [
+                {
+                    "corpus_id": "book-of-questions",
+                    "entry_id": "question-100",
+                    "locator": "questions.xhtml",
+                    "excerpt": "Would a technological breakthrough justify an enormous cost for people?",
+                }
+            ],
+        }
+
+    def test_investigation_terms_are_bounded_to_reviewed_source_words(self) -> None:
+        class InvestigationModel:
+            model_name = "test-qwen-4b"
+
+            def complete_json(
+                self, _system: str, prompt: str, *, max_tokens: int = 256
+            ) -> dict[str, Any]:
+                self.last_prompt = prompt
+                return {
+                    "value": {
+                        "terms": [
+                            {
+                                "surface": "technological",
+                                "note": "Connects technology with ethical consequences",
+                                "confidence": 0.9,
+                            },
+                            {
+                                "surface": "breakthrough",
+                                "note": "A vivid compound for major discovery",
+                                "confidence": 0.8,
+                            },
+                            {
+                                "surface": "people",
+                                "note": "A generic word that should be filtered",
+                                "confidence": 0.9,
+                            },
+                        ]
+                    },
+                    "model": self.model_name,
+                    "metrics": {"completion_tokens": 42},
+                }
+
+        with tempfile.TemporaryDirectory() as temp:
+            store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")
+            acquired = store.acquire_card_book_card(self._question_card())
+            plan = PreparationPlanner(store, model="test-qwen-4b").plan_card_investigations(
+                "question-card-100"
+            )
+            result = PreparationWorker(
+                store, FakeRetriever(), InvestigationModel()
+            ).run_once()
+
+            self.assertIsNotNone(result)
+            self.assertEqual(result.job_type, "extract-investigation-terms")
+            self.assertEqual(result.status, "complete")
+            terms = store.investigation_terms(acquired["source_entity_id"])
+            self.assertEqual(
+                [item["term"] for item in terms],
+                ["technological", "breakthrough"],
+            )
+            artifact = store.artifacts_for_subject(
+                plan.subject_key,
+                stage="accepted-investigation-terms",
+                validation_state="accepted",
+            )[0]
+            self.assertEqual(artifact["quality_score"], 0.75)
+            self.assertEqual(
+                artifact["payload"]["rejected_terms"],
+                [{"surface": "people", "reason": "too generic"}],
+            )
+            self.assertTrue(all(item["confidence"] <= 0.75 for item in terms))
+
+    def test_investigation_term_absent_from_source_is_rejected(self) -> None:
+        class HallucinatingModel:
+            model_name = "test-qwen-4b"
+
+            def complete_json(
+                self, _system: str, _prompt: str, *, max_tokens: int = 256
+            ) -> dict[str, Any]:
+                return {
+                    "value": {
+                        "terms": [
+                            {
+                                "surface": "compromise",
+                                "note": "A useful ethical decision word",
+                                "confidence": 0.9,
+                            }
+                        ]
+                    },
+                    "model": self.model_name,
+                }
+
+        with tempfile.TemporaryDirectory() as temp:
+            store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")
+            acquired = store.acquire_card_book_card(self._question_card())
+            PreparationPlanner(store, model="test-qwen-4b").plan_card_investigations(
+                "question-card-100"
+            )
+            result = PreparationWorker(
+                store, FakeRetriever(), HallucinatingModel()
+            ).run_once()
+
+            self.assertIsNotNone(result)
+            self.assertEqual(result.status, "retry")
+            self.assertEqual(
+                store.investigation_terms(acquired["source_entity_id"]), []
+            )
+
     def test_artifact_quality_uses_payload_confidence_only_when_metadata_is_missing(
         self,
     ) -> None:

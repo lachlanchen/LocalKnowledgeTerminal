@@ -113,6 +113,77 @@ def handler_factory(
 ) -> type[BaseHTTPRequestHandler]:
     knowledge = KnowledgeStore(settings.knowledge_db)
 
+    def acquired_card(card: dict[str, Any]) -> dict[str, Any]:
+        rendered = renderable_card(card)
+        source = knowledge.content_for_card(str(rendered.get("card_id", "")), "en")
+        if source is None:
+            return rendered
+        extensions = rendered.get("extensions")
+        extensions = dict(extensions) if isinstance(extensions, dict) else {}
+        extensions["source_content_entity_id"] = source["entity_id"]
+        extensions["investigation_terms"] = knowledge.investigation_terms(
+            source["entity_id"]
+        )
+        rendered["extensions"] = extensions
+        return rendered
+
+    def investigation_context(
+        payload: dict[str, Any], query: str, requested_mode: str
+    ) -> dict[str, Any] | None:
+        source_card_id = str(payload.get("source_card_id", "")).strip()[:100]
+        if not source_card_id:
+            return None
+        if requested_mode != "knowledge":
+            raise ValueError("a linked card investigation must open Word Card mode")
+        source = knowledge.content_for_card(source_card_id, "en")
+        if source is None:
+            raise ValueError("the source card has no acquired English content")
+        selected = next(
+            (
+                item
+                for item in knowledge.investigation_terms(source["entity_id"])
+                if str(item.get("term", "")).casefold() == query.strip().casefold()
+            ),
+            None,
+        )
+        if selected is None:
+            raise ValueError("the selected word is not an accepted investigation term")
+        return {
+            "source_card_id": source_card_id,
+            "source_entity_id": source["entity_id"],
+            "result_entity_id": selected["entity_id"],
+            "selected_text": selected.get("surface", selected["term"]),
+        }
+
+    def record_card_investigation(
+        card: dict[str, Any], context: dict[str, Any] | None
+    ) -> dict[str, Any]:
+        rendered = acquired_card(card)
+        if context is None:
+            return rendered
+        selected_text = str(context["selected_text"])
+        thread_id = knowledge.create_inquiry_thread(f"Investigate: {selected_text}")
+        event_id = knowledge.save_inquiry_event(
+            thread_id,
+            f"Open Word Card for {selected_text}",
+            response=f"Opened Word Card {rendered.get('card_id', '')}",
+            source_entity_id=str(context["source_entity_id"]),
+            result_entity_id=str(context["result_entity_id"]),
+            card_id=str(context["source_card_id"]),
+            selected_text=selected_text,
+            model=str(rendered.get("model", "")),
+        )
+        extensions = dict(rendered.get("extensions") or {})
+        extensions["inquiry"] = {
+            "thread_id": thread_id,
+            "event_id": event_id,
+            "source_card_id": context["source_card_id"],
+            "source_entity_id": context["source_entity_id"],
+            "result_entity_id": context["result_entity_id"],
+        }
+        rendered["extensions"] = extensions
+        return rendered
+
     class Handler(BaseHTTPRequestHandler):
         server_version = "LKT/0.1"
 
@@ -265,7 +336,7 @@ def handler_factory(
                 except ValueError:
                     parsed_limit = 12
                 self._json(
-                    [renderable_card(card) for card in service.store.recent(parsed_limit)]
+                    [acquired_card(card) for card in service.store.recent(parsed_limit)]
                 )
                 return
             if parsed.path == "/api/observations":
@@ -317,7 +388,7 @@ def handler_factory(
             except KeyError:
                 self._json({"error": "card not found"}, HTTPStatus.NOT_FOUND)
                 return
-            self._json(renderable_card(revised), HTTPStatus.CREATED)
+            self._json(acquired_card(revised), HTTPStatus.CREATED)
 
         def do_POST(self) -> None:  # noqa: N802
             path = urlparse(self.path).path
@@ -396,11 +467,12 @@ def handler_factory(
                     return
                 query = str(payload.get("query", ""))
                 requested_mode = str(payload.get("mode", "word"))
+                linked_context = investigation_context(payload, query, requested_mode)
                 if payload.get("refresh") is not True:
                     established = service.store.find_active(requested_mode, query)
                     if established is not None:
                         knowledge.acquire_card_book_card(established)
-                        self._json(renderable_card(established))
+                        self._json(record_card_investigation(established, linked_context))
                         return
                 card = service.create(query, requested_mode)
                 knowledge.acquire_card_book_card(card.to_dict())
@@ -416,7 +488,10 @@ def handler_factory(
             except ModelUnavailable as exc:
                 self._json({"error": str(exc)}, HTTPStatus.SERVICE_UNAVAILABLE)
                 return
-            self._json(card.to_dict(), HTTPStatus.CREATED)
+            self._json(
+                record_card_investigation(card.to_dict(), linked_context),
+                HTTPStatus.CREATED,
+            )
 
     return Handler
 

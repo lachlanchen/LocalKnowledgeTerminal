@@ -841,6 +841,40 @@ body.display-mode .card-view { border-radius: 0; }
   font: 800 .39em/1.15 var(--sans);
   letter-spacing: .02em;
 }
+.investigation-slide {
+  display: grid;
+  width: min(720px, 100%);
+  gap: clamp(12px, 2vh, 20px);
+}
+.investigation-kicker {
+  color: var(--mode-accent);
+  font: 900 12px/1 var(--sans);
+  letter-spacing: .17em;
+}
+.investigation-term {
+  display: grid;
+  grid-template-columns: minmax(180px, .65fr) 1fr;
+  align-items: center;
+  gap: 22px;
+  border: 2px solid color-mix(in srgb, var(--mode-accent) 24%, white);
+  border-radius: 18px;
+  padding: 18px 24px;
+  background: color-mix(in srgb, var(--mode-soft) 54%, white);
+  color: #17213d;
+  text-align: left;
+}
+.investigation-term strong {
+  color: var(--mode-accent);
+  font: 700 clamp(28px, 3vw, 46px)/1 var(--serif);
+}
+.investigation-term span {
+  font: 700 clamp(14px, 1.4vw, 20px)/1.3 var(--sans);
+}
+.investigation-term:hover,
+.investigation-term:focus-visible {
+  border-color: var(--mode-accent);
+  transform: translateY(-1px);
+}
 .sentence-carousel > footer {
   display: flex;
   min-height: 42px;

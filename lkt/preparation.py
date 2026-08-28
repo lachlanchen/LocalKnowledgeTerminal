@@ -342,3 +342,24 @@ class PreparationPlanner:
         )
         jobs[f"compose-{kind}-card"] = compose
         return PreparationPlan(entity_id, subject_key, jobs)
+
+    def plan_card_investigations(self, card_id: str) -> PreparationPlan:
+        """Select reusable words from one already-acquired book card."""
+
+        content = self.store.content_for_card(card_id, "en")
+        if content is None:
+            raise ValueError(f"no acquired English content is available for card {card_id!r}")
+        entity_id = str(content["entity_id"])
+        subject_key = f"content:{entity_id}"
+        extraction = self._job(
+            "extract-investigation-terms",
+            subject_key,
+            entity_id,
+            language="en",
+            priority=20,
+        )
+        return PreparationPlan(
+            entity_id,
+            subject_key,
+            {"extract-investigation-terms": extraction},
+        )
