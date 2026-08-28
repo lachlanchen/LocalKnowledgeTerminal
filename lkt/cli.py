@@ -13,7 +13,8 @@ from .atomic import build_worker
 from .card_books import CardBookIndex, build_card_book_index
 from .config import Settings
 from .corpus import CorpusIndex, build_index
-from .deck import AutonomousDeckSeeder
+from .deck import AutonomousDeckSeeder, DeckSeedResult
+from .device import background_preparation_blocker
 from .graph import rebuild_ladybug
 from .llm import LlamaCppClient
 from .knowledge import KnowledgeStore
@@ -464,6 +465,15 @@ def command_seed_deck(args: argparse.Namespace) -> int:
     return 0
 
 
+def guarded_deck_seed(seeder: AutonomousDeckSeeder) -> DeckSeedResult:
+    """Run autonomous work only while the device has safe power and thermals."""
+
+    blocker = background_preparation_blocker()
+    if blocker:
+        return DeckSeedResult(status="paused", message=blocker)
+    return seeder.run_once()
+
+
 def run_atomic_watch(
     worker: Any,
     stop_event: Any,
@@ -536,7 +546,7 @@ def command_work_atomic(args: argparse.Namespace) -> int:
             emit=lambda result: print(
                 json.dumps(result.__dict__, ensure_ascii=False), flush=True
             ),
-            idle_action=(lambda: seeder.run_once()) if seeder is not None else None,
+            idle_action=(lambda: guarded_deck_seed(seeder)) if seeder is not None else None,
             idle_action_interval=max(
                 10.0, min(float(args.autoprepare_interval_seconds), 86_400.0)
             ),
