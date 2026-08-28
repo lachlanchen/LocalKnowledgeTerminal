@@ -353,7 +353,40 @@ def handler_factory(
                         result["metrics"],
                         context_card_id=context_card_id,
                     )
+                    requested_thread_id = str(
+                        payload.get("thread_id", "")
+                    ).strip()[:100]
+                    thread_id = (
+                        requested_thread_id
+                        if knowledge.has_inquiry_thread(requested_thread_id)
+                        else knowledge.create_inquiry_thread(
+                            (
+                                f"Discuss: {str(context_card.get('title', ''))[:160]}"
+                                if context_card
+                                else f"Model Lab: {messages[-1]['content'][:160]}"
+                            )
+                        )
+                    )
+                    acquired = (
+                        knowledge.acquire_card_book_card(context_card)
+                        if context_card
+                        else {}
+                    )
+                    event_id = knowledge.save_inquiry_event(
+                        thread_id,
+                        messages[-1]["content"],
+                        response=result["message"],
+                        parent_event_id=(
+                            str(payload.get("parent_event_id", "")).strip()[:100]
+                            or None
+                        ),
+                        source_entity_id=acquired.get("source_entity_id"),
+                        card_id=context_card_id,
+                        model=result["model"],
+                    )
                     result["observation_id"] = observation["observation_id"]
+                    result["thread_id"] = thread_id
+                    result["event_id"] = event_id
                     result["created_at"] = observation["created_at"]
                     result["context_card_id"] = context_card_id
                     result["context_title"] = (

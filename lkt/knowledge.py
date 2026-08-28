@@ -1249,6 +1249,17 @@ class KnowledgeStore:
             connection.commit()
         return thread_id
 
+    def has_inquiry_thread(self, thread_id: str) -> bool:
+        thread_id = thread_id.strip()
+        if not thread_id:
+            return False
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                "SELECT 1 FROM inquiry_threads WHERE thread_id = ?",
+                (thread_id,),
+            ).fetchone()
+        return row is not None
+
     def save_inquiry_event(
         self,
         thread_id: str,
@@ -1269,6 +1280,19 @@ class KnowledgeStore:
         event_id = str(uuid.uuid4())
         timestamp = _now()
         with closing(self._connect()) as connection:
+            thread = connection.execute(
+                "SELECT 1 FROM inquiry_threads WHERE thread_id = ?",
+                (thread_id,),
+            ).fetchone()
+            if thread is None:
+                raise KeyError(thread_id)
+            if parent_event_id:
+                parent = connection.execute(
+                    "SELECT thread_id FROM inquiry_events WHERE event_id = ?",
+                    (parent_event_id,),
+                ).fetchone()
+                if parent is None or str(parent["thread_id"]) != thread_id:
+                    raise ValueError("parent inquiry event is not in this thread")
             connection.execute(
                 """INSERT INTO inquiry_events(
                        event_id, thread_id, parent_event_id, source_entity_id,

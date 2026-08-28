@@ -308,6 +308,8 @@ class KnowledgeStoreTests(unittest.TestCase):
             )
             result = store.upsert_term("en", "inspection")
             thread = store.create_inquiry_thread("Inspect the question")
+            self.assertTrue(store.has_inquiry_thread(thread))
+            self.assertFalse(store.has_inquiry_thread("missing-thread"))
             parent = store.save_inquiry_event(
                 thread,
                 "Explain this question",
@@ -322,6 +324,13 @@ class KnowledgeStoreTests(unittest.TestCase):
                 result_entity_id=result,
                 selected_text="inspection",
             )
+            other_thread = store.create_inquiry_thread("Other")
+            with self.assertRaisesRegex(ValueError, "not in this thread"):
+                store.save_inquiry_event(
+                    other_thread,
+                    "Invalid branch",
+                    parent_event_id=parent,
+                )
             connection = sqlite3.connect(database)
             row = connection.execute(
                 "SELECT parent_event_id, result_entity_id FROM inquiry_events WHERE event_id = ?",

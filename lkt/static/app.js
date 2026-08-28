@@ -9,6 +9,8 @@ let visibleView = "empty";
 let chatHistory = [];
 let chatContextCardId = "";
 let chatContextTitle = "";
+let chatThreadId = "";
+let chatParentEventId = "";
 let carouselCards = [];
 let carouselIndex = -1;
 let autoplayEnabled = true;
@@ -389,6 +391,8 @@ function renderLabStarters() {
 
 function resetChat() {
   chatHistory = [];
+  chatThreadId = "";
+  chatParentEventId = "";
   $("#chat-messages").replaceChildren();
   $("#lab-context").textContent = chatContextCardId
     ? `Discussing saved card · ${chatContextTitle}`
@@ -963,11 +967,15 @@ async function submitChat(message) {
         message,
         history: priorHistory,
         card_id: chatContextCardId,
+        thread_id: chatThreadId,
+        parent_event_id: chatParentEventId,
       }),
     });
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || `Request failed (${response.status})`);
     pending.remove();
+    chatThreadId = payload.thread_id || chatThreadId;
+    chatParentEventId = payload.event_id || chatParentEventId;
     chatHistory.push({ role: "assistant", content: payload.message });
     renderChatMessage("assistant", payload.message, { ...payload.metrics, saved: Boolean(payload.observation_id) });
   } catch (error) {

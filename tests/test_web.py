@@ -28,6 +28,8 @@ class WebInputTests(unittest.TestCase):
         self.assertIn('element("span", "ruby-cluster")', script)
         self.assertIn("while (counterIndex < tokens.length", script)
         self.assertIn(".ruby-cluster { display: inline-block; white-space: nowrap; }", style)
+        self.assertIn("thread_id: chatThreadId", script)
+        self.assertIn("parent_event_id: chatParentEventId", script)
 
     def test_old_cards_receive_chinese_ruby_without_database_migration(self) -> None:
         card = {"chinese": {"simplified": "中国", "pinyin": "zhōng guó"}}
