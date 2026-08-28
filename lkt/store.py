@@ -38,7 +38,7 @@ def _ruby_covers(term: str, tokens: Any) -> bool:
     if re.sub(r"\s+", "", visible) != re.sub(r"\s+", "", term):
         return False
     return all(
-        not _HAN.fullmatch(str(item.get("t", ""))) or bool(str(item.get("r", "")).strip())
+        not _HAN.search(str(item.get("t", ""))) or bool(str(item.get("r", "")).strip())
         for item in tokens
         if isinstance(item, dict)
     )

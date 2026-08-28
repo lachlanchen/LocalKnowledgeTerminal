@@ -247,8 +247,14 @@ class AtomicWorkerTests(unittest.TestCase):
                 store, FakeRetriever(), FakeAtomicModel(), FakePronouncer()
             )
             results = worker.run(10)
-            self.assertEqual(len(results), 3)
-            self.assertEqual(results[-1].job_type, "prepare-pronunciation")
+            self.assertEqual(len(results), 4)
+            self.assertEqual(results[-1].job_type, "prepare-grammar-properties")
+            grammar = store.artifacts_for_subject(
+                plan.subject_key,
+                stage="accepted-grammar-properties",
+                validation_state="accepted",
+            )[0]
+            self.assertEqual(grammar["payload"]["part_of_speech"], "noun")
             queued_types = {
                 job["job_type"]
                 for job in store.jobs_for_subject(plan.subject_key)

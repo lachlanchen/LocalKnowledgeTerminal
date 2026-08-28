@@ -20,6 +20,7 @@ SUPPORTED_ATOMIC_JOBS = (
     "prepare-meaning",
     "prepare-translation",
     "prepare-pronunciation",
+    "prepare-grammar-properties",
 )
 _PARTS_OF_SPEECH = {
     "noun",
@@ -215,8 +216,10 @@ class PreparationWorker:
                 artifact_id = self._prepare_meaning(job)
             elif job["job_type"] == "prepare-translation":
                 artifact_id = self._prepare_translation(job)
-            else:
+            elif job["job_type"] == "prepare-pronunciation":
                 artifact_id = self._prepare_pronunciation(job)
+            else:
+                artifact_id = self._prepare_grammar_properties(job)
         except Exception as exc:
             self.store.finish_job(job["job_id"], error=str(exc))
             return AtomicRunResult(job["job_id"], job["job_type"], "retry", "")
@@ -500,6 +503,74 @@ translations, examples, markdown, or claims absent from the evidence."""
             "accepted-pronunciation",
             accepted,
             language=language,
+            validation_state="accepted",
+            quality_score=confidence,
+        )
+
+    def _prepare_grammar_properties(self, job: dict[str, Any]) -> str:
+        source = self.store.term_record(str(job["subject_entity_id"]))
+        meanings = self.store.artifacts_for_subject(
+            job["subject_key"],
+            stage="accepted-meaning",
+            validation_state="accepted",
+        )
+        if not meanings:
+            raise ValueError("accepted meaning checkpoint is missing")
+        meaning = meanings[-1]["payload"]
+        part_of_speech = str(meaning.get("part_of_speech", "")).strip()
+        if part_of_speech not in _PARTS_OF_SPEECH:
+            raise ValueError("accepted meaning has no controlled part of speech")
+        confidence = float(meaning.get("confidence", 0.0))
+        parts = [
+            {
+                "surface": source["text"],
+                "lemma": source["text"],
+                "role": "headword",
+                "part_of_speech": part_of_speech,
+                "color_key": f"grammar-{part_of_speech}",
+                "features": {"meaning_id": meaning["meaning_id"]},
+            }
+        ]
+        analysis_id = self.store.add_grammar_analysis(
+            source["entity_id"],
+            source["language"],
+            part_of_speech,
+            parts,
+            analysis_type="word",
+            status="accepted",
+            quality_score=confidence,
+        )
+        evidence_ids = [str(item) for item in meaning.get("evidence_ids", [])]
+        for evidence_id in evidence_ids:
+            self.store.link_evidence(
+                analysis_id,
+                evidence_id,
+                claim=f"{source['text']} part of speech: {part_of_speech}",
+                confidence=confidence,
+            )
+        accepted = {
+            "analysis_id": analysis_id,
+            "term_id": source["entity_id"],
+            "language": source["language"],
+            "term": source["text"],
+            "part_of_speech": part_of_speech,
+            "parts": parts,
+            "confidence": confidence,
+            "evidence_ids": evidence_ids,
+        }
+        self.store.record_revision(
+            analysis_id,
+            accepted,
+            model="deterministic",
+            prompt_version=str(job.get("prompt_version", "")),
+            reason="atomic word grammar properties",
+            accepted=True,
+        )
+        return self.store.save_job_artifact(
+            job["job_id"],
+            "accepted-grammar-properties",
+            accepted,
+            language=source["language"],
             validation_state="accepted",
             quality_score=confidence,
         )

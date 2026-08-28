@@ -11,6 +11,50 @@ from lkt.store import CardStore
 
 
 class StoreTests(unittest.TestCase):
+    def test_word_card_does_not_inherit_the_word_origin_graph_requirement(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            database = Path(temp) / "cards.sqlite3"
+            store = CardStore(database)
+            payload = {
+                "card_id": "word-inspection",
+                "mode": "knowledge",
+                "query": "inspection",
+                "title": "inspection",
+                "created_at": "now",
+                "grounded": True,
+                "english": {"term": "inspection", "meaning": "an official examination"},
+                "japanese": {
+                    "term": "\u5be9\u67fb",
+                    "reading": "\u3057\u3093\u3055",
+                    "meaning": "\u516c\u5f0f\u306a\u8abf\u67fb",
+                    "ruby_tokens": [{"t": "\u5be9\u67fb", "r": "\u3057\u3093\u3055"}],
+                },
+                "chinese": {
+                    "simplified": "\u68c0\u67e5",
+                    "meaning": "\u6b63\u5f0f\u7684\u68c0\u67e5",
+                    "ruby_tokens": [
+                        {"t": "\u68c0", "r": "ji\u01cen"},
+                        {"t": "\u67e5", "r": "ch\u00e1"},
+                    ],
+                },
+                "evidence": [{"entry_id": "sense-1", "corpus_id": "omw-en:2.0"}],
+                "extensions": {},
+            }
+            connection = sqlite3.connect(database)
+            connection.execute(
+                """INSERT INTO cards(
+                       card_id, mode, query, title, created_at, payload,
+                       status, revision_of, updated_at, validation_state,
+                       validation_errors
+                       ) VALUES (?, 'knowledge', 'inspection', 'inspection', 'now', ?,
+                             'candidate', '', 'now', 'candidate', '[]')""",
+                (payload["card_id"], json.dumps(payload, ensure_ascii=False)),
+            )
+            connection.commit()
+            connection.close()
+            store.publish(payload["card_id"], quality_score=0.9)
+            self.assertEqual(store.recent(1)[0]["card_id"], payload["card_id"])
+
     def test_preparation_artifacts_survive_as_reusable_stages(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             store = CardStore(Path(temp) / "knowledge.sqlite3")

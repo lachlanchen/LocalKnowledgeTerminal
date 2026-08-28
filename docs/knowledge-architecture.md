@@ -102,6 +102,13 @@ lookup. The visible Arabic spelling is preserved, and this normalization remains
 in provenance. Initial IPA is stored as one grapheme-aligned segment; finer
 phoneme coloring is a later independently validated refinement.
 
+`prepare-grammar-properties` reuses the accepted sense's controlled part of
+speech and writes one evidence-linked word analysis without another model call.
+This completes the factual prerequisites for a Word Card independently of
+etymology. The publication boundary therefore requires a graph for Word Origin
+(internal mode `word`), Root, and Affix views, but never forces that graph into
+the focused Word Card (internal mode `knowledge`).
+
 Answer and Question preparation follows the same rule: source text, each
 language, grammar parts, and investigation candidates are separate tasks. A
 meaningful selected word can start a child investigation while retaining the

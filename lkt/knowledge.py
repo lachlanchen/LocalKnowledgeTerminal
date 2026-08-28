@@ -948,6 +948,7 @@ class KnowledgeStore:
         *,
         analysis_type: str = "sentence",
         status: str = "accepted",
+        quality_score: float | None = None,
     ) -> str:
         language = _language(language)
         part_values = [dict(item) for item in parts]
@@ -963,6 +964,7 @@ class KnowledgeStore:
                 canonical_key,
                 summary.strip() or analysis_type,
                 status=status,
+                quality_score=quality_score,
             )
             connection.execute(
                 """INSERT INTO grammar_analyses(
