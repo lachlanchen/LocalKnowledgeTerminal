@@ -309,6 +309,54 @@ def _clean_morpheme_meaning(value: Any) -> str:
     return re.sub(r"\s+", " ", text).strip(" .:-")
 
 
+def _plain_letter_key(value: Any) -> str:
+    """Compare historical forms without punctuation or accent differences."""
+
+    decomposed = unicodedata.normalize("NFKD", str(value))
+    return "".join(
+        character.casefold()
+        for character in decomposed
+        if character.isascii() and character.isalpha()
+    )
+
+
+def _text_form_keys(value: Any) -> set[str]:
+    """Return comparable word forms, repairing common UTF-8 mojibake first."""
+
+    text = str(value)
+    candidates = [text]
+    try:
+        repaired = text.encode("cp1252").decode("utf-8")
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        pass
+    else:
+        candidates.append(repaired)
+    return {
+        key
+        for candidate in candidates
+        for token in re.findall(r"[^\W\d_]+(?:[-'][^\W\d_]+)*", candidate)
+        if (key := _plain_letter_key(token))
+    }
+
+
+def _explicit_form_evidence_ids(
+    form: Any, records: list[dict[str, Any]]
+) -> list[str]:
+    """Cite only records that visibly contain the proposed historical form."""
+
+    key = _plain_letter_key(form)
+    if not key:
+        return []
+    return list(
+        dict.fromkeys(
+            str(record.get("evidence_id", ""))
+            for record in records
+            if key in _text_form_keys(record.get("excerpt", ""))
+            and str(record.get("evidence_id", ""))
+        )
+    )
+
+
 def _book_origin_steps(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Extract an explicit Latin <- Indo-European chain without inference."""
 
@@ -945,6 +993,22 @@ model knowledge. Never merge, shorten, rename, or reclassify a required part."""
         if not parts:
             raise ValueError("accepted morpheme split has no parts")
 
+        source_origin_ids: set[str] = set()
+        retrievals = self.store.artifacts_for_subject(
+            job["subject_key"], stage="retrieved-evidence"
+        )
+        if retrievals:
+            source_key = _plain_letter_key(source["text"])
+            for record in retrievals[-1]["payload"].get("records", []):
+                if (
+                    str(record.get("kind", "")) != "entry"
+                    or _plain_letter_key(record.get("headword", "")) != source_key
+                ):
+                    continue
+                evidence_id = str(record.get("knowledge_evidence_id", ""))
+                if evidence_id:
+                    source_origin_ids.add(evidence_id)
+
         allowed_by_component: dict[str, set[str]] = {}
         context: list[dict[str, Any]] = []
         for part in parts:
@@ -964,6 +1028,8 @@ model knowledge. Never merge, shorten, rename, or reclassify a required part."""
                     payload=record,
                 )
                 allowed.add(evidence_id)
+            if part.get("kind") == "root":
+                allowed.update(source_origin_ids)
             allowed_by_component[component_id] = allowed
             evidence = self.store.evidence_records(sorted(allowed))
             context.append(
@@ -998,10 +1064,33 @@ model knowledge. Never merge, shorten, rename, or reclassify a required part."""
         focus_evidence = self.store.evidence_records(
             sorted(allowed_by_component[str(focus["component_id"])])
         )
+        fixed_provenance_ids = sorted(
+            source_origin_ids
+            & allowed_by_component[str(focus["component_id"])]
+        )
+        prompt_focus = focus
+        if fixed_provenance_ids:
+            prompt_focus = {
+                **focus,
+                "evidence": [
+                    {
+                        key: value
+                        for key, value in record.items()
+                        if key != "evidence_id"
+                    }
+                    for record in focus["evidence"]
+                ],
+            }
         extracted_steps = _book_origin_steps(focus_evidence)
+        evidence_instruction = (
+            "evidence_ids: always an empty array; exact source provenance is attached "
+            "by the system after validation"
+            if fixed_provenance_ids
+            else "evidence_ids: only evidence IDs under that exact component"
+        )
         prompt = f"""ONE ORIGIN BRANCH
 MODERN WORD: {source['text']}
-FIXED COMPONENT AND EVIDENCE: {json.dumps(focus, ensure_ascii=False)}
+FIXED COMPONENT AND EVIDENCE: {json.dumps(prompt_focus, ensure_ascii=False)}
 
 Return exactly one JSON object with `component_id` copied exactly and `steps`, an
 array ordered oldest to newest. Use one to three historically useful steps. Each
@@ -1011,10 +1100,13 @@ language: ISO-style code such as la, fro, fr, grc, ine-pro, or en
 period: concise era or language-stage label
 meaning: at most 10 English words
 confidence: number from 0 to 1
-evidence_ids: only evidence IDs under that exact component
+{evidence_instruction}
 
-The final step develops into the fixed component. Do not repeat the modern word,
-invent dates, or add a sibling component.
+The final step develops into the fixed component. A step must never repeat the
+modern word or the fixed component itself. Do not use Modern English as a
+historical step, invent dates, or add a sibling component.
+When exact source evidence is supplied, use only historical forms visibly printed
+in that evidence and copy their spelling exactly.
 Book evidence is authoritative. Model knowledge must use an empty evidence_ids
 array. Stop a branch when another step is uncertain. Prefer a small accurate
 graph over a decorative graph."""
@@ -1031,7 +1123,7 @@ graph over a decorative graph."""
             else self.model.complete_json(
                 "You expand exactly one bounded, backwards etymology branch.",
                 prompt,
-                max_tokens=288,
+                max_tokens=256,
             )
         )
         value = completion.get("value")
@@ -1080,6 +1172,13 @@ graph over a decorative graph."""
                     raise ValueError("origin step has an invalid language code")
                 if not form or len(form) > 90 or not period or len(period) > 80:
                     raise ValueError("origin form or period is missing or too long")
+                if _plain_letter_key(form) in {
+                    _plain_letter_key(source["text"]),
+                    _plain_letter_key(part["canonical_form"]),
+                }:
+                    raise ValueError("origin step repeats the modern word or component")
+                if language == "en" or "modern english" in period.casefold():
+                    raise ValueError("origin step incorrectly uses Modern English")
                 if not meaning or len(meaning.split()) > 10:
                     raise ValueError("origin meaning is missing or too long")
                 if any(
@@ -1093,13 +1192,29 @@ graph over a decorative graph."""
                 )
                 if confidence < 0.65:
                     raise ValueError("origin confidence is below threshold")
-                selected = list(
-                    dict.fromkeys(
-                        str(item)
-                        for item in raw.get("evidence_ids", [])
-                        if str(item) in allowed_by_component[component_id]
+                if fixed_provenance_ids and component_id == focus["component_id"]:
+                    selected = _explicit_form_evidence_ids(form, focus_evidence)
+                    selected = [
+                        evidence_id
+                        for evidence_id in selected
+                        if evidence_id in fixed_provenance_ids
+                    ]
+                    if not selected:
+                        raise ValueError(
+                            "origin step is not explicit in exact source evidence"
+                        )
+                else:
+                    selected = (
+                        list(
+                            dict.fromkeys(
+                                str(item)
+                                for item in raw.get("evidence_ids", [])
+                                if str(item) in allowed_by_component[component_id]
+                            )
+                        )
+                        if isinstance(raw.get("evidence_ids"), list)
+                        else []
                     )
-                ) if isinstance(raw.get("evidence_ids"), list) else []
                 basis = "book" if selected else "model"
                 confidence = min(confidence, 0.95 if basis == "book" else 0.75)
                 key = (language, form.casefold(), period.casefold())
@@ -1132,6 +1247,17 @@ graph over a decorative graph."""
         if total_steps < 1 or total_steps > 5 or not root_has_history:
             raise ValueError("origin task did not establish a bounded root history")
 
+        prior_origins = self.store.artifacts_for_subject(
+            job["subject_key"],
+            stage="accepted-origin-branches",
+            validation_state="accepted",
+        )
+        if prior_origins:
+            self.store.retire_origin_analysis(
+                source["entity_id"],
+                "superseded by a newly validated bounded origin branch",
+            )
+
         accepted_steps: list[dict[str, Any]] = []
         for branch in cleaned_branches:
             later_id = str(branch["component_id"])
@@ -1157,7 +1283,10 @@ graph over a decorative graph."""
                     "developed-into",
                     basis=step["basis"],
                     confidence=step["confidence"],
-                    properties={"component_id": branch["component_id"]},
+                    properties={
+                        "component_id": branch["component_id"],
+                        "term_id": source["entity_id"],
+                    },
                 )
                 self.store.record_revision(
                     historical_id,

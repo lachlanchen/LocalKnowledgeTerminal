@@ -14,10 +14,12 @@ from lkt.atomic import (
     _book_origin_steps,
     _clean_usage_note,
     _collapse_repeated_arabic_alternative,
+    _explicit_form_evidence_ids,
     _has_repeated_arabic_content_word,
     _lexically_related,
     _clean_morpheme_meaning,
     _morpheme_display_form,
+    _plain_letter_key,
 )
 from lkt.knowledge import KnowledgeStore
 from lkt.models import Evidence
@@ -389,6 +391,63 @@ class AtomicWorkerTests(unittest.TestCase):
         self.assertEqual(
             _clean_morpheme_meaning("to look, to see"), "to look or to see"
         )
+        self.assertEqual(_plain_letter_key("dēcēdere"), "decedere")
+        self.assertEqual(
+            _explicit_form_evidence_ids(
+                "dēcēdere",
+                [
+                    {
+                        "evidence_id": "book-entry",
+                        "excerpt": "Latin dÄ“cÄ“dere â€˜go awayâ€™",
+                    }
+                ],
+            ),
+            ["book-entry"],
+        )
+
+    def test_origin_rejects_modern_word_as_a_historical_step(self) -> None:
+        class RepeatingOriginModel(FakeAtomicModel):
+            def complete_json(
+                self, system: str, prompt: str, *, max_tokens: int = 256
+            ) -> dict[str, Any]:
+                if "ONE ORIGIN BRANCH" not in prompt:
+                    return super().complete_json(system, prompt, max_tokens=max_tokens)
+                component_id = re.findall(r'"component_id": "([^"]+)"', prompt)[0]
+                return {
+                    "value": {
+                        "component_id": component_id,
+                        "steps": [
+                            {
+                                "form": "inspection",
+                                "language": "en",
+                                "period": "Modern English",
+                                "meaning": "the modern word",
+                                "confidence": 0.9,
+                                "evidence_ids": [],
+                            }
+                        ],
+                    },
+                    "model": self.model_name,
+                }
+
+        with tempfile.TemporaryDirectory() as temp:
+            store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")
+            plan = PreparationPlanner(store, model="test").plan_word(
+                "inspection", display_languages=("en",)
+            )
+            results = PreparationWorker(
+                store, FakeRetriever(), RepeatingOriginModel()
+            ).run(4)
+            self.assertEqual(results[-1].job_type, "expand-origin-branches")
+            self.assertEqual(results[-1].status, "retry")
+            self.assertEqual(
+                store.artifacts_for_subject(
+                    plan.subject_key,
+                    stage="accepted-origin-branches",
+                    validation_state="accepted",
+                ),
+                [],
+            )
 
     def test_explicit_book_chain_is_extracted_without_model_inference(self) -> None:
         steps = _book_origin_steps(

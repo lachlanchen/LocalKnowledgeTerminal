@@ -180,6 +180,70 @@ class KnowledgeStoreTests(unittest.TestCase):
                 edge["relation"] for edge in store.graph_snapshot()["edges"]
             })
 
+    def test_replaced_origin_archives_only_its_old_historical_branch(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            database = Path(temp) / "knowledge.sqlite3"
+            store = KnowledgeStore(database)
+            term = store.upsert_term("en", "predecessor")
+            root = store.upsert_morpheme("la", "cess", "root", "go")
+            store.link_morpheme(term, root, 0, "cess", basis="book")
+            first = store.add_historical_form(
+                "la", "cess", period_label="Classical Latin"
+            )
+            second = store.add_historical_form(
+                "en", "predecessor", period_label="Modern English"
+            )
+            properties = {"component_id": root}
+            store.add_edge(first, second, "developed-into", properties=properties)
+            store.add_edge(second, root, "developed-into", properties=properties)
+            other_term = store.upsert_term("en", "successor")
+            store.link_morpheme(other_term, root, 0, "cess", basis="book")
+            other_history = store.add_historical_form(
+                "la", "succedere", period_label="Classical Latin"
+            )
+            other_edge = store.add_edge(
+                other_history,
+                root,
+                "developed-into",
+                properties={"component_id": root},
+            )
+            job = store.enqueue_job(
+                "expand-origin-branches",
+                f"term:{term}",
+                subject_entity_id=term,
+            )
+            store.save_job_artifact(
+                job,
+                "accepted-origin-branches",
+                {
+                    "branches": [
+                        {
+                            "component_id": root,
+                            "steps": [
+                                {"historical_form_id": first},
+                                {"historical_form_id": second},
+                            ],
+                        }
+                    ]
+                },
+                validation_state="accepted",
+            )
+
+            result = store.retire_origin_analysis(term, "duplicate modern node")
+            self.assertEqual(result["edges_archived"], 2)
+            self.assertEqual(result["historical_forms_archived"], 2)
+            self.assertEqual(
+                store.artifacts_for_subject(
+                    f"term:{term}", stage="accepted-origin-branches"
+                )[0]["validation_state"],
+                "rejected",
+            )
+            snapshot = store.graph_snapshot()
+            self.assertIn(other_edge, {edge["id"] for edge in snapshot["edges"]})
+            self.assertIn(
+                "has-component", {edge["relation"] for edge in snapshot["edges"]}
+            )
+
     def test_jobs_checkpoint_artifacts_and_retry_only_the_failed_task(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")

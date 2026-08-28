@@ -704,6 +704,126 @@ class KnowledgeStore:
             "artifacts_rejected": int(artifact_cursor.rowcount),
         }
 
+    def retire_origin_analysis(self, term_id: str, reason: str) -> dict[str, int]:
+        """Quarantine one term's historical branch but keep its fixed parts."""
+
+        reason = reason.strip() or "origin analysis rejected by validation"
+        with closing(self._connect()) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            accepted_artifacts = list(
+                connection.execute(
+                    """SELECT a.payload
+                       FROM job_artifacts a
+                       JOIN preparation_jobs j ON j.job_id = a.job_id
+                       WHERE j.subject_entity_id = ?
+                         AND a.stage = 'accepted-origin-branches'
+                         AND a.validation_state = 'accepted'""",
+                    (term_id,),
+                )
+            )
+            owned_historical_ids: set[str] = set()
+            for artifact in accepted_artifacts:
+                try:
+                    payload = json.loads(artifact["payload"])
+                except (TypeError, json.JSONDecodeError):
+                    continue
+                for branch in payload.get("branches", []):
+                    if not isinstance(branch, dict):
+                        continue
+                    for step in branch.get("steps", []):
+                        if not isinstance(step, dict):
+                            continue
+                        historical_id = str(step.get("historical_form_id", ""))
+                        if historical_id:
+                            owned_historical_ids.add(historical_id)
+            component_ids = {
+                str(row[0])
+                for row in connection.execute(
+                    "SELECT morpheme_id FROM term_morphemes WHERE term_id = ?",
+                    (term_id,),
+                )
+            }
+            relevant: list[sqlite3.Row] = []
+            for row in connection.execute(
+                """SELECT edge_id, source_entity_id, target_entity_id, properties
+                   FROM entity_edges
+                   WHERE relation = 'developed-into' AND status = 'accepted'"""
+            ):
+                try:
+                    properties = json.loads(row["properties"])
+                except (TypeError, json.JSONDecodeError):
+                    properties = {}
+                explicitly_owned = str(properties.get("term_id", "")) == term_id
+                legacy_owned = (
+                    not properties.get("term_id")
+                    and str(properties.get("component_id", "")) in component_ids
+                    and str(row["source_entity_id"]) in owned_historical_ids
+                )
+                if explicitly_owned or legacy_owned:
+                    relevant.append(row)
+            timestamp = _now()
+            for row in relevant:
+                connection.execute(
+                    """UPDATE entity_edges SET status = 'archived', updated_at = ?
+                       WHERE edge_id = ?""",
+                    (timestamp, row["edge_id"]),
+                )
+            candidate_ids = {
+                str(row[column])
+                for row in relevant
+                for column in ("source_entity_id", "target_entity_id")
+            }
+            archived_entities = 0
+            for entity_id in candidate_ids:
+                entity = connection.execute(
+                    "SELECT entity_type FROM entities WHERE entity_id = ?",
+                    (entity_id,),
+                ).fetchone()
+                if entity is None or entity["entity_type"] != "historical-form":
+                    continue
+                still_used = connection.execute(
+                    """SELECT 1 FROM entity_edges
+                       WHERE status = 'accepted'
+                         AND (source_entity_id = ? OR target_entity_id = ?)
+                       LIMIT 1""",
+                    (entity_id, entity_id),
+                ).fetchone()
+                if still_used is None:
+                    archived_entities += int(
+                        connection.execute(
+                            """UPDATE entities SET status = 'archived', updated_at = ?
+                               WHERE entity_id = ? AND status = 'accepted'""",
+                            (timestamp, entity_id),
+                        ).rowcount
+                    )
+            artifact_cursor = connection.execute(
+                """UPDATE job_artifacts SET validation_state = 'rejected'
+                   WHERE stage IN ('accepted-origin-branches', 'accepted-origin-card')
+                     AND validation_state = 'accepted'
+                     AND job_id IN (
+                         SELECT job_id FROM preparation_jobs
+                         WHERE subject_entity_id = ?
+                     )""",
+                (term_id,),
+            )
+            connection.commit()
+        self.record_revision(
+            term_id,
+            {
+                "reason": reason,
+                "origin_edges_archived": len(relevant),
+                "historical_forms_archived": archived_entities,
+            },
+            model="validator",
+            reason=reason,
+            accepted=False,
+        )
+        return {
+            "edges_archived": len(relevant),
+            "historical_forms_archived": archived_entities,
+            "artifacts_rejected": int(artifact_cursor.rowcount),
+        }
+
     def retire_language_analysis(
         self, term_id: str, language: str, reason: str
     ) -> dict[str, int]:
