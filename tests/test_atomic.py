@@ -538,6 +538,59 @@ class AtomicWorkerTests(unittest.TestCase):
                 [],
             )
 
+    def test_mixed_arabic_draft_gets_one_bounded_script_repair(self) -> None:
+        class RepairingArabicModel(FakeAtomicModel):
+            def complete_json(
+                self, system: str, prompt: str, *, max_tokens: int = 256
+            ) -> dict[str, Any]:
+                evidence = re.search(r'"(evidence-[^"]+)"', prompt)
+                assert evidence is not None
+                if "ARABIC SCRIPT REPAIR" in prompt:
+                    return {
+                        "value": {
+                            "term": "اختراق",
+                            "meaning": "اكتشاف مهم يؤدي إلى تقدم جديد",
+                            "reading": "ikhtiraq",
+                            "usage_note": "major advance sense",
+                            "confidence": 0.86,
+                            "evidence_ids": [evidence.group(1)],
+                        },
+                        "model": self.model_name,
+                    }
+                if "TARGET LANGUAGE: Arabic" in prompt:
+                    return {
+                        "value": {
+                            "term": "انBREAKTHROUGH",
+                            "meaning": "إنجاز مهم",
+                            "reading": "breakthrough",
+                            "usage_note": "",
+                            "confidence": 0.7,
+                            "evidence_ids": [evidence.group(1)],
+                        },
+                        "model": self.model_name,
+                    }
+                return super().complete_json(system, prompt, max_tokens=max_tokens)
+
+        with tempfile.TemporaryDirectory() as temp:
+            store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")
+            plan = PreparationPlanner(store, model="test-qwen-4b").plan_word_card(
+                "inspection", display_languages=("en", "ar")
+            )
+            results = PreparationWorker(
+                store, FakeRetriever(), RepairingArabicModel()
+            ).run(3)
+            self.assertEqual(results[-1].status, "complete")
+            artifact = store.artifacts_for_subject(
+                plan.subject_key,
+                stage="accepted-translation",
+                validation_state="accepted",
+            )[0]
+            self.assertEqual(artifact["payload"]["term"], "اختراق")
+            self.assertEqual(
+                artifact["payload"]["normalizations"],
+                ["repaired-arabic-script"],
+            )
+
     def test_small_output_quality_helpers_are_deliberately_restrained(self) -> None:
         self.assertEqual(_clean_usage_note("formal examination sense"), "formal examination sense")
         self.assertEqual(_clean_usage_note("\u516c\u5f0f\u306a\u691c\u67fb\u306e\u610f\u5473"), "")

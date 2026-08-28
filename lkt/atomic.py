@@ -2043,6 +2043,41 @@ Do not add alternatives, markdown, etymology, or example sentences."""
         reading = re.sub(r"\s+", " ", str(value.get("reading", ""))).strip()
         usage_note = _clean_usage_note(value.get("usage_note", ""), language)
         normalizations: list[str] = []
+        if language == "ar" and (
+            not is_arabic_script_text(translated)
+            or not is_arabic_script_text(translated_meaning)
+        ):
+            repair = self.model.complete_json(
+                "You repair one Arabic lexical entry. Arabic fields must contain no Latin letters.",
+                f"""ARABIC SCRIPT REPAIR
+SOURCE ENGLISH SENSE: {meaning['definition']}
+SUPPORTING EVIDENCE IDS: {json.dumps(evidence_ids, ensure_ascii=False)}
+
+Return exactly one JSON object with these keys:
+term: a natural Modern Standard Arabic noun using Arabic letters only; choose
+the exact sense, such as اختراق, طفرة, إنجاز نوعي, or اكتشاف مهم when appropriate
+meaning: a concise definition written entirely in Arabic, at most 18 words
+reading: a simple Latin transliteration of the Arabic term
+usage_note: at most 10 English words, or empty
+confidence: number from 0 to 1
+evidence_ids: non-empty array containing only supplied evidence IDs
+
+Do not copy, transliterate, or include the English headword in term or meaning.
+Do not use markdown, alternatives, labels, or explanations.""",
+                max_tokens=160,
+            )
+            repaired_value = repair.get("value")
+            if not isinstance(repaired_value, dict):
+                raise ValueError("Arabic script repair did not return an object")
+            value = repaired_value
+            completion = repair
+            translated = re.sub(r"\s+", " ", str(value.get("term", ""))).strip()
+            translated_meaning = re.sub(
+                r"\s+", " ", str(value.get("meaning", ""))
+            ).strip()
+            reading = re.sub(r"\s+", " ", str(value.get("reading", ""))).strip()
+            usage_note = _clean_usage_note(value.get("usage_note", ""), language)
+            normalizations.append("repaired-arabic-script")
         if not translated or len(translated) > 160:
             raise ValueError("translation term is empty or too long")
         if not translated_meaning or len(translated_meaning) > 320:
