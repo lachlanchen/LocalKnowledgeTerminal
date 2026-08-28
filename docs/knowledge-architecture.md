@@ -139,6 +139,11 @@ The raw structured morphology draft is checkpointed as a non-publishable
 candidate before validation. A failed retry therefore remains inspectable, but
 cannot create terms, edges, graph nodes, or cards.
 
+An exact root found in the reviewed root dictionary becomes a surface anchor.
+The model fills small reusable properties around that fixed split; it cannot
+merge, shorten, or relabel the cited root. Deep historical alternations remain a
+separate recursive origin task instead of distorting the visible word structure.
+
 Answer and Question preparation follows the same rule: source text, each
 language, grammar parts, and investigation candidates are separate tasks. A
 meaningful selected word can start a child investigation while retaining the

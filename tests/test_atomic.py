@@ -8,6 +8,7 @@ from typing import Any
 
 from lkt.atomic import (
     PreparationWorker,
+    _book_anchored_shape,
     _clean_usage_note,
     _collapse_repeated_arabic_alternative,
     _has_repeated_arabic_content_word,
@@ -136,6 +137,28 @@ class FakePronouncer:
 
 
 class AtomicWorkerTests(unittest.TestCase):
+    def test_exact_book_root_anchors_the_surface_split(self) -> None:
+        records = [
+            {
+                "headword": "SPECT",
+                "component_hint": "root",
+                "component_surface": "spect",
+            },
+            {
+                "headword": "SPEC",
+                "component_hint": "root",
+                "component_surface": "spec",
+            },
+        ]
+        self.assertEqual(
+            _book_anchored_shape("inspection", records),
+            [
+                {"surface": "in", "kind": "prefix"},
+                {"surface": "spect", "kind": "root"},
+                {"surface": "ion", "kind": "suffix"},
+            ],
+        )
+
     def test_morphology_context_rejects_incidental_fts_hits(self) -> None:
         def item(headword: str, kind: str) -> Evidence:
             return Evidence("id", headword, "", "", (), "excerpt", kind=kind)

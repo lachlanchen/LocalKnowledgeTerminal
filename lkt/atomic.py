@@ -123,6 +123,47 @@ def _has_repeated_arabic_content_word(value: str) -> bool:
     return False
 
 
+def _book_anchored_shape(
+    letters: str, records: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Build a minimal surface shape around the strongest exact book root.
+
+    The model may describe the parts, but it must not redraw a root that an
+    exact reviewed-book lookup has already located inside the source word.
+    """
+
+    candidates: list[tuple[int, int, str]] = []
+    for record in records:
+        if record.get("component_hint") != "root":
+            continue
+        surface = re.sub(
+            r"[^A-Za-z]", "", str(record.get("component_surface", ""))
+        ).casefold()
+        if not surface:
+            surface = re.sub(
+                r"[^A-Za-z]", "", str(record.get("headword", ""))
+            ).casefold()
+        if len(surface) < 3:
+            continue
+        start = letters.find(surface)
+        while start >= 0:
+            candidates.append((start, start + len(surface), surface))
+            start = letters.find(surface, start + 1)
+    if not candidates:
+        return []
+
+    start, end, surface = sorted(
+        set(candidates), key=lambda item: (-len(item[2]), item[0], item[2])
+    )[0]
+    shape: list[dict[str, Any]] = []
+    if start:
+        shape.append({"surface": letters[:start], "kind": "prefix"})
+    shape.append({"surface": surface, "kind": "root"})
+    if end < len(letters):
+        shape.append({"surface": letters[end:], "kind": "suffix"})
+    return shape
+
+
 def _collapse_repeated_arabic_alternative(value: str) -> str:
     """Remove only the objectively redundant `word or same-word` construction."""
     return re.sub(
@@ -440,6 +481,9 @@ translations, examples, markdown, or claims absent from the evidence."""
                             **record,
                             "knowledge_evidence_id": evidence_id,
                             "component_hint": "root",
+                            "component_surface": candidate,
+                            "component_start": start,
+                            "component_end": end,
                         }
                     )
         allowed_evidence = {
@@ -452,13 +496,24 @@ translations, examples, markdown, or claims absent from the evidence."""
                 "headword": record.get("headword", ""),
                 "kind": record.get("kind", ""),
                 "component_hint": record.get("component_hint", ""),
+                "component_surface": record.get("component_surface", ""),
                 "excerpt": str(record.get("excerpt", ""))[:700],
             }
             for record in records
         ]
+        required_shape = _book_anchored_shape(letters, records)
+        shape_instruction = (
+            "REQUIRED ORDERED SURFACES AND KINDS: "
+            f"{json.dumps(required_shape, ensure_ascii=False)}\n"
+            "Copy every required surface and kind exactly. Only supply its "
+            "canonical form, language, meaning, confidence, and evidence IDs.\n"
+            if required_shape
+            else "No exact reviewed-book root anchor was found.\n"
+        )
         prompt = f"""MORPHEME SPLIT
 TERM: {source['text']}
 CURRENT EVIDENCE: {json.dumps(context, ensure_ascii=False)}
+{shape_instruction}
 
 Return exactly one JSON object with key `parts`, an ordered array. Each part has:
 surface: exact consecutive letters from TERM
@@ -476,9 +531,13 @@ Use exact COMPONENT HINTS for roots when supplied. A prefix canonical form must
 end in `-`; a suffix canonical form must begin with `-`. Meaning must be one plain
 phrase, never a stringified list. Distinguish productive word structure from deep
 history; history belongs to a later task. Use an empty evidence_ids array for
-model knowledge."""
+model knowledge. Never merge, shorten, rename, or reclassify a required part."""
         completion = self.model.complete_json(
-            "You perform one conservative, reusable morphology split at a time.",
+            (
+                "You fill metadata for a fixed, book-anchored morphology split."
+                if required_shape
+                else "You perform one conservative, reusable morphology split at a time."
+            ),
             prompt,
             max_tokens=320,
         )
@@ -549,6 +608,11 @@ model knowledge."""
             raise ValueError("morpheme surfaces do not reproduce the source term")
         if not any(part["kind"] == "root" for part in cleaned):
             raise ValueError("morpheme split has no root")
+        if required_shape and [
+            {"surface": part["surface"].casefold(), "kind": part["kind"]}
+            for part in cleaned
+        ] != required_shape:
+            raise ValueError("morpheme split changed the book-anchored structure")
 
         for part in cleaned:
             direct = self.retriever.component_evidence(
