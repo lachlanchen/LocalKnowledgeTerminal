@@ -78,6 +78,12 @@ worker accepts only supplied evidence IDs, bounded clean text, a controlled part
 of speech, and confidence at or above the acceptance threshold. Other queued
 job types remain untouched until their own validators are implemented.
 
+`prepare-translation` is the next independent handler. It works on one target
+language and one accepted sense, constrains the result to an OMW candidate when
+one exists, validates the target script, requires readings for Japanese,
+Chinese, and Arabic, derives Chinese pinyin locally, and stores a target term,
+translation atom, evidence links, revision, and checkpoint separately.
+
 Answer and Question preparation follows the same rule: source text, each
 language, grammar parts, and investigation candidates are separate tasks. A
 meaningful selected word can start a child investigation while retaining the

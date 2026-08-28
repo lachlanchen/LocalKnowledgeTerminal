@@ -11,9 +11,14 @@ from .lexicon import WordnetRag
 from .llm import LlamaCppClient
 from .models import Evidence
 from .morphology import MorphologyIndex
+from .pronunciation import chinese_pinyin
 
 
-SUPPORTED_ATOMIC_JOBS = ("retrieve-evidence", "prepare-meaning")
+SUPPORTED_ATOMIC_JOBS = (
+    "retrieve-evidence",
+    "prepare-meaning",
+    "prepare-translation",
+)
 _PARTS_OF_SPEECH = {
     "noun",
     "verb",
@@ -28,6 +33,12 @@ _PARTS_OF_SPEECH = {
     "other",
 }
 _ENCODING_DAMAGE = ("\ufffd", "Ã", "Â", "â€", "åŒ", "æ˜", "çš")
+_LANGUAGE_NAMES = {
+    "ja": "Japanese",
+    "zh": "Simplified Chinese",
+    "fr": "French",
+    "ar": "Arabic",
+}
 
 
 class AtomicModel(Protocol):
@@ -150,8 +161,10 @@ class PreparationWorker:
         try:
             if job["job_type"] == "retrieve-evidence":
                 artifact_id = self._retrieve(job)
-            else:
+            elif job["job_type"] == "prepare-meaning":
                 artifact_id = self._prepare_meaning(job)
+            else:
+                artifact_id = self._prepare_translation(job)
         except Exception as exc:
             self.store.finish_job(job["job_id"], error=str(exc))
             return AtomicRunResult(job["job_id"], job["job_type"], "retry", "")
@@ -298,6 +311,146 @@ translations, examples, markdown, or claims absent from the evidence."""
         )
         return self.store.save_job_artifact(
             job["job_id"], "accepted-meaning", accepted, language="en"
+        )
+
+    def _prepare_translation(self, job: dict[str, Any]) -> str:
+        language = str(job.get("language", ""))
+        if language not in _LANGUAGE_NAMES:
+            raise ValueError(f"unsupported translation language: {language}")
+        term = self.store.term_record(str(job["subject_entity_id"]))
+        evidence_artifacts = self.store.artifacts_for_subject(
+            job["subject_key"], stage="retrieved-evidence"
+        )
+        meaning_artifacts = self.store.artifacts_for_subject(
+            job["subject_key"], stage="accepted-meaning"
+        )
+        if not evidence_artifacts or not meaning_artifacts:
+            raise ValueError("translation prerequisites are missing")
+        records = evidence_artifacts[-1]["payload"].get("records", [])
+        meaning = meaning_artifacts[-1]["payload"]
+        evidence_ids = [str(item) for item in meaning.get("evidence_ids", [])]
+        candidates: list[str] = []
+        for record in records:
+            if str(record.get("knowledge_evidence_id", "")) not in evidence_ids:
+                continue
+            translations = record.get("translations")
+            values = translations.get(language, []) if isinstance(translations, dict) else []
+            for value in values if isinstance(values, list) else []:
+                candidate = re.sub(r"\s+", " ", str(value)).strip()
+                if candidate and candidate not in candidates:
+                    candidates.append(candidate)
+
+        prompt = f"""SOURCE TERM: {term['text']}
+ACCEPTED ENGLISH SENSE: {meaning['definition']}
+TARGET LANGUAGE: {_LANGUAGE_NAMES[language]} ({language})
+DICTIONARY CANDIDATES: {json.dumps(candidates[:10], ensure_ascii=False)}
+SUPPORTING EVIDENCE IDS: {json.dumps(evidence_ids, ensure_ascii=False)}
+
+Return exactly one JSON object with these keys:
+term: the most natural concise equivalent for this exact sense
+meaning: a short definition in the target language, at most 24 words
+reading: kana for Japanese kanji, tone-marked pinyin for Chinese, simple Latin
+transliteration for Arabic, or an empty string for French
+usage_note: at most 14 English words, empty when unnecessary
+confidence: number from 0 to 1
+evidence_ids: non-empty array containing only supplied evidence IDs
+
+When dictionary candidates are non-empty, term must exactly equal one candidate.
+Do not add alternatives, markdown, etymology, or example sentences."""
+        completion = self.model.complete_json(
+            "You prepare one sense-aligned translation at a time. Preserve scripts accurately.",
+            prompt,
+            max_tokens=176,
+        )
+        value = completion.get("value")
+        if not isinstance(value, dict):
+            raise ValueError("translation task did not return an object")
+        translated = re.sub(r"\s+", " ", str(value.get("term", ""))).strip()
+        translated_meaning = re.sub(
+            r"\s+", " ", str(value.get("meaning", ""))
+        ).strip()
+        reading = re.sub(r"\s+", " ", str(value.get("reading", ""))).strip()
+        if not translated or len(translated) > 160:
+            raise ValueError("translation term is empty or too long")
+        if not translated_meaning or len(translated_meaning) > 320:
+            raise ValueError("translation meaning is empty or too long")
+        if any(
+            marker in text
+            for marker in _ENCODING_DAMAGE
+            for text in (translated, translated_meaning, reading)
+        ):
+            raise ValueError("translation contains encoding damage")
+        if candidates and translated not in candidates:
+            raise ValueError("translation did not use a supplied dictionary candidate")
+        if language == "ja" and not re.search(
+            r"[\u3040-\u30ff\u3400-\u9fff]", translated
+        ):
+            raise ValueError("Japanese translation has no Japanese script")
+        if language == "zh" and not re.search(r"[\u3400-\u9fff]", translated):
+            raise ValueError("Chinese translation has no Han characters")
+        if language == "ar" and not re.search(r"[\u0600-\u06ff]", translated):
+            raise ValueError("Arabic translation has no Arabic script")
+        if language == "zh":
+            reading = chinese_pinyin(translated, reading)
+        if language in {"ja", "zh", "ar"} and not reading:
+            raise ValueError("translation reading is missing")
+        selected = [
+            str(item)
+            for item in value.get("evidence_ids", [])
+            if str(item) in evidence_ids
+        ] if isinstance(value.get("evidence_ids"), list) else []
+        if not selected:
+            raise ValueError("translation did not cite supplied evidence")
+        confidence = max(0.0, min(float(value.get("confidence", 0.0)), 1.0))
+        if confidence < 0.6:
+            raise ValueError("translation confidence is below acceptance threshold")
+
+        target_id = self.store.upsert_term(
+            language, translated, status="accepted", quality_score=confidence
+        )
+        translation_id = self.store.add_translation(
+            term["entity_id"],
+            language,
+            translated,
+            transliteration=reading,
+            usage_note=str(value.get("usage_note", "")).strip()[:180],
+            source_meaning_id=str(meaning["meaning_id"]),
+            target_term_id=target_id,
+            status="accepted",
+            quality_score=confidence,
+        )
+        for evidence_id in selected:
+            self.store.link_evidence(
+                translation_id,
+                evidence_id,
+                claim=f"{term['text']} → {translated}",
+                confidence=confidence,
+            )
+        accepted = {
+            "translation_id": translation_id,
+            "target_term_id": target_id,
+            "source_term": term["text"],
+            "language": language,
+            "term": translated,
+            "meaning": translated_meaning,
+            "reading": reading,
+            "usage_note": str(value.get("usage_note", "")).strip()[:180],
+            "confidence": confidence,
+            "evidence_ids": selected,
+            "dictionary_candidates": candidates[:10],
+            "model": completion.get("model", self.model.model_name),
+            "metrics": completion.get("metrics", {}),
+        }
+        self.store.record_revision(
+            translation_id,
+            accepted,
+            model=str(accepted["model"]),
+            prompt_version=str(job.get("prompt_version", "")),
+            reason=f"atomic {language} translation",
+            accepted=True,
+        )
+        return self.store.save_job_artifact(
+            job["job_id"], "accepted-translation", accepted, language=language
         )
 
 

@@ -336,3 +336,22 @@ into the brief.
 - Prefer Qwen 4B as the practical default when compact dictionary correction and
   the retrieved source input give sufficient quality. Keep 8B as an optional
   slower preparation model rather than a product requirement.
+
+## Interpreted dictation: mode responsibilities and future speech
+
+The following points are preserved as interpreted product ideas because the
+source was live dictation and may contain recognition errors:
+
+- When microphone hardware is available, consider a full-screen listening view
+  that shows transcription incrementally while the user speaks. Do not begin
+  hardware integration before the microphone arrives.
+- Question uses Question-book retrieval and presents the selected question with
+  Japanese furigana and Chinese pinyin ruby. Answer independently draws from the
+  Answer book; it may be random and need not be paired rigidly with Question.
+- Word Card is the concise multilingual reading/meaning experience.
+- Word Origin visualizes the history of the word and its constituent parts.
+- Root and Affix each focus the graph on one central component, its related word
+  family, and only the other roots/affixes necessary to explain the selected
+  word. Keep these views distinct from the complete Word Origin history.
+- Continue refining a calm, artistic, attractive one-page presentation while
+  protecting readability and offline robustness.

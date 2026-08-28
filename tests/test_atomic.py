@@ -22,6 +22,7 @@ class FakeRetriever:
                 "headword": term,
                 "part_of_speech": "noun",
                 "definition": "a careful examination of something",
+                "translations": {"ja": ["\u691c\u67fb"]},
                 "source_hash": "abc123",
                 "locator": "sense 1",
             }
@@ -34,8 +35,21 @@ class FakeAtomicModel:
     def complete_json(
         self, _system: str, prompt: str, *, max_tokens: int = 256
     ) -> dict[str, Any]:
-        match = re.search(r'"id":\s*"([^"]+)"', prompt)
+        match = re.search(r'"(evidence-[^"]+)"', prompt)
         assert match is not None
+        if "TARGET LANGUAGE: Japanese" in prompt:
+            return {
+                "value": {
+                    "term": "\u691c\u67fb",
+                    "meaning": "\u72b6\u614b\u3084\u54c1\u8cea\u3092\u78ba\u304b\u3081\u308b\u305f\u3081\u306e\u516c\u5f0f\u306a\u8abf\u67fb\u3002",
+                    "reading": "\u3051\u3093\u3055",
+                    "usage_note": "standard formal examination sense",
+                    "confidence": 0.9,
+                    "evidence_ids": [match.group(1)],
+                },
+                "model": self.model_name,
+                "metrics": {"completion_tokens": 48},
+            }
         return {
             "value": {
                 "definition": "A careful examination to assess condition or quality.",
@@ -91,6 +105,23 @@ class AtomicWorkerTests(unittest.TestCase):
             self.assertEqual(len(meaning), 1)
             self.assertEqual(meaning[0]["payload"]["part_of_speech"], "noun")
             self.assertEqual(store.status()["counts"]["meanings"], 1)
+
+    def test_translation_is_a_separate_sense_aligned_job(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")
+            plan = PreparationPlanner(store, model="test-qwen-4b").plan_word(
+                "inspection", display_languages=("en", "ja")
+            )
+            worker = PreparationWorker(store, FakeRetriever(), FakeAtomicModel())
+            results = worker.run(3)
+            self.assertEqual(results[-1].job_type, "prepare-translation")
+            artifacts = store.artifacts_for_subject(
+                plan.subject_key, stage="accepted-translation"
+            )
+            self.assertEqual(artifacts[0]["language"], "ja")
+            self.assertEqual(artifacts[0]["payload"]["term"], "\u691c\u67fb")
+            self.assertEqual(artifacts[0]["payload"]["reading"], "\u3051\u3093\u3055")
+            self.assertEqual(store.status()["counts"]["translations"], 1)
 
     def test_worker_does_not_claim_later_unsupported_jobs(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
