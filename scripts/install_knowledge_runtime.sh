@@ -20,6 +20,7 @@ python3 -m venv "$VENV_DIR"
   --disable-pip-version-check \
   --only-binary=:all: \
   "ladybug==0.19.1" \
+  "pypinyin==0.55.0" \
   "wn==1.1.1"
 
 install -d -m 0755 "$WN_DATA_DIR"
