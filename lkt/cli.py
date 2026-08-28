@@ -16,9 +16,10 @@ from .corpus import CorpusIndex, build_index
 from .deck import AutonomousDeckSeeder, DeckSeedResult
 from .device import background_preparation_blocker
 from .graph import rebuild_ladybug
+from .freedict import build_freedict_index
 from .llm import LlamaCppClient
 from .knowledge import KnowledgeStore
-from .lexicon import WordnetRag
+from .lexicon import LocalLexiconRag
 from .morphology import MorphologyIndex, build_morphology_index
 from .preparation import DISPLAY_LANGUAGES, PreparationPlanner
 from .service import CardService
@@ -142,6 +143,20 @@ def command_ingest_morphology(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_ingest_freedict(args: argparse.Namespace) -> int:
+    settings = _settings()
+    destination = (
+        Path(args.database).resolve() if args.database else settings.freedict_db
+    )
+
+    def progress(count: int) -> None:
+        print(f"indexed {count} FreeDict pairs", flush=True)
+
+    result = build_freedict_index(Path(args.source), destination, progress)
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0
+
+
 def command_generate(args: argparse.Namespace) -> int:
     settings = _settings()
     card = _service(settings).create(args.query, args.mode)
@@ -196,7 +211,9 @@ def command_rebuild_graph(args: argparse.Namespace) -> int:
 
 def command_lexicon_search(args: argparse.Namespace) -> int:
     settings = _settings()
-    results = WordnetRag(settings.data_dir / "lexicons" / "wn").search(
+    results = LocalLexiconRag(
+        settings.data_dir / "lexicons" / "wn", settings.freedict_db
+    ).search(
         args.query,
         source_language=args.source,
         target_languages=args.targets,
@@ -519,7 +536,9 @@ def command_work_atomic(args: argparse.Namespace) -> int:
         CorpusIndex(settings.corpus_db),
         MorphologyIndex(settings.roots_db),
         MorphologyIndex(settings.affixes_db),
-        WordnetRag(settings.data_dir / "lexicons" / "wn"),
+        LocalLexiconRag(
+            settings.data_dir / "lexicons" / "wn", settings.freedict_db
+        ),
         LlamaCppClient(
             settings.llm_url, settings.llm_model, settings.request_timeout
         ),
@@ -605,6 +624,14 @@ def parser() -> argparse.ArgumentParser:
     morphology.add_argument("--corpus-id", help="stable source identifier")
     morphology.add_argument("--title", help="human-readable evidence title")
     morphology.set_defaults(handler=command_ingest_morphology)
+
+    freedict = commands.add_parser(
+        "ingest-freedict",
+        help="build the compact exact English-Arabic correction index",
+    )
+    freedict.add_argument("source", help="path to the FreeDict eng-ara TEI file")
+    freedict.add_argument("--database", help="override destination database")
+    freedict.set_defaults(handler=command_ingest_freedict)
 
     search = commands.add_parser("search", help="inspect retrieved book evidence")
     search.add_argument("query")

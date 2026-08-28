@@ -527,6 +527,62 @@ class AtomicWorkerTests(unittest.TestCase):
             self.assertEqual(artifacts[0]["validation_state"], "accepted")
             self.assertEqual(store.status()["counts"]["translations"], 1)
 
+    def test_exact_bilingual_candidate_repairs_a_missing_wordnet_translation(self) -> None:
+        class ArabicFallbackRetriever(FakeRetriever):
+            def retrieve(self, term: str) -> list[dict[str, Any]]:
+                return [
+                    *super().retrieve(term),
+                    {
+                        "entry_id": "freedict-inspection",
+                        "corpus_id": "freedict-eng-ara:0.6.3",
+                        "source_title": "FreeDict English-Arabic 0.6.3",
+                        "headword": term,
+                        "definition": "",
+                        "translations": {"ar": ["معاينة"]},
+                        "source_hash": "freedict123",
+                        "locator": f"headword {term}",
+                        "kind": "bilingual-dictionary",
+                        "translation_scope": "exact-headword",
+                    },
+                ]
+
+        class ArabicCandidateModel(FakeAtomicModel):
+            def complete_json(
+                self, system: str, prompt: str, *, max_tokens: int = 256
+            ) -> dict[str, Any]:
+                if "ARABIC TRANSLATION" not in prompt:
+                    return super().complete_json(system, prompt, max_tokens=max_tokens)
+                self.assert_candidate = 'DICTIONARY CANDIDATES: ["معاينة"]' in prompt
+                return {
+                    "value": {
+                        "term": "معاينة",
+                        "meaning": "فحص دقيق لتقييم الحالة أو الجودة",
+                        "reading": "mu'ayana",
+                        "confidence": 0.91,
+                    },
+                    "model": self.model_name,
+                }
+
+        with tempfile.TemporaryDirectory() as temp:
+            store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")
+            plan = PreparationPlanner(store, model="test-qwen-4b").plan_word(
+                "inspection", display_languages=("en", "ar")
+            )
+            model = ArabicCandidateModel()
+            results = PreparationWorker(
+                store, ArabicFallbackRetriever(), model
+            ).run(5)
+            self.assertEqual(results[-1].status, "complete")
+            self.assertTrue(model.assert_candidate)
+            artifact = store.artifacts_for_subject(
+                plan.subject_key,
+                stage="accepted-translation",
+                validation_state="accepted",
+            )[0]
+            self.assertEqual(artifact["payload"]["term"], "معاينة")
+            self.assertEqual(len(artifact["payload"]["dictionary_evidence_ids"]), 1)
+            self.assertEqual(len(artifact["payload"]["evidence_ids"]), 2)
+
     def test_translation_output_is_normalized_before_acceptance(self) -> None:
         class FrenchModel(FakeAtomicModel):
             def complete_json(

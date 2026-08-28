@@ -23,12 +23,15 @@ the Pi. The pre-editorial SQLite pair is retained as a rollback snapshot.
 | Source | Purpose | License / version policy |
 | --- | --- | --- |
 | Open Multilingual Wordnet | sense-aligned English/Japanese/Chinese/French/Arabic meaning correction | install exact OMW 2.0 lexicons through Wn 1.1.1; retain each included lexicon's metadata |
+| FreeDict English-Arabic | exact-headword Arabic candidates when OMW has no aligned Arabic lemma | `eng-ara` 0.6.3, GPL-2.0-or-later, source revision `5bdceeac8d0dba3298c1bebe734f60d54dad30f7`, SHA-256 `7572d3685c501975cd0d47b0dfb581b053b28fb18932d06f09d64d0479b06746` |
 | JMdict | Japanese form, reading, and gloss correction | EDRDG CC BY-SA 4.0; record daily-build hash when added |
 | CC-CEDICT | Chinese form, pinyin, and gloss correction | CC BY-SA 4.0; record release hash when added |
 
 The local model remains responsible for concise explanation and composition.
-These resources provide a few retrieved correction facts, not full generated
-card content. Full Wiktionary dumps are intentionally excluded.
+These resources provide retrieved correction facts, not full generated card
+content. The FreeDict TEI is downloaded to a temporary file during indexing;
+only its compact SQLite index remains on the Pi. Full Wiktionary dumps are
+intentionally excluded.
 
 ## Authority rules
 

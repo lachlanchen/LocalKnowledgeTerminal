@@ -97,17 +97,21 @@ historical parent is retrieved, normalized, cited, validated, checkpointed, and
 deduplicated before another parent is queued. Shared roots and forms converge on
 canonical IDs. Cycles are rejected before publication.
 
-The first executable slice is deliberately narrow: `retrieve-evidence` combines
-the private Word Origins/Root/Affix indexes with compact OMW senses, then
+`retrieve-evidence` combines the private Word Origins/Root/Affix indexes with
+compact OMW senses and exact FreeDict English-Arabic candidates, then
 `prepare-meaning` asks the active local model for one short English sense. The
 worker accepts only supplied evidence IDs, bounded clean text, a controlled part
-of speech, and confidence at or above the acceptance threshold. Other queued
-job types remain untouched until their own validators are implemented.
+of speech, and confidence at or above the acceptance threshold. Every currently
+scheduled word job has its own validator and accepted checkpoint; no later stage
+can publish merely because an earlier model call completed.
 
-`prepare-translation` is the next independent handler. It works on one target
-language and one accepted sense, constrains the result to an OMW candidate when
-one exists, validates the target script, requires readings for Japanese,
-Chinese, and Arabic, derives Chinese pinyin locally, and stores a target term,
+`prepare-translation` works on one target language and one accepted sense. It
+constrains the result to an aligned OMW candidate when one exists. For Arabic,
+an exact English headword may additionally retrieve FreeDict candidates when
+OMW lacks a lemma; Qwen must select one verbatim against the accepted English
+sense, and the chosen dictionary evidence ID is attached only after validation.
+The handler validates target script, requires readings for Japanese, Chinese,
+and Arabic, derives Chinese pinyin locally, and stores a target term,
 translation atom, evidence links, revision, and checkpoint separately.
 French readings are normalized away, optional usage notes pass a restrained
 English-only gate, and the exact redundant `word or same-word` Arabic pattern
@@ -220,6 +224,9 @@ corrections rather than a large alternative language system:
 
 - Open Multilingual Wordnet 2.0 aligns senses across English, Japanese,
   Mandarin Chinese, French, and Arabic through Wn.
+- FreeDict English-Arabic 0.6.3 supplies exact-headword Arabic candidates where
+  OMW has no aligned Arabic lemma. Its TEI is temporary; only a compact local
+  SQLite index and its source/license metadata remain at runtime.
 - JMdict may correct Japanese forms/readings.
 - CC-CEDICT may correct Chinese form/pinyin/gloss.
 

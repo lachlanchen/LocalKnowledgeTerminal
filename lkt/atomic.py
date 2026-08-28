@@ -11,7 +11,7 @@ from typing import Any, Protocol
 
 from .corpus import CorpusIndex
 from .knowledge import KnowledgeStore
-from .lexicon import WordnetRag
+from .lexicon import LocalLexiconRag
 from .llm import LlamaCppClient
 from .models import Card, Evidence
 from .morphology import MorphologyIndex
@@ -417,7 +417,7 @@ class WordEvidenceRetriever:
         corpus: CorpusIndex,
         roots: MorphologyIndex,
         affixes: MorphologyIndex,
-        lexicon: WordnetRag,
+        lexicon: LocalLexiconRag,
     ):
         self.corpus = corpus
         self.roots = roots
@@ -2234,8 +2234,16 @@ the sentence, add translations, or include markdown."""
         meaning = meaning_artifacts[-1]["payload"]
         evidence_ids = [str(item) for item in meaning.get("evidence_ids", [])]
         candidates: list[str] = []
+        candidate_evidence: dict[str, list[str]] = {}
         for record in records:
-            if str(record.get("knowledge_evidence_id", "")) not in evidence_ids:
+            record_evidence_id = str(record.get("knowledge_evidence_id", ""))
+            exact_bilingual = (
+                record.get("kind") == "bilingual-dictionary"
+                and record.get("translation_scope") == "exact-headword"
+                and str(record.get("headword", "")).casefold()
+                == str(term["text"]).casefold()
+            )
+            if record_evidence_id not in evidence_ids and not exact_bilingual:
                 continue
             translations = record.get("translations")
             values = translations.get(language, []) if isinstance(translations, dict) else []
@@ -2243,6 +2251,10 @@ the sentence, add translations, or include markdown."""
                 candidate = re.sub(r"\s+", " ", str(value)).strip()
                 if candidate and candidate not in candidates:
                     candidates.append(candidate)
+                if candidate and record_evidence_id:
+                    candidate_evidence.setdefault(candidate, []).append(
+                        record_evidence_id
+                    )
 
         prompt = f"""SOURCE TERM: {term['text']}
 ACCEPTED ENGLISH SENSE: {meaning['definition']}
@@ -2370,7 +2382,11 @@ End immediately after the JSON object.""",
             reading = ""
         if language in {"ja", "zh", "ar"} and not reading:
             raise ValueError("translation reading is missing")
-        selected = list(dict.fromkeys(evidence_ids))
+        selected = list(
+            dict.fromkeys(
+                [*evidence_ids, *candidate_evidence.get(translated, [])]
+            )
+        )
         if not selected:
             raise ValueError("translation has no retrieved source evidence")
         confidence = max(0.0, min(float(value.get("confidence", 0.0)), 1.0))
@@ -2410,6 +2426,7 @@ End immediately after the JSON object.""",
             "confidence": confidence,
             "evidence_ids": selected,
             "dictionary_candidates": candidates[:10],
+            "dictionary_evidence_ids": candidate_evidence.get(translated, []),
             "normalizations": normalizations,
             "model": completion.get("model", self.model.model_name),
             "metrics": completion.get("metrics", {}),
@@ -2437,7 +2454,7 @@ def build_worker(
     corpus: CorpusIndex,
     roots: MorphologyIndex,
     affixes: MorphologyIndex,
-    lexicon: WordnetRag,
+    lexicon: LocalLexiconRag,
     model: LlamaCppClient,
     card_store: CardStore,
 ) -> PreparationWorker:

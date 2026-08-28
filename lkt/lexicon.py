@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Iterable
 
+from .freedict import FreeDictRag
+
 
 WORDNET_LEXICONS = {
     "en": "omw-en:2.0",
@@ -110,4 +112,44 @@ class WordnetRag:
             "data_directory": str(self.data_directory),
             "required": required,
             "installed": installed,
+        }
+
+
+class LocalLexiconRag:
+    """Sense-aligned WordNet plus optional exact bilingual correction indexes."""
+
+    def __init__(self, wordnet_directory: Path, freedict_database: Path):
+        self.wordnet = WordnetRag(wordnet_directory)
+        self.freedict = FreeDictRag(freedict_database)
+
+    def search(
+        self,
+        query: str,
+        *,
+        source_language: str = "en",
+        target_languages: Iterable[str] = ("ja", "zh", "fr", "ar"),
+        limit: int = 6,
+    ) -> list[dict[str, Any]]:
+        targets = tuple(dict.fromkeys(target_languages))
+        records = self.wordnet.search(
+            query,
+            source_language=source_language,
+            target_languages=targets,
+            limit=limit,
+        )
+        if (
+            source_language == "en"
+            and "ar" in targets
+            and self.freedict.database.is_file()
+        ):
+            records.extend(self.freedict.search(query, limit=10))
+        return records
+
+    def status(self) -> dict[str, Any]:
+        wordnet = self.wordnet.status()
+        freedict = self.freedict.status()
+        return {
+            "ready": bool(wordnet.get("ready")) and bool(freedict.get("ready")),
+            "wordnet": wordnet,
+            "freedict_eng_ara": freedict,
         }

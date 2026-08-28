@@ -19,6 +19,7 @@ class Settings:
     cards_db: Path
     knowledge_db: Path
     graph_db: Path
+    freedict_db: Path
     llm_url: str
     llm_model: str
     host: str
@@ -60,6 +61,12 @@ class Settings:
             ).resolve(),
             graph_db=Path(
                 os.environ.get("LKT_GRAPH_DB", data_dir / "knowledge-graph.lbdb")
+            ).resolve(),
+            freedict_db=Path(
+                os.environ.get(
+                    "LKT_FREEDICT_DB",
+                    data_dir / "lexicons" / "freedict-eng-ara.sqlite3",
+                )
             ).resolve(),
             llm_url=os.environ.get(
                 "LKT_LLM_URL", "http://127.0.0.1:8081/v1/chat/completions"

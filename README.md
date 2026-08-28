@@ -101,6 +101,11 @@ This ownership boundary is deliberate: reviewed book sentences, translations,
 and citations come from the local corpus records and are never rewritten by the
 model; new explanatory or lexical data is produced by the configured local
 model, not hand-entered into SQLite. A bad draft stays outside the visible deck.
+Dictionary candidates and deterministic pronunciation/ruby are likewise local
+retrieval/tool output rather than hand-authored card data. FreeDict supplies an
+exact English-Arabic correction gate when OMW has no Arabic lemma for the chosen
+sense; Qwen must copy one retrieved candidate and the system attaches that
+candidate's evidence ID after validation.
 Autonomous generation pauses during current Raspberry Pi undervoltage,
 throttling, or high temperature and resumes after the condition clears. The web
 client loads the complete selected mode (up to 1,000 accepted cards), keeps the
@@ -155,6 +160,7 @@ the configured book has no evidence, the app does not generate a card.
 | `lkt/atomic.py` | Bounded atomic preparation and deterministic card assembly |
 | `lkt/graph.py` | Rebuildable LadybugDB traversal projection from accepted SQLite atoms |
 | `lkt/lexicon.py` | Compact multilingual WordNet correction evidence |
+| `lkt/freedict.py` | Exact FreeDict English-Arabic ingestion and correction retrieval |
 | `lkt/web.py` | Dependency-free HTTP API and GUI server |
 | `lkt/outputs.py` | Stable web/e-ink/audio output boundary |
 | `lkt/static/` | Desktop-class GUI, responsive enough for later kiosk use |
@@ -187,6 +193,7 @@ python -m lkt.cli ingest-card-book answer "C:\path\to\book-of-answers\json\multi
 python -m lkt.cli ingest-card-book question "C:\path\to\book-of-questions\json\multilingual-items.jsonl"
 python -m lkt.cli ingest-morphology root "C:\path\to\root-dictionary\output\json\entries-editorial.jsonl"
 python -m lkt.cli ingest-morphology affix "C:\path\to\affix-dictionary\output\json\entries-editorial.jsonl"
+python -m lkt.cli ingest-freedict "C:\path\to\eng-ara.tei"
 python -m lkt.cli search abacus
 python -m lkt.cli search technology --corpus question
 python -m lkt.cli knowledge-status
