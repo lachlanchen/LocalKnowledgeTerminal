@@ -539,7 +539,12 @@ function renderCard(card, refreshHistory = true) {
   text("#memory-hook", card.memory_hook);
   text(
     "#grounded-label",
-    card.mode === "word" ? "Book anchor + model context" : "Grounded in the book",
+    {
+      word: "Book anchor + model context",
+      knowledge: "Book anchor + model languages",
+      answer: "Reviewed book translations",
+      question: "Reviewed book translations",
+    }[card.mode] || "Book evidence attached",
   );
   renderOriginGraph(card);
   startAlternateLoop(card);

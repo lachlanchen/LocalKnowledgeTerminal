@@ -251,8 +251,8 @@ class CardService:
                 "experience": mode,
                 "knowledge_policy": (
                     "book-anchored-model-enriched"
-                    if mode == "word"
-                    else "retrieval-grounded"
+                    if mode in {"word", "knowledge"}
+                    else "reviewed-book-text-model-reflection"
                 ),
             },
             origin_graph=(

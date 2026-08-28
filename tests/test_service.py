@@ -86,6 +86,10 @@ class ServiceTests(unittest.TestCase):
             service = CardService(make_index(root), FakeModel(), store)
             card = service.create("abacus", "knowledge")
             self.assertEqual(card.origin_graph, [])
+            self.assertEqual(
+                card.extensions["knowledge_policy"],
+                "book-anchored-model-enriched",
+            )
             self.assertEqual(card.extra_languages["french"]["term"], "boulier")
             self.assertEqual(card.extra_languages["arabic"]["term"], "مِعْداد")
             self.assertEqual(

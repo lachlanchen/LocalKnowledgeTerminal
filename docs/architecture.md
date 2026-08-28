@@ -42,6 +42,11 @@ keeps Japanese/Chinese fixed and rotates stored French/Arabic forms in the third
 panel beneath the English/IPA hero. The renderer never asks the model for data
 while changing a slide.
 
+“Grounded” means that a card has deterministic book evidence; it does not mean
+the model-authored fields are quotations. Word Origin is labelled book anchor +
+model context, Word Card is book anchor + model languages, and Answer/Question
+identify their reviewed book translations explicitly.
+
 Raw Chat is a deliberate diagnostic side path: the web service forwards bounded
 conversation history to the same local model and returns timing/token metrics.
 Its response has `grounded: false`, receives no citation payload, and is not
