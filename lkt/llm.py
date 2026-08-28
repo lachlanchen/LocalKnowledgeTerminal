@@ -72,7 +72,11 @@ Required JSON shape:
 Make origin_graph a directed ancestry graph of 3 to 7 nodes like a compact dictionary etymology
 tree. Put the modern English word first as the single root with an empty parent. Its ancestors or
 component morphemes point to the later descendant using parent, so two roots/components may branch
-into one word. Do not force a linear timeline when the word has multiple components. Use Unicode
+into one word. For a compound, use exactly this topology: modern-word parent "";
+earlier-compound parent modern-word; component-a parent earlier-compound; component-b parent
+earlier-compound. Components are siblings and must never parent one another unless one is actually
+derived from the other. Do not force a linear timeline when the word has multiple components.
+Before returning, check that every parent is the later form receiving that node. Use Unicode
 directly and established Japanese/Chinese equivalents instead of phonetic imitations. Everything
 must fit one screen. Keep the response under 360 words. /no_think"""
 

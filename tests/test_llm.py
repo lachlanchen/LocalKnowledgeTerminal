@@ -5,10 +5,14 @@ import json
 import unittest
 from unittest.mock import patch
 
-from lkt.llm import LlamaCppClient, _extract_json
+from lkt.llm import LlamaCppClient, WORD_ORIGIN_PROMPT, _extract_json
 
 
 class LlmParsingTests(unittest.TestCase):
+    def test_origin_prompt_defines_compound_siblings(self) -> None:
+        self.assertIn("component-a parent earlier-compound", WORD_ORIGIN_PROMPT)
+        self.assertIn("Components are siblings", WORD_ORIGIN_PROMPT)
+
     def test_extracts_fenced_json_after_thinking(self) -> None:
         result = _extract_json(
             '<think>private reasoning</think>\n```json\n{"title":"語源","key_points":[]}\n```'
