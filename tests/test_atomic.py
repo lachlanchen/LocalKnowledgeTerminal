@@ -9,6 +9,7 @@ from typing import Any
 from lkt.atomic import (
     PreparationWorker,
     _clean_usage_note,
+    _collapse_repeated_arabic_alternative,
     _has_repeated_arabic_content_word,
     _lexically_related,
 )
@@ -166,7 +167,7 @@ class AtomicWorkerTests(unittest.TestCase):
             self.assertEqual(artifact["payload"]["reading"], "")
             self.assertEqual(artifact["payload"]["usage_note"], "")
 
-    def test_redundant_arabic_meaning_is_retried_not_accepted(self) -> None:
+    def test_exact_arabic_repetition_is_normalized_before_acceptance(self) -> None:
         class RepetitiveArabicModel(FakeAtomicModel):
             def complete_json(
                 self, system: str, prompt: str, *, max_tokens: int = 256
@@ -193,14 +194,19 @@ class AtomicWorkerTests(unittest.TestCase):
                 "inspection", display_languages=("en", "ar")
             )
             results = PreparationWorker(store, FakeRetriever(), RepetitiveArabicModel()).run(3)
-            self.assertEqual(results[-1].status, "retry")
+            self.assertEqual(results[-1].status, "complete")
+            artifact = store.artifacts_for_subject(
+                plan.subject_key,
+                stage="accepted-translation",
+                validation_state="accepted",
+            )[0]
             self.assertEqual(
-                store.artifacts_for_subject(
-                    plan.subject_key,
-                    stage="accepted-translation",
-                    validation_state="accepted",
-                ),
-                [],
+                artifact["payload"]["meaning"],
+                "\u0641\u062d\u0635 \u0631\u0633\u0645\u064a \u0644\u0634\u064a\u0621 \u0645\u0639\u064a\u0646",
+            )
+            self.assertEqual(
+                artifact["payload"]["normalizations"],
+                ["collapsed-repeated-arabic-alternative"],
             )
 
     def test_small_output_quality_helpers_are_deliberately_restrained(self) -> None:
@@ -210,6 +216,12 @@ class AtomicWorkerTests(unittest.TestCase):
             _has_repeated_arabic_content_word(
                 "\u0641\u062d\u0635 \u0631\u0633\u0645\u064a \u0623\u0648 \u0631\u0633\u0645\u064a \u0644\u0634\u064a\u0621 \u0645\u0639\u064a\u0646"
             )
+        )
+        self.assertEqual(
+            _collapse_repeated_arabic_alternative(
+                "\u0641\u062d\u0635 \u0631\u0633\u0645\u064a \u0623\u0648 \u0631\u0633\u0645\u064a \u0644\u0634\u064a\u0621 \u0645\u0639\u064a\u0646"
+            ),
+            "\u0641\u062d\u0635 \u0631\u0633\u0645\u064a \u0644\u0634\u064a\u0621 \u0645\u0639\u064a\u0646",
         )
 
     def test_worker_does_not_claim_later_unsupported_jobs(self) -> None:

@@ -87,7 +87,8 @@ one exists, validates the target script, requires readings for Japanese,
 Chinese, and Arabic, derives Chinese pinyin locally, and stores a target term,
 translation atom, evidence links, revision, and checkpoint separately.
 French readings are normalized away, optional usage notes pass a restrained
-English-only gate, and redundant Arabic wording is retried rather than accepted.
+English-only gate, and the exact redundant `word or same-word` Arabic pattern
+is collapsed deterministically and recorded; broader repetition still fails.
 `plan-translation` can revisit one weak language atom with a new prompt version
 without rerunning the whole word pipeline; its accepted replacement supersedes
 the earlier preparation artifact.

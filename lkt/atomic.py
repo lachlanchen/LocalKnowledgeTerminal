@@ -110,6 +110,15 @@ def _has_repeated_arabic_content_word(value: str) -> bool:
     return False
 
 
+def _collapse_repeated_arabic_alternative(value: str) -> str:
+    """Remove only the objectively redundant `word or same-word` construction."""
+    return re.sub(
+        r"([\u0621-\u064a]+)\s+(?:\u0623\u0648|\u0627\u0648)\s+\1",
+        r"\1",
+        value,
+    )
+
+
 class WordEvidenceRetriever:
     """Small correction context from books plus sense-aligned OMW."""
 
@@ -416,6 +425,7 @@ Do not add alternatives, markdown, etymology, or example sentences."""
         ).strip()
         reading = re.sub(r"\s+", " ", str(value.get("reading", ""))).strip()
         usage_note = _clean_usage_note(value.get("usage_note", ""), language)
+        normalizations: list[str] = []
         if not translated or len(translated) > 160:
             raise ValueError("translation term is empty or too long")
         if not translated_meaning or len(translated_meaning) > 320:
@@ -436,6 +446,13 @@ Do not add alternatives, markdown, etymology, or example sentences."""
             raise ValueError("Chinese translation has no Han characters")
         if language == "ar" and not re.search(r"[\u0600-\u06ff]", translated):
             raise ValueError("Arabic translation has no Arabic script")
+        if language == "ar":
+            cleaned_meaning = _collapse_repeated_arabic_alternative(
+                translated_meaning
+            )
+            if cleaned_meaning != translated_meaning:
+                translated_meaning = cleaned_meaning
+                normalizations.append("collapsed-repeated-arabic-alternative")
         if language == "ar" and _has_repeated_arabic_content_word(translated_meaning):
             raise ValueError("Arabic translation meaning repeats a content word")
         if language == "zh":
@@ -488,6 +505,7 @@ Do not add alternatives, markdown, etymology, or example sentences."""
             "confidence": confidence,
             "evidence_ids": selected,
             "dictionary_candidates": candidates[:10],
+            "normalizations": normalizations,
             "model": completion.get("model", self.model.model_name),
             "metrics": completion.get("metrics", {}),
         }
