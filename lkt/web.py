@@ -12,6 +12,7 @@ from urllib.parse import parse_qs, urlparse
 from .card_books import CardBookIndex
 from .config import Settings
 from .corpus import CorpusIndex
+from .intent import route_intent
 from .llm import LlamaCppClient, ModelUnavailable
 from .knowledge import KnowledgeStore
 from .morphology import MorphologyIndex
@@ -319,7 +320,7 @@ def handler_factory(
 
         def do_POST(self) -> None:  # noqa: N802
             path = urlparse(self.path).path
-            if path not in {"/api/cards", "/api/chat"}:
+            if path not in {"/api/cards", "/api/chat", "/api/intent"}:
                 self._json({"error": "not found"}, HTTPStatus.NOT_FOUND)
                 return
             try:
@@ -329,6 +330,9 @@ def handler_factory(
                 payload = json.loads(self.rfile.read(length).decode("utf-8"))
                 if not isinstance(payload, dict):
                     raise ValueError("request must be a JSON object")
+                if path == "/api/intent":
+                    self._json(route_intent(payload.get("query")).to_dict())
+                    return
                 if path == "/api/chat":
                     messages = chat_messages(payload)
                     context_card_id = str(payload.get("card_id", "")).strip()[:100]

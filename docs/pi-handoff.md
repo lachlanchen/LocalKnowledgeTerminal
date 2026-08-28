@@ -46,3 +46,8 @@ the model reported as local and ready.
 The browser GUI remains the only implemented output adapter. E-ink and audio
 consume the same stored card contract later and are not imported into the core
 service.
+
+The bare ambient composer routes one English word to Word Card, a normal
+sentence or question to local Chat, and explicit `origin:`, `root:`, or
+`affix:` inquiries to their independent card modes. Tabs and `?mode=` URLs
+remain exact overrides; intent routing does not call the model.

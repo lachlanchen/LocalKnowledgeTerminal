@@ -47,6 +47,11 @@ automatically when more than one accepted Answer card exists. Question, Word
 Card, Word Origin, Root, Affix, and Model Lab remain explicit user-selected
 paths rather than being mixed into the ambient card.
 
+On the bare ambient screen, one English word opens Word Card and an ordinary
+sentence or question opens local Chat. Explicit `word:`, `origin:`, `root:`,
+`affix:`, `question:`, `answer:`, and `ask:` prefixes choose an exact path.
+Selecting a tab or using a `?mode=` URL also remains an exact override.
+
 ### Word Origin
 
 - It is an origin product, not a generic word card.

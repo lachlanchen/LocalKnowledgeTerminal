@@ -24,6 +24,7 @@ let sentenceSlides = [];
 let sentenceSlideIndex = 0;
 let sentenceSlideTimer = null;
 let chromeTimer = null;
+let ambientRouting = false;
 
 const ALTERNATE_LANGUAGES = {
   french: { label: "FRANÇAIS · PRONONCIATION", className: "french" },
@@ -901,6 +902,7 @@ function setMode(nextMode, preserveView = false) {
     button.dataset.mode = mode;
     button.textContent = copy.examples[index];
   });
+  if (ambientRouting && mode === "answer") applyAmbientComposer();
   if (preserveView) return;
   if (mode === "chat") {
     show("chat");
@@ -942,6 +944,7 @@ async function submitChat(message) {
 
 function discussCurrentCard() {
   if (!activeCardId || !activeCard) return;
+  ambientRouting = false;
   chatContextCardId = activeCardId;
   chatContextTitle = activeCard.title;
   setMode("chat");
@@ -984,6 +987,45 @@ async function submitQuery(query, requestedMode = mode) {
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || `Request failed (${response.status})`);
     renderCard(payload);
+  } catch (error) {
+    text("#error-message", error.message);
+    show("error");
+  } finally {
+    $("#generate-button").disabled = false;
+  }
+}
+
+function applyAmbientComposer() {
+  text("#query-label", "Ask anything or enter one word");
+  $("#query").placeholder = "inspection · origin: inspection · What should I learn?";
+  $("#query").maxLength = 2000;
+  $("#generate-button").textContent = "Go";
+  const prompts = ["inspection", "origin: inspection", "What should I focus on?"];
+  all(".examples button").forEach((button, index) => {
+    button.dataset.query = prompts[index];
+    button.dataset.mode = "ambient";
+    button.textContent = prompts[index];
+  });
+}
+
+async function submitIntent(query) {
+  query = String(query || "").trim();
+  if (!query) return;
+  if (!ambientRouting) {
+    await submitQuery(query, mode);
+    return;
+  }
+  $("#generate-button").disabled = true;
+  try {
+    const response = await fetch("/api/intent", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query }),
+    });
+    const route = await response.json();
+    if (!response.ok) throw new Error(route.error || `Request failed (${response.status})`);
+    ambientRouting = false;
+    await submitQuery(route.query, route.mode);
   } catch (error) {
     text("#error-message", error.message);
     show("error");
@@ -1098,6 +1140,7 @@ async function toggleFullscreen() {
 }
 
 all(".mode").forEach((button) => button.addEventListener("click", () => {
+  ambientRouting = false;
   const nextMode = button.dataset.mode;
   if (nextMode === "chat") {
     chatContextCardId = "";
@@ -1110,8 +1153,11 @@ all(".mode").forEach((button) => button.addEventListener("click", () => {
   setMode(nextMode);
   rebuildModeCarousel(true);
 }));
-all(".examples button").forEach((button) => button.addEventListener("click", () => submitQuery(button.dataset.query, button.dataset.mode || mode)));
-$("#card-form").addEventListener("submit", (event) => { event.preventDefault(); submitQuery($("#query").value); });
+all(".examples button").forEach((button) => button.addEventListener("click", () => {
+  if (ambientRouting || button.dataset.mode === "ambient") submitIntent(button.dataset.query);
+  else submitQuery(button.dataset.query, button.dataset.mode || mode);
+}));
+$("#card-form").addEventListener("submit", (event) => { event.preventDefault(); submitIntent($("#query").value); });
 $("#refresh-history").addEventListener("click", loadHistory);
 $("#clear-chat").addEventListener("click", resetChat);
 $("#discuss-card").addEventListener("click", discussCurrentCard);
@@ -1139,6 +1185,7 @@ document.addEventListener("focusin", noteActivity);
 
 const initialParameters = new URLSearchParams(location.search);
 const initialMode = MODE_COPY[initialParameters.get("mode")] ? initialParameters.get("mode") : "answer";
+ambientRouting = !initialParameters.has("mode");
 setMode(initialMode);
 if (initialParameters.has("display")) document.body.classList.add("display-mode");
 loadHealth();
