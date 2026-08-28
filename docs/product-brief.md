@@ -127,9 +127,14 @@ yet. They are future references only.
 
 - Future voice path: microphone → VAD/noise handling → local speech recognition
   → retrieval/card engine → Qwen → card/audio output.
-- Evaluate an I²S MEMS microphone for the compact final device and a supported
-  two-microphone board for prototyping. Confirm current Raspberry Pi 5 driver
-  support before choosing hardware.
+- Use Raspberry Pi Codec Zero for the first Pi 5 prototype: it is an official
+  HAT with a built-in MEMS microphone, EEPROM configuration, and small-speaker
+  output. Use a USB Audio Class microphone as the diagnostic fallback.
+- Evaluate a bare I²S/PDM MEMS microphone only for a later compact custom-board
+  experiment after its Pi 5 device-tree and ALSA path is proven. Do not make the
+  currently fragile ReSpeaker Pi 5 driver path the baseline.
+- Do not change audio configuration until hardware is attached and a read-only
+  device probe has identified the actual card/source.
 - Keep microphone, e-ink, and audio work out of the core retrieval/model modules.
 
 ## Engineering and delivery rules

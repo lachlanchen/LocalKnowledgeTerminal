@@ -86,3 +86,8 @@ payloads remain renderable: the web boundary adds ruby tokens in memory without
 rewriting historical rows. E-ink should render a card to an image at a
 device-specific resolution/color profile and audio should synthesize selected
 language fields. Both adapters should fail explicitly until configured.
+
+Voice input follows the same boundary in reverse: a capture/STT adapter submits
+a bounded mode and query to the existing application API. It never imports the
+retriever or model directly. `docs/voice-hardware.md` records the supported
+prototype choice and staged acceptance tests.

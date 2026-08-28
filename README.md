@@ -109,6 +109,8 @@ the configured book has no evidence, the app does not generate a card.
 | `systemd/` | Hardened model and application services |
 | `docs/lineage.md` | Exact legacy-project and corpus provenance |
 | `docs/product-brief.md` | Durable owner requirements and acceptance criteria |
+| `docs/owner-request-log.md` | Chronological, privacy-redacted owner direction |
+| `docs/voice-hardware.md` | Supported microphone choice and staged audio tests |
 | `docs/mode-roadmap.md` | Extension plan for future suffix, affix, and root books |
 
 ## Local development
