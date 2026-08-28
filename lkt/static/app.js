@@ -1144,7 +1144,8 @@ async function loadHealth() {
 
 async function loadHistory() {
   try {
-    const response = await fetch("/api/cards?limit=30");
+    if (mode === "chat") return;
+    const response = await fetch(`/api/cards?mode=${encodeURIComponent(mode)}&limit=1000`);
     const cards = await response.json();
     if (!response.ok || !Array.isArray(cards)) throw new Error("Card history unavailable");
     allSavedCards = cards;
@@ -1155,10 +1156,10 @@ async function loadHistory() {
   }
 }
 
-function shuffledAnswerDeck(cards) {
+function shuffledModeDeck(cards) {
   const deck = [...cards];
-  // Keep the newly prepared answer visible on refresh, then traverse every
-  // other answer once in a shuffled order before the carousel repeats.
+  // Keep the newest accepted card visible on refresh, then traverse every
+  // other accepted card once in a shuffled order before the mode repeats.
   for (let index = deck.length - 1; index > 1; index -= 1) {
     const swapIndex = 1 + Math.floor(Math.random() * index);
     [deck[index], deck[swapIndex]] = [deck[swapIndex], deck[index]];
@@ -1169,7 +1170,7 @@ function shuffledAnswerDeck(cards) {
 function rebuildModeCarousel(openLatest = false) {
   const history = $("#history");
   carouselCards = mode === "chat" ? [] : allSavedCards.filter((card) => card.mode === mode);
-  if (mode === "answer") carouselCards = shuffledAnswerDeck(carouselCards);
+  carouselCards = shuffledModeDeck(carouselCards);
   history.replaceChildren();
   if (!carouselCards.length) {
     carouselIndex = -1;
@@ -1231,7 +1232,7 @@ async function toggleFullscreen() {
   }
 }
 
-all(".mode").forEach((button) => button.addEventListener("click", () => {
+all(".mode").forEach((button) => button.addEventListener("click", async () => {
   ambientRouting = false;
   const nextMode = button.dataset.mode;
   if (nextMode === "chat") {
@@ -1243,7 +1244,7 @@ all(".mode").forEach((button) => button.addEventListener("click", () => {
     return;
   }
   setMode(nextMode);
-  rebuildModeCarousel(true);
+  await loadHistory();
 }));
 all(".examples button").forEach((button) => button.addEventListener("click", () => {
   if (ambientRouting || button.dataset.mode === "ambient") submitIntent(button.dataset.query);

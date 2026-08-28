@@ -378,13 +378,18 @@ def handler_factory(
                     self._json({"error": str(exc)}, HTTPStatus.SERVICE_UNAVAILABLE)
                 return
             if parsed.path == "/api/cards":
-                limit = parse_qs(parsed.query).get("limit", ["12"])[0]
+                parameters = parse_qs(parsed.query)
+                limit = parameters.get("limit", ["12"])[0]
+                mode = parameters.get("mode", [""])[0]
                 try:
                     parsed_limit = int(limit)
                 except ValueError:
                     parsed_limit = 12
                 self._json(
-                    [acquired_card(card) for card in service.store.recent(parsed_limit)]
+                    [
+                        acquired_card(card)
+                        for card in service.store.recent(parsed_limit, mode)
+                    ]
                 )
                 return
             if parsed.path == "/api/observations":

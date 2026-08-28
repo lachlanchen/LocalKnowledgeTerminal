@@ -293,15 +293,25 @@ class CardStore:
             raise ValueError("card failed publication: " + "; ".join(errors))
         return payload
 
-    def recent(self, limit: int = 20) -> list[dict[str, Any]]:
-        limit = max(1, min(limit, 100))
+    def recent(self, limit: int = 20, mode: str = "") -> list[dict[str, Any]]:
+        limit = max(1, min(limit, 1000))
+        selected_mode = mode.strip() if mode.strip() in _VISIBLE_MODES else ""
         with closing(self._connect()) as connection:
-            rows = connection.execute(
-                """SELECT payload FROM cards
-                   WHERE status = 'active' AND validation_state = 'accepted'
-                   ORDER BY created_at DESC LIMIT ?""",
-                (limit,),
-            ).fetchall()
+            if selected_mode:
+                rows = connection.execute(
+                    """SELECT payload FROM cards
+                       WHERE status = 'active' AND validation_state = 'accepted'
+                         AND mode = ?
+                       ORDER BY created_at DESC LIMIT ?""",
+                    (selected_mode, limit),
+                ).fetchall()
+            else:
+                rows = connection.execute(
+                    """SELECT payload FROM cards
+                       WHERE status = 'active' AND validation_state = 'accepted'
+                       ORDER BY created_at DESC LIMIT ?""",
+                    (limit,),
+                ).fetchall()
         return [json.loads(row[0]) for row in rows]
 
     def accepted_for_modes(self, modes: tuple[str, ...]) -> list[dict[str, Any]]:

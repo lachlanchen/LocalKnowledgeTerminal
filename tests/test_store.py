@@ -168,6 +168,10 @@ class StoreTests(unittest.TestCase):
                 [card["card_id"] for card in migrated],
                 ["answer-1", "question-1"],
             )
+            self.assertEqual(
+                [card["card_id"] for card in store.recent(1000, "question")],
+                ["question-1"],
+            )
 
     def test_established_card_is_reused_by_mode_and_normalized_query(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
