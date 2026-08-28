@@ -4,6 +4,7 @@ import json
 import re
 import unicodedata
 import uuid
+from copy import deepcopy
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Protocol
@@ -1551,8 +1552,8 @@ graph over a decorative graph."""
                 }
             )
 
-        root_focus_ids: list[str] = []
-        root_headline = ""
+        root_focus_areas: list[dict[str, Any]] = []
+        root_headlines: list[str] = []
         for branch in branches:
             component_id = str(branch["component_id"])
             steps = list(branch.get("steps", []))
@@ -1589,14 +1590,28 @@ graph over a decorative graph."""
                 }
                 for earlier, later in zip(chain, chain[1:])
             )
-            if branch.get("component_kind") == "root" and branch_ids:
-                root_focus_ids = [*branch_ids, component_id, center_id]
-                root_headline = " → ".join(
+            if branch.get("component_kind") == "root":
+                headline = " → ".join(
                     [
                         *(str(step["form"]) for step in steps),
                         str(parts_by_id[component_id]["canonical_form"]),
                         str(source["text"]),
                     ]
+                )
+                root_headlines.append(headline)
+                root_focus_areas.append(
+                    {
+                        "id": f"root-history-{len(root_focus_areas) + 1}",
+                        "label": "Root history",
+                        "kind": "root",
+                        "node_ids": [*branch_ids, component_id, center_id],
+                        "headline": headline,
+                        "explanation": (
+                            "This cited root carries the central history."
+                            if branch_ids
+                            else "This accepted root contributes to the modern word."
+                        ),
+                    }
                 )
 
         all_ids = [str(node["id"]) for node in graph_nodes]
@@ -1619,15 +1634,23 @@ graph over a decorative graph."""
                 "explanation": "Prefix, root, and suffix combine into the modern word.",
             },
         ]
-        if root_focus_ids:
+        focus_areas.extend(root_focus_areas)
+        for part in parts:
+            part_kind = str(part["kind"])
+            if part_kind not in {"prefix", "suffix"}:
+                continue
             focus_areas.append(
                 {
-                    "id": "root-history",
-                    "label": "Root history",
-                    "kind": "root",
-                    "node_ids": root_focus_ids,
-                    "headline": root_headline,
-                    "explanation": "The cited ‘look’ root carries the central history.",
+                    "id": f"{part_kind}-{part['morpheme_id']}",
+                    "label": part_kind.title(),
+                    "kind": part_kind,
+                    "node_ids": [str(part["morpheme_id"]), center_id],
+                    "headline": (
+                        f"{part['canonical_form']} → {source['text']}"
+                    ),
+                    "explanation": (
+                        f"{part['canonical_form']} contributes “{part['meaning']}”."
+                    ),
                 }
             )
         graph = {
@@ -1661,7 +1684,9 @@ graph over a decorative graph."""
             subtitle=" · ".join(str(part["canonical_form"]) for part in parts),
             summary_en=str(meaning["payload"]["definition"]),
             origin_story=(
-                f"The cited root follows {root_headline}." if root_headline else ""
+                f"The cited root follows {'; '.join(root_headlines)}."
+                if root_headlines
+                else ""
             ),
             key_points=[],
             english={
@@ -1712,18 +1737,62 @@ graph over a decorative graph."""
                 },
             },
         )
-        self.card_store.save(card)
-        self.card_store.publish(
-            card.card_id,
-            quality_score=quality,
-            review_note="composed only from accepted origin atoms",
-        )
-        self.card_store.supersede_others(card.mode, card.query, card.card_id)
+        cards = [card]
+        for derived_mode, focus_kinds, policy in (
+            ("root", {"root"}, "accepted-atomic-root-view"),
+            ("affix", {"prefix", "suffix"}, "accepted-atomic-affix-view"),
+        ):
+            selected_focuses = [
+                deepcopy(area)
+                for area in focus_areas
+                if area["kind"] in focus_kinds
+            ]
+            if not selected_focuses:
+                continue
+            selected_focuses.append(deepcopy(focus_areas[0]))
+            derived_graph = deepcopy(graph)
+            derived_graph["focus_areas"] = selected_focuses
+            relevant_parts = [
+                part for part in parts if str(part["kind"]) in focus_kinds
+            ]
+            derived_graph["center_id"] = str(relevant_parts[0]["morpheme_id"])
+            derived = deepcopy(card)
+            derived.card_id = str(uuid.uuid4())
+            derived.mode = derived_mode
+            derived.title = " · ".join(
+                str(part["canonical_form"]) for part in relevant_parts
+            )
+            derived.subtitle = f"{derived_mode.upper()} · {source['text']}"
+            derived.created_at = datetime.now(UTC).isoformat()
+            derived.model = "accepted atomic knowledge"
+            derived.extensions = deepcopy(card.extensions)
+            derived.extensions["experience"] = derived_mode
+            derived.extensions["knowledge_policy"] = policy
+            derived.extensions["morphology_graph"] = derived_graph
+            cards.append(derived)
+
+        for output_card in cards:
+            self.card_store.save(output_card)
+            self.card_store.publish(
+                output_card.card_id,
+                quality_score=quality,
+                review_note=(
+                    f"composed {output_card.mode} view only from accepted origin atoms"
+                ),
+            )
+            self.card_store.supersede_others(
+                output_card.mode, output_card.query, output_card.card_id
+            )
         accepted = {
             "card_id": card.card_id,
             "mode": card.mode,
             "quality": quality,
             "knowledge_artifact_ids": card.extensions["knowledge_artifact_ids"],
+            "derived_card_ids": {
+                output_card.mode: output_card.card_id
+                for output_card in cards
+                if output_card is not card
+            },
             "card": card.to_dict(),
         }
         return self.store.save_job_artifact(

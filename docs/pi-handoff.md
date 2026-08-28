@@ -56,3 +56,7 @@ The bare ambient composer routes one English word to Word Card, a normal
 sentence or question to local Chat, and explicit `origin:`, `root:`, or
 `affix:` inquiries to their independent card modes. Tabs and `?mode=` URLs
 remain exact overrides; intent routing does not call the model.
+
+Root and Affix cards are composed as independent accepted views of the same
+atomic origin graph. This replaces the retired monolithic Root request, which
+exceeded four minutes without producing a publishable card.

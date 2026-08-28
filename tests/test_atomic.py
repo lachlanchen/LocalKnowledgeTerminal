@@ -708,12 +708,27 @@ class AtomicWorkerTests(unittest.TestCase):
             self.assertNotIn("morphology_graph", card["extensions"])
             origin_result = worker.run_once()
             self.assertEqual(origin_result.job_type, "compose-origin-card")
-            origin_card = cards.recent(1)[0]
-            self.assertEqual(origin_card["mode"], "word")
+            cards_by_mode = {card["mode"]: card for card in cards.recent(10)}
+            self.assertEqual(
+                set(cards_by_mode), {"knowledge", "word", "root", "affix"}
+            )
+            origin_card = cards_by_mode["word"]
             graph = origin_card["extensions"]["morphology_graph"]
             self.assertEqual(len(graph["nodes"]), 6)
             self.assertEqual(len(graph["edges"]), 5)
-            self.assertEqual(graph["focus_areas"][-1]["kind"], "root")
+            self.assertEqual(
+                [area["kind"] for area in graph["focus_areas"]],
+                ["overview", "overview", "root", "prefix", "suffix"],
+            )
+            root_graph = cards_by_mode["root"]["extensions"]["morphology_graph"]
+            self.assertEqual(root_graph["focus_areas"][0]["kind"], "root")
+            self.assertEqual(root_graph["center_id"], "m-spect")
+            affix_graph = cards_by_mode["affix"]["extensions"]["morphology_graph"]
+            self.assertEqual(
+                [area["kind"] for area in affix_graph["focus_areas"][:2]],
+                ["prefix", "suffix"],
+            )
+            self.assertEqual(affix_graph["center_id"], "m-in")
 
 
 if __name__ == "__main__":

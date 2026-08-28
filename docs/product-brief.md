@@ -110,6 +110,9 @@ can request deliberate regeneration with the API's `refresh: true` flag.
   focus areas.
 - Show an overview map in the graph corner. Inner slides focus/zoom the main
   graph onto each root, prefix, suffix, or historical branch.
+- Compose Word Origin, Root, and Affix as independent cards from the same
+  accepted atomic graph. Word Origin begins with the whole lineage, Root begins
+  with each root history, and Affix begins with each prefix or suffix.
 - Retain rich recursive JSON in SQLite while showing only one clear teaching
   point per screen.
 
