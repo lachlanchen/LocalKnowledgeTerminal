@@ -203,6 +203,37 @@ class PreparationPlanner:
             {"retrieve-evidence": retrieval},
         )
 
+    def plan_morphemes(
+        self,
+        text: str,
+        *,
+        language: str = "en",
+    ) -> PreparationPlan:
+        """Revisit only the bounded surface decomposition."""
+        term_id = self.store.upsert_term(language, text, status="draft")
+        subject_key = f"term:{term_id}"
+        evidence = self.store.artifacts_for_subject(
+            subject_key,
+            stage="retrieved-evidence",
+            validation_state="candidate",
+        )
+        meanings = self.store.artifacts_for_subject(
+            subject_key,
+            stage="accepted-meaning",
+            validation_state="accepted",
+        )
+        if not evidence or not meanings:
+            raise ValueError(f"current evidence or accepted meaning is missing for {text!r}")
+        split = self._job(
+            "split-morphemes",
+            subject_key,
+            term_id,
+            language=language,
+            priority=30,
+            depends_on=(str(evidence[-1]["job_id"]), str(meanings[-1]["job_id"])),
+        )
+        return PreparationPlan(term_id, subject_key, {"split-morphemes": split})
+
     def plan_content(
         self,
         kind: str,

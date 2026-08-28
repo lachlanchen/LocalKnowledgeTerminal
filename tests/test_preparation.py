@@ -101,6 +101,41 @@ class PreparationPlannerTests(unittest.TestCase):
             self.assertEqual(claimed["prompt_version"], "retrieval-v2")
             self.assertEqual(claimed["source_fingerprint"], "polished-books-v2")
 
+    def test_morphemes_can_be_replanned_from_current_evidence_and_meaning(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")
+            term_id = store.upsert_term("en", "inspection", status="accepted")
+            subject_key = f"term:{term_id}"
+            evidence_job = store.enqueue_job(
+                "retrieve-evidence", subject_key, subject_entity_id=term_id
+            )
+            store.save_job_artifact(
+                evidence_job,
+                "retrieved-evidence",
+                {"records": []},
+                validation_state="candidate",
+            )
+            store.finish_job(evidence_job)
+            meaning_job = store.enqueue_job(
+                "prepare-meaning", subject_key, subject_entity_id=term_id
+            )
+            store.save_job_artifact(
+                meaning_job,
+                "accepted-meaning",
+                {"meaning_id": "meaning-1"},
+                language="en",
+                validation_state="accepted",
+                quality_score=0.9,
+            )
+            store.finish_job(meaning_job)
+            planner = PreparationPlanner(
+                store, model="Qwen3-4B-Q4_K_M", prompt_version="morphology-v2"
+            )
+            plan = planner.plan_morphemes("inspection")
+            self.assertEqual(set(plan.jobs), {"split-morphemes"})
+            claimed = store.claim_next_job(("split-morphemes",))
+            self.assertEqual(claimed["prompt_version"], "morphology-v2")
+
     def test_answer_plan_prepares_languages_and_investigation_terms_separately(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")

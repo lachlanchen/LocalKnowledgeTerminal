@@ -194,6 +194,10 @@ class WordEvidenceRetriever:
         result: list[dict[str, Any]] = []
         for item in records:
             excerpt = item.excerpt.casefold()
+            if kind == "root" and not (
+                item.headword.isupper() or "词根" in item.excerpt[:80]
+            ):
+                continue
             if not any(marker in excerpt for marker in ("=", "意为", "means", "来自")):
                 continue
             result.append(_book_record(item, self._hash(index)))
@@ -412,7 +416,32 @@ translations, examples, markdown, or claims absent from the evidence."""
         )
         if not evidence_artifacts:
             raise ValueError("current retrieval checkpoint is missing")
-        records = evidence_artifacts[-1]["payload"].get("records", [])
+        records = list(evidence_artifacts[-1]["payload"].get("records", []))
+        letters = re.sub(r"[^A-Za-z]", "", str(source["text"])).casefold()
+        seen_hints: set[tuple[str, str]] = set()
+        for start in range(len(letters)):
+            for end in range(start + 3, min(len(letters), start + 8) + 1):
+                candidate = letters[start:end]
+                for record in self.retriever.component_evidence(candidate, "root"):
+                    key = (str(record.get("corpus_id", "")), str(record.get("entry_id", "")))
+                    if key in seen_hints:
+                        continue
+                    seen_hints.add(key)
+                    evidence_id = self.store.add_evidence(
+                        key[0],
+                        key[1],
+                        source_hash=str(record.get("source_hash", "")),
+                        locator=str(record.get("locator", "")),
+                        excerpt=str(record.get("excerpt", "")),
+                        payload=record,
+                    )
+                    records.append(
+                        {
+                            **record,
+                            "knowledge_evidence_id": evidence_id,
+                            "component_hint": "root",
+                        }
+                    )
         allowed_evidence = {
             str(record.get("knowledge_evidence_id", "")) for record in records
         }
@@ -422,6 +451,7 @@ translations, examples, markdown, or claims absent from the evidence."""
                 "source": record.get("source_title", record.get("corpus_id", "")),
                 "headword": record.get("headword", ""),
                 "kind": record.get("kind", ""),
+                "component_hint": record.get("component_hint", ""),
                 "excerpt": str(record.get("excerpt", ""))[:700],
             }
             for record in records
@@ -442,8 +472,11 @@ evidence_ids: only supplied evidence IDs that explicitly support this part
 
 The concatenated surfaces must reproduce TERM exactly. Include every letter once,
 include at least one root, and do not invent an extra part merely to add detail.
-For inspection, distinguish productive word structure from deep history; history
-belongs to a later task. Use an empty evidence_ids array for model knowledge."""
+Use exact COMPONENT HINTS for roots when supplied. A prefix canonical form must
+end in `-`; a suffix canonical form must begin with `-`. Meaning must be one plain
+phrase, never a stringified list. Distinguish productive word structure from deep
+history; history belongs to a later task. Use an empty evidence_ids array for
+model knowledge."""
         completion = self.model.complete_json(
             "You perform one conservative, reusable morphology split at a time.",
             prompt,
@@ -469,6 +502,16 @@ belongs to a later task. Use an empty evidence_ids array for model knowledge."""
                 raise ValueError("morpheme language is not en or la")
             if not canonical or not meaning or len(meaning.split()) > 10:
                 raise ValueError("morpheme canonical form or meaning is invalid")
+            if not re.fullmatch(r"[A-Za-z][A-Za-z -]*", meaning):
+                raise ValueError("morpheme meaning is not a plain English phrase")
+            if kind == "prefix" and not canonical.endswith("-"):
+                raise ValueError("prefix canonical form has no trailing hyphen")
+            if kind == "suffix" and not canonical.startswith("-"):
+                raise ValueError("suffix canonical form has no leading hyphen")
+            if kind in {"root", "free"} and "-" in canonical:
+                raise ValueError("root or free form contains affix notation")
+            if canonical.strip("-").casefold() != surface.casefold():
+                raise ValueError("canonical form does not match its surface letters")
             selected = [
                 str(evidence_id)
                 for evidence_id in item.get("evidence_ids", [])
@@ -484,7 +527,8 @@ belongs to a later task. Use an empty evidence_ids array for model knowledge."""
                     "language": language,
                     "meaning": meaning,
                     "confidence": confidence,
-                    "evidence_ids": list(dict.fromkeys(selected)),
+                    "context_evidence_ids": list(dict.fromkeys(selected)),
+                    "evidence_ids": [],
                 }
             )
         if "".join(part["surface"] for part in cleaned).casefold() != str(
@@ -509,6 +553,10 @@ belongs to a later task. Use an empty evidence_ids array for model knowledge."""
                 )
                 if evidence_id not in part["evidence_ids"]:
                     part["evidence_ids"].append(evidence_id)
+            if part["kind"] == "root" and not part["evidence_ids"]:
+                raise ValueError(
+                    f"root {part['canonical_form']!r} has no exact component-book evidence"
+                )
 
         accepted_parts: list[dict[str, Any]] = []
         for ordinal, part in enumerate(cleaned):

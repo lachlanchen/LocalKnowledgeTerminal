@@ -248,6 +248,38 @@ def command_plan_evidence(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_plan_morphemes(args: argparse.Namespace) -> int:
+    settings = _settings()
+    planner = _planner(settings, args)
+    plan = planner.plan_morphemes(args.query, language=args.language)
+    print(
+        json.dumps(
+            {
+                "subject_entity_id": plan.subject_entity_id,
+                "subject_key": plan.subject_key,
+                "jobs": planner.store.jobs_for_subject(plan.subject_key),
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+    return 0
+
+
+def command_retire_morphemes(args: argparse.Namespace) -> int:
+    settings = _settings()
+    store = KnowledgeStore(settings.knowledge_db)
+    term_id = store.upsert_term(args.language, args.query, status="draft")
+    print(
+        json.dumps(
+            store.retire_morpheme_analysis(term_id, args.reason),
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+    return 0
+
+
 def command_plan_content(args: argparse.Namespace) -> int:
     settings = _settings()
     planner = _planner(settings, args)
@@ -426,6 +458,25 @@ def parser() -> argparse.ArgumentParser:
     plan_evidence.add_argument("--prompt-version", default="retrieval-v2")
     plan_evidence.add_argument("--source-fingerprint", default="")
     plan_evidence.set_defaults(handler=command_plan_evidence)
+
+    plan_morphemes = commands.add_parser(
+        "plan-morphemes",
+        help="revisit only the bounded surface decomposition",
+    )
+    plan_morphemes.add_argument("query")
+    plan_morphemes.add_argument("--language", default="en")
+    plan_morphemes.add_argument("--prompt-version", default="morphology-v2")
+    plan_morphemes.add_argument("--source-fingerprint", default="")
+    plan_morphemes.set_defaults(handler=command_plan_morphemes)
+
+    retire_morphemes = commands.add_parser(
+        "retire-morphemes",
+        help="quarantine a rejected decomposition while preserving provenance",
+    )
+    retire_morphemes.add_argument("query")
+    retire_morphemes.add_argument("--language", default="en")
+    retire_morphemes.add_argument("--reason", required=True)
+    retire_morphemes.set_defaults(handler=command_retire_morphemes)
 
     plan_content = commands.add_parser(
         "plan-content",

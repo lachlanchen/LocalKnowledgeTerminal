@@ -129,6 +129,12 @@ part to `book`; unsupported but plausible structure is capped as `model`. The
 three parts of `inspection`, for example, are stored independently rather than
 flattened into a prose origin story.
 
+A decomposition that fails a later factual audit is quarantined rather than
+edited in place: its artifact becomes rejected, term-component edges and
+unshared morphemes become archived, and a rejected revision records the reason.
+`plan-morphemes` can then enqueue only the corrected split against the current
+evidence and meaning checkpoints.
+
 Answer and Question preparation follows the same rule: source text, each
 language, grammar parts, and investigation candidates are separate tasks. A
 meaningful selected word can start a child investigation while retaining the

@@ -314,7 +314,7 @@ class AtomicWorkerTests(unittest.TestCase):
                 validation_state="accepted",
             )[0]["payload"]["parts"]
             self.assertEqual([part["surface"] for part in split], ["in", "spect", "ion"])
-            self.assertEqual([part["basis"] for part in split], ["book", "book", "model"])
+            self.assertEqual([part["basis"] for part in split], ["model", "book", "model"])
             queued_types = {
                 job["job_type"]
                 for job in store.jobs_for_subject(plan.subject_key)

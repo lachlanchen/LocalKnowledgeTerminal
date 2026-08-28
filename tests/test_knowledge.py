@@ -112,6 +112,35 @@ class KnowledgeStoreTests(unittest.TestCase):
             )
             connection.close()
 
+    def test_rejected_morpheme_split_is_quarantined_without_erasing_provenance(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            database = Path(temp) / "knowledge.sqlite3"
+            store = KnowledgeStore(database)
+            term = store.upsert_term("en", "inspection")
+            wrong_root = store.upsert_morpheme("en", "pect", "root", "look")
+            store.link_morpheme(term, wrong_root, 0, "pect", basis="model")
+            job = store.enqueue_job(
+                "split-morphemes", f"term:{term}", subject_entity_id=term
+            )
+            store.save_job_artifact(
+                job,
+                "accepted-morpheme-split",
+                {"parts": [{"morpheme_id": wrong_root}]},
+                language="en",
+                validation_state="accepted",
+                quality_score=0.8,
+            )
+            result = store.retire_morpheme_analysis(term, "root was not book grounded")
+            self.assertEqual(result["components_removed"], 1)
+            self.assertEqual(result["morphemes_archived"], 1)
+            artifact = store.artifacts_for_subject(
+                f"term:{term}", stage="accepted-morpheme-split"
+            )[0]
+            self.assertEqual(artifact["validation_state"], "rejected")
+            self.assertNotIn("has-component", {
+                edge["relation"] for edge in store.graph_snapshot()["edges"]
+            })
+
     def test_jobs_checkpoint_artifacts_and_retry_only_the_failed_task(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")

@@ -631,6 +631,71 @@ class KnowledgeStore:
             properties={"ordinal": ordinal, "surface": surface},
         )
 
+    def retire_morpheme_analysis(self, term_id: str, reason: str) -> dict[str, int]:
+        """Quarantine one rejected decomposition while retaining its provenance."""
+        reason = reason.strip() or "morpheme analysis rejected by validation"
+        with closing(self._connect()) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            morpheme_ids = [
+                str(row[0])
+                for row in connection.execute(
+                    "SELECT morpheme_id FROM term_morphemes WHERE term_id = ?",
+                    (term_id,),
+                )
+            ]
+            component_rows = int(
+                connection.execute(
+                    "SELECT COUNT(*) FROM term_morphemes WHERE term_id = ?", (term_id,)
+                ).fetchone()[0]
+            )
+            connection.execute("DELETE FROM term_morphemes WHERE term_id = ?", (term_id,))
+            edge_cursor = connection.execute(
+                """UPDATE entity_edges SET status = 'archived', updated_at = ?
+                   WHERE source_entity_id = ? AND relation = 'has-component'
+                     AND status = 'accepted'""",
+                (_now(), term_id),
+            )
+            archived_entities = 0
+            for morpheme_id in morpheme_ids:
+                remaining = int(
+                    connection.execute(
+                        "SELECT COUNT(*) FROM term_morphemes WHERE morpheme_id = ?",
+                        (morpheme_id,),
+                    ).fetchone()[0]
+                )
+                if not remaining:
+                    archived_entities += int(
+                        connection.execute(
+                            """UPDATE entities SET status = 'archived', updated_at = ?
+                               WHERE entity_id = ? AND status = 'accepted'""",
+                            (_now(), morpheme_id),
+                        ).rowcount
+                    )
+            artifact_cursor = connection.execute(
+                """UPDATE job_artifacts SET validation_state = 'rejected'
+                   WHERE stage = 'accepted-morpheme-split'
+                     AND validation_state = 'accepted'
+                     AND job_id IN (
+                         SELECT job_id FROM preparation_jobs
+                         WHERE subject_entity_id = ?
+                     )""",
+                (term_id,),
+            )
+            connection.commit()
+        self.record_revision(
+            term_id,
+            {"retired_morpheme_ids": morpheme_ids, "reason": reason},
+            model="validator",
+            reason=reason,
+            accepted=False,
+        )
+        return {
+            "components_removed": component_rows,
+            "edges_archived": int(edge_cursor.rowcount),
+            "morphemes_archived": archived_entities,
+            "artifacts_rejected": int(artifact_cursor.rowcount),
+        }
+
     def add_meaning(
         self,
         term_id: str,
