@@ -284,6 +284,24 @@ def command_plan_origin(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_plan_origin_card(args: argparse.Namespace) -> int:
+    settings = _settings()
+    planner = _planner(settings, args)
+    plan = planner.plan_origin_card(args.query, language=args.language)
+    print(
+        json.dumps(
+            {
+                "subject_entity_id": plan.subject_entity_id,
+                "subject_key": plan.subject_key,
+                "jobs": planner.store.jobs_for_subject(plan.subject_key),
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+    return 0
+
+
 def command_retire_morphemes(args: argparse.Namespace) -> int:
     settings = _settings()
     store = KnowledgeStore(settings.knowledge_db)
@@ -496,6 +514,16 @@ def parser() -> argparse.ArgumentParser:
     plan_origin.add_argument("--prompt-version", default="origin-v2")
     plan_origin.add_argument("--source-fingerprint", default="")
     plan_origin.set_defaults(handler=command_plan_origin)
+
+    plan_origin_card = commands.add_parser(
+        "plan-origin-card",
+        help="compose a visible origin card from accepted atomic knowledge",
+    )
+    plan_origin_card.add_argument("query")
+    plan_origin_card.add_argument("--language", default="en")
+    plan_origin_card.add_argument("--prompt-version", default="origin-card-v1")
+    plan_origin_card.add_argument("--source-fingerprint", default="")
+    plan_origin_card.set_defaults(handler=command_plan_origin_card)
 
     retire_morphemes = commands.add_parser(
         "retire-morphemes",

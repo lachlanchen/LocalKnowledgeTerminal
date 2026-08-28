@@ -260,6 +260,31 @@ class PreparationPlanner:
         )
         return PreparationPlan(term_id, subject_key, {"expand-origin-branches": origin})
 
+    def plan_origin_card(
+        self,
+        text: str,
+        *,
+        language: str = "en",
+    ) -> PreparationPlan:
+        """Compose the visible origin view from already accepted atoms."""
+        term_id = self.store.upsert_term(language, text, status="draft")
+        subject_key = f"term:{term_id}"
+        origins = self.store.artifacts_for_subject(
+            subject_key,
+            stage="accepted-origin-branches",
+            validation_state="accepted",
+        )
+        if not origins:
+            raise ValueError(f"no accepted origin branches are available for {text!r}")
+        composition = self._job(
+            "compose-origin-card",
+            subject_key,
+            term_id,
+            priority=90,
+            depends_on=(str(origins[-1]["job_id"]),),
+        )
+        return PreparationPlan(term_id, subject_key, {"compose-origin-card": composition})
+
     def plan_content(
         self,
         kind: str,

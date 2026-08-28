@@ -598,7 +598,101 @@ class AtomicWorkerTests(unittest.TestCase):
                 quality_score=0.95,
             )
             store.finish_job(plan.jobs["grammar-properties"])
+            split_parts = [
+                {
+                    "morpheme_id": "m-in",
+                    "surface": "in",
+                    "canonical_form": "in-",
+                    "kind": "prefix",
+                    "language": "en",
+                    "meaning": "into",
+                    "basis": "model",
+                    "confidence": 0.8,
+                    "evidence_ids": [],
+                },
+                {
+                    "morpheme_id": "m-spect",
+                    "surface": "spect",
+                    "canonical_form": "spect",
+                    "kind": "root",
+                    "language": "la",
+                    "meaning": "look",
+                    "basis": "book",
+                    "confidence": 0.95,
+                    "evidence_ids": [evidence_id],
+                },
+                {
+                    "morpheme_id": "m-ion",
+                    "surface": "ion",
+                    "canonical_form": "-ion",
+                    "kind": "suffix",
+                    "language": "en",
+                    "meaning": "process",
+                    "basis": "model",
+                    "confidence": 0.8,
+                    "evidence_ids": [],
+                },
+            ]
+            store.save_job_artifact(
+                plan.jobs["split-morphemes"],
+                "accepted-morpheme-split",
+                {"term": "inspection", "parts": split_parts},
+                language="en",
+                validation_state="accepted",
+                quality_score=0.8,
+            )
             store.finish_job(plan.jobs["split-morphemes"])
+            store.save_job_artifact(
+                plan.jobs["expand-origin-branches"],
+                "accepted-origin-branches",
+                {
+                    "term": "inspection",
+                    "branches": [
+                        {
+                            "component_id": "m-in",
+                            "component_form": "in-",
+                            "component_kind": "prefix",
+                            "steps": [],
+                        },
+                        {
+                            "component_id": "m-spect",
+                            "component_form": "spect",
+                            "component_kind": "root",
+                            "steps": [
+                                {
+                                    "historical_form_id": "h-pie",
+                                    "form": "*spek-",
+                                    "language": "ine-pro",
+                                    "period": "Proto-Indo-European",
+                                    "meaning": "look",
+                                    "basis": "book",
+                                    "confidence": 0.95,
+                                    "evidence_ids": [evidence_id],
+                                },
+                                {
+                                    "historical_form_id": "h-latin",
+                                    "form": "specere",
+                                    "language": "la",
+                                    "period": "Latin",
+                                    "meaning": "look",
+                                    "basis": "book",
+                                    "confidence": 0.95,
+                                    "evidence_ids": [evidence_id],
+                                },
+                            ],
+                        },
+                        {
+                            "component_id": "m-ion",
+                            "component_form": "-ion",
+                            "component_kind": "suffix",
+                            "steps": [],
+                        },
+                    ],
+                },
+                language="en",
+                validation_state="accepted",
+                quality_score=0.95,
+            )
             store.finish_job(plan.jobs["expand-origin-branches"])
 
             worker = PreparationWorker(
@@ -612,6 +706,14 @@ class AtomicWorkerTests(unittest.TestCase):
             self.assertEqual(card["english"]["meaning"], meaning["definition"])
             self.assertEqual(card["extra_languages"]["french"]["term"], "inspection")
             self.assertNotIn("morphology_graph", card["extensions"])
+            origin_result = worker.run_once()
+            self.assertEqual(origin_result.job_type, "compose-origin-card")
+            origin_card = cards.recent(1)[0]
+            self.assertEqual(origin_card["mode"], "word")
+            graph = origin_card["extensions"]["morphology_graph"]
+            self.assertEqual(len(graph["nodes"]), 6)
+            self.assertEqual(len(graph["edges"]), 5)
+            self.assertEqual(graph["focus_areas"][-1]["kind"], "root")
 
 
 if __name__ == "__main__":

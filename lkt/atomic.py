@@ -27,6 +27,7 @@ SUPPORTED_ATOMIC_JOBS = (
     "prepare-pronunciation",
     "prepare-grammar-properties",
     "compose-word-card",
+    "compose-origin-card",
 )
 _PARTS_OF_SPEECH = {
     "noun",
@@ -365,6 +366,7 @@ class PreparationWorker:
         job_types = list(SUPPORTED_ATOMIC_JOBS)
         if self.card_store is None:
             job_types.remove("compose-word-card")
+            job_types.remove("compose-origin-card")
         job = self.store.claim_next_job(job_types)
         if job is None:
             return None
@@ -383,6 +385,8 @@ class PreparationWorker:
                 artifact_id = self._prepare_pronunciation(job)
             elif job["job_type"] == "prepare-grammar-properties":
                 artifact_id = self._prepare_grammar_properties(job)
+            elif job["job_type"] == "compose-origin-card":
+                artifact_id = self._compose_origin_card(job)
             else:
                 artifact_id = self._compose_word_card(job)
         except Exception as exc:
@@ -1256,6 +1260,47 @@ graph over a decorative graph."""
             quality_score=confidence,
         )
 
+    def _card_evidence(
+        self, source: dict[str, Any], evidence_ids: list[str]
+    ) -> list[Evidence]:
+        evidence: list[Evidence] = []
+        for record in self.store.evidence_records(evidence_ids):
+            payload = record["payload"]
+            page_values = payload.get("pages", [])
+            pages = (
+                tuple(
+                    int(page)
+                    for page in page_values
+                    if isinstance(page, int) or str(page).isdigit()
+                )
+                if isinstance(page_values, list)
+                else ()
+            )
+            evidence.append(
+                Evidence(
+                    entry_id=str(
+                        payload.get("entry_id") or record["source_entry_id"]
+                    ),
+                    headword=str(payload.get("headword") or source["text"]),
+                    section=str(payload.get("section", "")),
+                    date_label=str(payload.get("date_label", "")),
+                    pages=pages,
+                    excerpt=str(record["excerpt"]),
+                    corpus_id=str(record["corpus_id"]),
+                    source_title=str(
+                        payload.get("source_title", record["corpus_id"])
+                    ),
+                    kind=str(payload.get("kind", "evidence")),
+                    locator=str(record["locator"]),
+                    translations=(
+                        dict(payload["translations"])
+                        if isinstance(payload.get("translations"), dict)
+                        else {}
+                    ),
+                )
+            )
+        return evidence
+
     def _compose_word_card(self, job: dict[str, Any]) -> str:
         if self.card_store is None:
             raise RuntimeError("card store is unavailable")
@@ -1297,34 +1342,7 @@ graph over a decorative graph."""
             for language in required_pronunciations
         }
         evidence_ids = [str(item) for item in meaning["payload"]["evidence_ids"]]
-        evidence: list[Evidence] = []
-        for record in self.store.evidence_records(evidence_ids):
-            payload = record["payload"]
-            page_values = payload.get("pages", [])
-            pages = tuple(
-                int(page)
-                for page in page_values
-                if isinstance(page, int) or str(page).isdigit()
-            ) if isinstance(page_values, list) else ()
-            evidence.append(
-                Evidence(
-                    entry_id=str(payload.get("entry_id") or record["source_entry_id"]),
-                    headword=str(payload.get("headword") or source["text"]),
-                    section=str(payload.get("section", "")),
-                    date_label=str(payload.get("date_label", "")),
-                    pages=pages,
-                    excerpt=str(record["excerpt"]),
-                    corpus_id=str(record["corpus_id"]),
-                    source_title=str(payload.get("source_title", record["corpus_id"])),
-                    kind=str(payload.get("kind", "evidence")),
-                    locator=str(record["locator"]),
-                    translations=(
-                        dict(payload["translations"])
-                        if isinstance(payload.get("translations"), dict)
-                        else {}
-                    ),
-                )
-            )
+        evidence = self._card_evidence(source, evidence_ids)
         if not evidence:
             raise ValueError("accepted meaning evidence could not be reconstructed")
 
@@ -1427,6 +1445,290 @@ graph over a decorative graph."""
         return self.store.save_job_artifact(
             job["job_id"],
             "accepted-word-card",
+            accepted,
+            language="en",
+            validation_state="accepted",
+            quality_score=quality,
+        )
+
+    def _compose_origin_card(self, job: dict[str, Any]) -> str:
+        if self.card_store is None:
+            raise RuntimeError("card store is unavailable")
+        source = self.store.term_record(str(job["subject_entity_id"]))
+        artifacts = self.store.artifacts_for_subject(
+            job["subject_key"], validation_state="accepted"
+        )
+
+        def latest(stage: str, language: str = "") -> dict[str, Any]:
+            matches = [
+                item
+                for item in artifacts
+                if item["stage"] == stage
+                and (not language or item["language"] == language)
+            ]
+            if not matches:
+                label = f" {language}" if language else ""
+                raise ValueError(f"accepted {stage}{label} checkpoint is missing")
+            return matches[-1]
+
+        meaning = latest("accepted-meaning")
+        split = latest("accepted-morpheme-split")
+        origin = latest("accepted-origin-branches")
+        translations = {
+            language: latest("accepted-translation", language)["payload"]
+            for language in ("ja", "zh", "fr", "ar")
+        }
+        pronunciations = {
+            language: latest("accepted-pronunciation", language)["payload"]
+            for language in ("en", "ja", "zh", "fr", "ar")
+        }
+        parts = list(split["payload"].get("parts", []))
+        branches = list(origin["payload"].get("branches", []))
+        if not parts or not branches:
+            raise ValueError("accepted origin structure is empty")
+
+        meaning_evidence = [
+            str(item) for item in meaning["payload"].get("evidence_ids", [])
+        ]
+        component_evidence = [
+            str(evidence_id)
+            for part in parts
+            for evidence_id in part.get("evidence_ids", [])
+        ]
+        history_evidence = [
+            str(evidence_id)
+            for branch in branches
+            for step in branch.get("steps", [])
+            for evidence_id in step.get("evidence_ids", [])
+        ]
+        evidence_ids = list(
+            dict.fromkeys([*meaning_evidence, *component_evidence, *history_evidence])
+        )
+        evidence = self._card_evidence(source, evidence_ids)
+        if not evidence:
+            raise ValueError("accepted origin evidence could not be reconstructed")
+
+        center_id = str(source["entity_id"])
+        graph_nodes: list[dict[str, Any]] = [
+            {
+                "id": center_id,
+                "type": "word",
+                "form": str(source["text"]),
+                "meaning": str(meaning["payload"]["definition"]),
+                "language": "English",
+                "history": "Modern word",
+                "basis": "book",
+                "evidence_ids": meaning_evidence,
+                "confidence": "high",
+            }
+        ]
+        graph_edges: list[dict[str, str]] = []
+        node_ids = {center_id}
+        parts_by_id = {str(part["morpheme_id"]): part for part in parts}
+        for part in parts:
+            part_id = str(part["morpheme_id"])
+            node_ids.add(part_id)
+            graph_nodes.append(
+                {
+                    "id": part_id,
+                    "type": str(part["kind"]),
+                    "form": str(part["canonical_form"]),
+                    "meaning": str(part["meaning"]),
+                    "language": str(part["language"]),
+                    "history": "Fixed word component",
+                    "basis": str(part["basis"]),
+                    "evidence_ids": list(part.get("evidence_ids", [])),
+                    "confidence": (
+                        "high" if float(part.get("confidence", 0)) >= 0.85 else "medium"
+                    ),
+                }
+            )
+            graph_edges.append(
+                {
+                    "source": part_id,
+                    "target": center_id,
+                    "relationship": f"{part['kind']}-of",
+                }
+            )
+
+        root_focus_ids: list[str] = []
+        root_headline = ""
+        for branch in branches:
+            component_id = str(branch["component_id"])
+            steps = list(branch.get("steps", []))
+            branch_ids: list[str] = []
+            for step in steps:
+                historical_id = str(step.get("historical_form_id", ""))
+                if not historical_id or historical_id in node_ids:
+                    continue
+                node_ids.add(historical_id)
+                branch_ids.append(historical_id)
+                graph_nodes.append(
+                    {
+                        "id": historical_id,
+                        "type": "historical",
+                        "form": str(step["form"]),
+                        "meaning": str(step["meaning"]),
+                        "language": str(step["period"]),
+                        "history": f"Earlier form in {step['period']}",
+                        "basis": str(step["basis"]),
+                        "evidence_ids": list(step.get("evidence_ids", [])),
+                        "confidence": (
+                            "high"
+                            if float(step.get("confidence", 0)) >= 0.85
+                            else "medium"
+                        ),
+                    }
+                )
+            chain = [*branch_ids, component_id]
+            graph_edges.extend(
+                {
+                    "source": earlier,
+                    "target": later,
+                    "relationship": "developed-into",
+                }
+                for earlier, later in zip(chain, chain[1:])
+            )
+            if branch.get("component_kind") == "root" and branch_ids:
+                root_focus_ids = [*branch_ids, component_id, center_id]
+                root_headline = " → ".join(
+                    [
+                        *(str(step["form"]) for step in steps),
+                        str(parts_by_id[component_id]["canonical_form"]),
+                        str(source["text"]),
+                    ]
+                )
+
+        all_ids = [str(node["id"]) for node in graph_nodes]
+        part_ids = [str(part["morpheme_id"]) for part in parts]
+        focus_areas: list[dict[str, Any]] = [
+            {
+                "id": "overview",
+                "label": "Whole origin",
+                "kind": "overview",
+                "node_ids": all_ids,
+                "headline": str(source["text"]),
+                "explanation": "One word, its fixed parts, and the cited root history.",
+            },
+            {
+                "id": "parts",
+                "label": "Word parts",
+                "kind": "overview",
+                "node_ids": [*part_ids, center_id],
+                "headline": " · ".join(str(part["canonical_form"]) for part in parts),
+                "explanation": "Prefix, root, and suffix combine into the modern word.",
+            },
+        ]
+        if root_focus_ids:
+            focus_areas.append(
+                {
+                    "id": "root-history",
+                    "label": "Root history",
+                    "kind": "root",
+                    "node_ids": root_focus_ids,
+                    "headline": root_headline,
+                    "explanation": "The cited ‘look’ root carries the central history.",
+                }
+            )
+        graph = {
+            "center_id": center_id,
+            "nodes": graph_nodes,
+            "edges": graph_edges,
+            "focus_areas": focus_areas,
+        }
+
+        def ruby(language: str) -> list[dict[str, str]]:
+            return [
+                {"t": str(segment["grapheme"]), "r": str(segment["phoneme"])}
+                for segment in pronunciations[language].get("segments", [])
+                if str(segment.get("grapheme", ""))
+                and str(segment.get("phoneme", ""))
+            ]
+
+        japanese = translations["ja"]
+        chinese = translations["zh"]
+        french = translations["fr"]
+        arabic = translations["ar"]
+        quality = min(
+            float(item["quality_score"] or 0)
+            for item in (meaning, split, origin)
+        )
+        card = Card(
+            card_id=str(uuid.uuid4()),
+            mode="word",
+            query=str(source["text"]),
+            title=str(source["text"]),
+            subtitle=" · ".join(str(part["canonical_form"]) for part in parts),
+            summary_en=str(meaning["payload"]["definition"]),
+            origin_story=(
+                f"The cited root follows {root_headline}." if root_headline else ""
+            ),
+            key_points=[],
+            english={
+                "term": str(source["text"]),
+                "pronunciation": str(pronunciations["en"]["reading"]),
+                "meaning": str(meaning["payload"]["definition"]),
+            },
+            japanese={
+                "term": str(japanese["term"]),
+                "reading": str(japanese["reading"]),
+                "meaning": str(japanese["meaning"]),
+                "ruby_tokens": ruby("ja"),
+            },
+            chinese={
+                "simplified": str(chinese["term"]),
+                "traditional": "",
+                "pinyin": str(pronunciations["zh"]["reading"]),
+                "meaning": str(chinese["meaning"]),
+                "ruby_tokens": ruby("zh"),
+            },
+            memory_hook="",
+            related_terms=[],
+            evidence=evidence,
+            model="accepted atomic knowledge",
+            created_at=datetime.now(UTC).isoformat(),
+            extensions={
+                "experience": "word",
+                "knowledge_policy": "accepted-atomic-origin-view",
+                "knowledge_subject": job["subject_key"],
+                "knowledge_artifact_ids": [
+                    meaning["artifact_id"], split["artifact_id"], origin["artifact_id"]
+                ],
+                "evidence_ids": evidence_ids,
+                "morphology_graph": graph,
+                "outputs": ["web"],
+                "future_outputs": ["eink", "audio"],
+            },
+            extra_languages={
+                "french": {
+                    "term": str(french["term"]),
+                    "pronunciation": str(pronunciations["fr"]["reading"]),
+                    "meaning": str(french["meaning"]),
+                },
+                "arabic": {
+                    "term": str(arabic["term"]),
+                    "reading": str(pronunciations["ar"]["reading"]),
+                    "meaning": str(arabic["meaning"]),
+                },
+            },
+        )
+        self.card_store.save(card)
+        self.card_store.publish(
+            card.card_id,
+            quality_score=quality,
+            review_note="composed only from accepted origin atoms",
+        )
+        self.card_store.supersede_others(card.mode, card.query, card.card_id)
+        accepted = {
+            "card_id": card.card_id,
+            "mode": card.mode,
+            "quality": quality,
+            "knowledge_artifact_ids": card.extensions["knowledge_artifact_ids"],
+            "card": card.to_dict(),
+        }
+        return self.store.save_job_artifact(
+            job["job_id"],
+            "accepted-origin-card",
             accepted,
             language="en",
             validation_state="accepted",
