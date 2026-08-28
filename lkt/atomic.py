@@ -22,6 +22,7 @@ SUPPORTED_ATOMIC_JOBS = (
     "retrieve-evidence",
     "prepare-meaning",
     "split-morphemes",
+    "expand-origin-branches",
     "prepare-translation",
     "prepare-pronunciation",
     "prepare-grammar-properties",
@@ -50,6 +51,19 @@ _LANGUAGE_NAMES = {
 _ARABIC_CONNECTORS = {"أو", "او", "و"}
 
 
+_ORIGIN_LANGUAGE_CODES = {
+    "ancient greek": "grc",
+    "english": "en",
+    "french": "fr",
+    "latin": "la",
+    "middle english": "enm",
+    "old english": "ang",
+    "old french": "fro",
+    "proto-germanic": "gem-pro",
+    "proto-indo-european": "ine-pro",
+}
+
+
 class AtomicModel(Protocol):
     model_name: str
 
@@ -62,6 +76,8 @@ class AtomicRetriever(Protocol):
     def retrieve(self, term: str) -> list[dict[str, Any]]: ...
 
     def component_evidence(self, form: str, kind: str) -> list[dict[str, Any]]: ...
+
+    def origin_evidence(self, form: str) -> list[dict[str, Any]]: ...
 
 
 class AtomicPronouncer(Protocol):
@@ -262,6 +278,16 @@ class WordEvidenceRetriever:
             result.append(_book_record(item, self._hash(index)))
         return result[:2]
 
+    def origin_evidence(self, form: str) -> list[dict[str, Any]]:
+        plain = re.sub(r"[^A-Za-z]", "", form)
+        if len(plain) < 3:
+            return []
+        return [
+            _book_record(item, self._hash(self.corpus))
+            for item in self.corpus.search(plain, 6)
+            if _lexically_related(plain, item)
+        ][:3]
+
 
 @dataclass(frozen=True)
 class AtomicRunResult:
@@ -302,6 +328,8 @@ class PreparationWorker:
                 artifact_id = self._prepare_meaning(job)
             elif job["job_type"] == "split-morphemes":
                 artifact_id = self._split_morphemes(job)
+            elif job["job_type"] == "expand-origin-branches":
+                artifact_id = self._expand_origin_branches(job)
             elif job["job_type"] == "prepare-translation":
                 artifact_id = self._prepare_translation(job)
             elif job["job_type"] == "prepare-pronunciation":
@@ -712,6 +740,250 @@ model knowledge. Never merge, shorten, rename, or reclassify a required part."""
         return self.store.save_job_artifact(
             job["job_id"],
             "accepted-morpheme-split",
+            accepted,
+            language=source["language"],
+            validation_state="accepted",
+            quality_score=quality,
+        )
+
+    def _expand_origin_branches(self, job: dict[str, Any]) -> str:
+        source = self.store.term_record(str(job["subject_entity_id"]))
+        splits = self.store.artifacts_for_subject(
+            job["subject_key"],
+            stage="accepted-morpheme-split",
+            validation_state="accepted",
+        )
+        if not splits:
+            raise ValueError("accepted morpheme split is missing")
+        parts = list(splits[-1]["payload"].get("parts", []))
+        if not parts:
+            raise ValueError("accepted morpheme split has no parts")
+
+        allowed_by_component: dict[str, set[str]] = {}
+        context: list[dict[str, Any]] = []
+        for part in parts:
+            component_id = str(part.get("morpheme_id", ""))
+            allowed = {
+                str(item) for item in part.get("evidence_ids", []) if str(item)
+            }
+            for record in self.retriever.origin_evidence(
+                str(part.get("canonical_form", ""))
+            ):
+                evidence_id = self.store.add_evidence(
+                    str(record.get("corpus_id", "")),
+                    str(record.get("entry_id", "")),
+                    source_hash=str(record.get("source_hash", "")),
+                    locator=str(record.get("locator", "")),
+                    excerpt=str(record.get("excerpt", "")),
+                    payload=record,
+                )
+                allowed.add(evidence_id)
+            allowed_by_component[component_id] = allowed
+            evidence = self.store.evidence_records(sorted(allowed))
+            context.append(
+                {
+                    "component_id": component_id,
+                    "form": part.get("canonical_form", ""),
+                    "kind": part.get("kind", ""),
+                    "meaning": part.get("meaning", ""),
+                    "basis": part.get("basis", "model"),
+                    "evidence": [
+                        {
+                            "evidence_id": record["evidence_id"],
+                            "source": record["corpus_id"],
+                            "locator": record["locator"],
+                            "excerpt": str(record["excerpt"])[:760],
+                        }
+                        for record in evidence
+                    ],
+                }
+            )
+
+        prompt = f"""ORIGIN BRANCHES
+MODERN WORD: {source['text']}
+FIXED COMPONENTS AND EVIDENCE: {json.dumps(context, ensure_ascii=False)}
+
+Return exactly one JSON object with key `branches`. Include one branch for each
+supplied component_id. A branch has component_id and `steps`, an array ordered
+oldest to newest. Use zero to two historically useful steps per component and no
+more than five steps total. Each step has:
+form: concise attested or reconstructed historical form
+language: ISO-style code such as la, fro, fr, grc, ine-pro, or en
+period: concise era or language-stage label
+meaning: at most 10 English words
+confidence: number from 0 to 1
+evidence_ids: only evidence IDs under that exact component
+
+The final step develops into its fixed component. Do not repeat the modern word,
+invent dates, chain sibling components, or flatten all branches into one line.
+Book evidence is authoritative. Model knowledge must use an empty evidence_ids
+array. Stop a branch when another step is uncertain. Prefer a small accurate
+graph over a decorative graph."""
+        completion = self.model.complete_json(
+            "You expand one bounded, backwards etymology layer from fixed components.",
+            prompt,
+            max_tokens=384,
+        )
+        value = completion.get("value")
+        self.store.save_job_artifact(
+            job["job_id"],
+            "model-origin-draft",
+            {
+                "term": source["text"],
+                "value": value,
+                "model": completion.get("model", self.model.model_name),
+                "metrics": completion.get("metrics", {}),
+            },
+            language=source["language"],
+            validation_state="candidate",
+        )
+        raw_branches = value.get("branches") if isinstance(value, dict) else None
+        if not isinstance(raw_branches, list):
+            raise ValueError("origin task returned no branches")
+        raw_by_component = {
+            str(branch.get("component_id", "")): branch
+            for branch in raw_branches
+            if isinstance(branch, dict)
+            and str(branch.get("component_id", "")) in allowed_by_component
+        }
+
+        cleaned_branches: list[dict[str, Any]] = []
+        total_steps = 0
+        root_has_history = False
+        for part in parts:
+            component_id = str(part["morpheme_id"])
+            branch = raw_by_component.get(component_id, {})
+            raw_steps = branch.get("steps", []) if isinstance(branch, dict) else []
+            if not isinstance(raw_steps, list) or len(raw_steps) > 2:
+                raise ValueError("an origin branch has too many steps")
+            steps: list[dict[str, Any]] = []
+            seen_forms: set[tuple[str, str, str]] = set()
+            for raw in raw_steps:
+                if not isinstance(raw, dict):
+                    raise ValueError("origin step is not an object")
+                form = re.sub(r"\s+", " ", str(raw.get("form", ""))).strip()
+                period = re.sub(r"\s+", " ", str(raw.get("period", ""))).strip()
+                meaning = _clean_morpheme_meaning(raw.get("meaning", ""))
+                supplied_language = re.sub(
+                    r"\s+", " ", str(raw.get("language", ""))
+                ).strip().casefold()
+                language = _ORIGIN_LANGUAGE_CODES.get(
+                    supplied_language, supplied_language
+                )
+                if not re.fullmatch(r"[a-z][a-z0-9-]{1,15}", language):
+                    raise ValueError("origin step has an invalid language code")
+                if not form or len(form) > 90 or not period or len(period) > 80:
+                    raise ValueError("origin form or period is missing or too long")
+                if not meaning or len(meaning.split()) > 10:
+                    raise ValueError("origin meaning is missing or too long")
+                if any(
+                    marker in text
+                    for marker in _ENCODING_DAMAGE
+                    for text in (form, period, meaning)
+                ):
+                    raise ValueError("origin step contains encoding damage")
+                confidence = max(
+                    0.0, min(float(raw.get("confidence", 0.0)), 1.0)
+                )
+                if confidence < 0.65:
+                    raise ValueError("origin confidence is below threshold")
+                selected = list(
+                    dict.fromkeys(
+                        str(item)
+                        for item in raw.get("evidence_ids", [])
+                        if str(item) in allowed_by_component[component_id]
+                    )
+                ) if isinstance(raw.get("evidence_ids"), list) else []
+                basis = "book" if selected else "model"
+                confidence = min(confidence, 0.95 if basis == "book" else 0.75)
+                key = (language, form.casefold(), period.casefold())
+                if key in seen_forms:
+                    continue
+                seen_forms.add(key)
+                steps.append(
+                    {
+                        "form": form,
+                        "language": language,
+                        "period": period,
+                        "meaning": meaning,
+                        "confidence": confidence,
+                        "basis": basis,
+                        "evidence_ids": selected,
+                    }
+                )
+            total_steps += len(steps)
+            root_has_history = root_has_history or (
+                part.get("kind") == "root" and bool(steps)
+            )
+            cleaned_branches.append(
+                {
+                    "component_id": component_id,
+                    "component_form": part["canonical_form"],
+                    "component_kind": part["kind"],
+                    "steps": steps,
+                }
+            )
+        if total_steps < 1 or total_steps > 5 or not root_has_history:
+            raise ValueError("origin task did not establish a bounded root history")
+
+        accepted_steps: list[dict[str, Any]] = []
+        for branch in cleaned_branches:
+            later_id = str(branch["component_id"])
+            for step in reversed(branch["steps"]):
+                historical_id = self.store.add_historical_form(
+                    step["language"],
+                    step["form"],
+                    period_label=step["period"],
+                    meaning=step["meaning"],
+                    status="accepted",
+                    quality_score=step["confidence"],
+                )
+                for evidence_id in step["evidence_ids"]:
+                    self.store.link_evidence(
+                        historical_id,
+                        evidence_id,
+                        claim=f"{step['form']}: {step['meaning']}",
+                        confidence=step["confidence"],
+                    )
+                self.store.add_edge(
+                    historical_id,
+                    later_id,
+                    "developed-into",
+                    basis=step["basis"],
+                    confidence=step["confidence"],
+                    properties={"component_id": branch["component_id"]},
+                )
+                self.store.record_revision(
+                    historical_id,
+                    step,
+                    model=str(completion.get("model", self.model.model_name)),
+                    prompt_version=str(job.get("prompt_version", "")),
+                    reason="atomic origin branch expansion",
+                    accepted=True,
+                )
+                step["historical_form_id"] = historical_id
+                later_id = historical_id
+                accepted_steps.append(step)
+
+        quality = min(step["confidence"] for step in accepted_steps)
+        accepted = {
+            "term_id": source["entity_id"],
+            "term": source["text"],
+            "branches": cleaned_branches,
+            "model": completion.get("model", self.model.model_name),
+            "metrics": completion.get("metrics", {}),
+        }
+        self.store.record_revision(
+            source["entity_id"],
+            accepted,
+            model=str(accepted["model"]),
+            prompt_version=str(job.get("prompt_version", "")),
+            reason="bounded recursive origin expansion",
+            accepted=True,
+        )
+        return self.store.save_job_artifact(
+            job["job_id"],
+            "accepted-origin-branches",
             accepted,
             language=source["language"],
             validation_state="accepted",

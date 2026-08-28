@@ -54,6 +54,22 @@ class FakeRetriever:
             }
         ]
 
+    def origin_evidence(self, form: str) -> list[dict[str, Any]]:
+        if form.strip("-").casefold() != "spect":
+            return []
+        return [
+            {
+                "entry_id": "origin-spect-1",
+                "corpus_id": "test-word-origins:1.0",
+                "source_title": "Test Word Origins",
+                "headword": "spectacle",
+                "excerpt": "Latin specere descends from Indo-European *spek-, to look.",
+                "source_hash": "origins123",
+                "locator": "spectacle entry",
+                "kind": "entry",
+            }
+        ]
+
 
 class FakeAtomicModel:
     model_name = "test-qwen-8b"
@@ -63,6 +79,41 @@ class FakeAtomicModel:
     ) -> dict[str, Any]:
         match = re.search(r'"(evidence-[^"]+)"', prompt)
         assert match is not None
+        if "ORIGIN BRANCHES" in prompt:
+            component_ids = re.findall(r'"component_id": "([^"]+)"', prompt)
+            evidence_ids = re.findall(r'"evidence_id": "(evidence-[^"]+)"', prompt)
+            assert len(component_ids) == 3
+            return {
+                "value": {
+                    "branches": [
+                        {"component_id": component_ids[0], "steps": []},
+                        {
+                            "component_id": component_ids[1],
+                            "steps": [
+                                {
+                                    "form": "*spek-",
+                                    "language": "ine-pro",
+                                    "period": "Proto-Indo-European",
+                                    "meaning": "look",
+                                    "confidence": 0.9,
+                                    "evidence_ids": [evidence_ids[-1]],
+                                },
+                                {
+                                    "form": "specere",
+                                    "language": "la",
+                                    "period": "Latin",
+                                    "meaning": "look at",
+                                    "confidence": 0.9,
+                                    "evidence_ids": [evidence_ids[-1]],
+                                },
+                            ],
+                        },
+                        {"component_id": component_ids[2], "steps": []},
+                    ]
+                },
+                "model": self.model_name,
+                "metrics": {"completion_tokens": 120},
+            }
         if "MORPHEME SPLIT" in prompt:
             return {
                 "value": {
@@ -220,7 +271,7 @@ class AtomicWorkerTests(unittest.TestCase):
                 "inspection", display_languages=("en", "ja")
             )
             worker = PreparationWorker(store, FakeRetriever(), FakeAtomicModel())
-            results = worker.run(4)
+            results = worker.run(5)
             self.assertEqual(results[-1].job_type, "prepare-translation")
             artifacts = store.artifacts_for_subject(
                 plan.subject_key, stage="accepted-translation"
@@ -257,7 +308,7 @@ class AtomicWorkerTests(unittest.TestCase):
             plan = PreparationPlanner(store, model="test-qwen-4b").plan_word(
                 "inspection", display_languages=("en", "fr")
             )
-            PreparationWorker(store, FakeRetriever(), FrenchModel()).run(4)
+            PreparationWorker(store, FakeRetriever(), FrenchModel()).run(5)
             artifact = store.artifacts_for_subject(
                 plan.subject_key,
                 stage="accepted-translation",
@@ -292,7 +343,7 @@ class AtomicWorkerTests(unittest.TestCase):
             plan = PreparationPlanner(store, model="test-qwen-4b").plan_word(
                 "inspection", display_languages=("en", "ar")
             )
-            results = PreparationWorker(store, FakeRetriever(), RepetitiveArabicModel()).run(4)
+            results = PreparationWorker(store, FakeRetriever(), RepetitiveArabicModel()).run(5)
             self.assertEqual(results[-1].status, "complete")
             artifact = store.artifacts_for_subject(
                 plan.subject_key,
@@ -323,7 +374,7 @@ class AtomicWorkerTests(unittest.TestCase):
             "\u0641\u062d\u0635 \u0631\u0633\u0645\u064a \u0644\u0634\u064a\u0621 \u0645\u0639\u064a\u0646",
         )
 
-    def test_worker_does_not_claim_later_unsupported_jobs(self) -> None:
+    def test_origin_expansion_is_atomic_and_later_composition_stays_queued(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")
             plan = PreparationPlanner(store, model="test").plan_word(
@@ -333,7 +384,7 @@ class AtomicWorkerTests(unittest.TestCase):
                 store, FakeRetriever(), FakeAtomicModel(), FakePronouncer()
             )
             results = worker.run(10)
-            self.assertEqual(len(results), 5)
+            self.assertEqual(len(results), 6)
             self.assertEqual(results[-1].job_type, "prepare-grammar-properties")
             grammar = store.artifacts_for_subject(
                 plan.subject_key,
@@ -354,12 +405,30 @@ class AtomicWorkerTests(unittest.TestCase):
                 validation_state="candidate",
             )
             self.assertEqual(len(draft), 1)
+            origin = store.artifacts_for_subject(
+                plan.subject_key,
+                stage="accepted-origin-branches",
+                validation_state="accepted",
+            )
+            self.assertEqual(len(origin), 1)
+            root_branch = next(
+                branch
+                for branch in origin[0]["payload"]["branches"]
+                if branch["component_kind"] == "root"
+            )
+            self.assertEqual(
+                [step["form"] for step in root_branch["steps"]],
+                ["*spek-", "specere"],
+            )
+            self.assertTrue(all(step["basis"] == "book" for step in root_branch["steps"]))
+            self.assertEqual(store.status()["counts"]["historical_forms"], 2)
             queued_types = {
                 job["job_type"]
                 for job in store.jobs_for_subject(plan.subject_key)
                 if job["status"] == "queued"
             }
-            self.assertIn("expand-origin-branches", queued_types)
+            self.assertNotIn("expand-origin-branches", queued_types)
+            self.assertIn("compose-origin-card", queued_types)
             self.assertIn("compose-word-card", queued_types)
 
     def test_pronunciation_reuses_accepted_atoms_without_an_llm_call(self) -> None:
@@ -373,6 +442,7 @@ class AtomicWorkerTests(unittest.TestCase):
             )
             worker.run(2)
             store.finish_job(plan.jobs["split-morphemes"])
+            store.finish_job(plan.jobs["expand-origin-branches"])
             meaning = store.artifacts_for_subject(
                 plan.subject_key,
                 stage="accepted-meaning",
@@ -518,6 +588,7 @@ class AtomicWorkerTests(unittest.TestCase):
             )
             store.finish_job(plan.jobs["grammar-properties"])
             store.finish_job(plan.jobs["split-morphemes"])
+            store.finish_job(plan.jobs["expand-origin-branches"])
 
             worker = PreparationWorker(
                 store, FakeRetriever(), FakeAtomicModel(), FakePronouncer(), cards

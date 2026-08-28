@@ -877,6 +877,7 @@ class KnowledgeStore:
         date_max: int | None = None,
         meaning: str = "",
         status: str = "accepted",
+        quality_score: float | None = None,
     ) -> str:
         language = _language(language)
         form = form.strip()
@@ -894,6 +895,7 @@ class KnowledgeStore:
                 form,
                 {"period": period_label, "meaning": meaning},
                 status=status,
+                quality_score=quality_score,
             )
             connection.execute(
                 """INSERT INTO historical_forms(

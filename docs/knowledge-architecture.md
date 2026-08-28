@@ -146,6 +146,15 @@ separate recursive origin task instead of distorting the visible word structure.
 Prefix/suffix hyphen direction and plain-phrase punctuation are deterministic
 display normalizations and are recorded on the accepted atom.
 
+`expand-origin-branches` starts only after a split is accepted. It retrieves
+Word Origins evidence independently for each fixed component, asks for no more
+than two backwards steps per branch, checkpoints the raw graph draft, and then
+stores each accepted historical form as its own entity. Historical edges point
+from older form to newer form or component. Only evidence attached to that
+exact component can make a historical node `book`; uncited model knowledge is
+capped at 0.75. At least one root history is required, and a malformed branch
+cannot publish an Origin card.
+
 Answer and Question preparation follows the same rule: source text, each
 language, grammar parts, and investigation candidates are separate tasks. A
 meaningful selected word can start a child investigation while retaining the
