@@ -2,7 +2,7 @@
 
 const $ = (selector) => document.querySelector(selector);
 const all = (selector) => [...document.querySelectorAll(selector)];
-let mode = "question";
+let mode = "answer";
 let activeCardId = null;
 let activeCard = null;
 let visibleView = "empty";
@@ -886,7 +886,7 @@ function renderCard(card, refreshHistory = true) {
 
 function setMode(nextMode, preserveView = false) {
   const previousMode = mode;
-  mode = MODE_COPY[nextMode] ? nextMode : "word";
+  mode = MODE_COPY[nextMode] ? nextMode : "answer";
   const copy = MODE_COPY[mode] || MODE_COPY.word;
   all(".mode").forEach((button) => button.classList.toggle("active", button.dataset.mode === mode));
   text("#query-label", copy.label);
@@ -1126,7 +1126,7 @@ document.addEventListener("keydown", noteActivity);
 document.addEventListener("focusin", noteActivity);
 
 const initialParameters = new URLSearchParams(location.search);
-const initialMode = MODE_COPY[initialParameters.get("mode")] ? initialParameters.get("mode") : "question";
+const initialMode = MODE_COPY[initialParameters.get("mode")] ? initialParameters.get("mode") : "answer";
 setMode(initialMode);
 if (initialParameters.has("display")) document.body.classList.add("display-mode");
 loadHealth();

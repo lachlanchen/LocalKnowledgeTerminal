@@ -1,11 +1,20 @@
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
 
 from lkt.web import card_chat_context, chat_messages, renderable_card
 
 
 class WebInputTests(unittest.TestCase):
+    def test_bare_terminal_defaults_to_the_answer_carousel(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        script = (root / "lkt" / "static" / "app.js").read_text(encoding="utf-8")
+        page = (root / "lkt" / "static" / "index.html").read_text(encoding="utf-8")
+        self.assertIn('let mode = "answer";', script)
+        self.assertIn('initialParameters.get("mode") : "answer"', script)
+        self.assertIn('class="mode active" data-mode="answer"', page)
+
     def test_old_cards_receive_chinese_ruby_without_database_migration(self) -> None:
         card = {"chinese": {"simplified": "中国", "pinyin": "zhōng guó"}}
         rendered = renderable_card(card)

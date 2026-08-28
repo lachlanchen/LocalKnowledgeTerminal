@@ -41,6 +41,12 @@ yet. They are future references only.
 
 ## Independent modes
 
+The bare terminal opens the accepted Book of Answers carousel as its ambient
+experience. A stable local draw is visible immediately and advances
+automatically when more than one accepted Answer card exists. Question, Word
+Card, Word Origin, Root, Affix, and Model Lab remain explicit user-selected
+paths rather than being mixed into the ambient card.
+
 ### Word Origin
 
 - It is an origin product, not a generic word card.

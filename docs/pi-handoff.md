@@ -37,6 +37,7 @@ the model reported as local and ready.
 
 ## Browser entry points
 
+- Bare/default ambient display: `http://127.0.0.1:8090/?display`
 - Ambient Answer display: `http://127.0.0.1:8090/?mode=answer&display`
 - Word Card display: `http://127.0.0.1:8090/?mode=knowledge&display`
 - Word Origin display: `http://127.0.0.1:8090/?mode=word&display`
