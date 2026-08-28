@@ -5,6 +5,7 @@ import sys
 import tempfile
 import types
 import unittest
+from contextlib import closing
 from pathlib import Path
 from unittest.mock import patch
 
@@ -14,6 +15,44 @@ from lkt.lexicon import WordnetRag
 
 
 class KnowledgeStoreTests(unittest.TestCase):
+    def test_reviewed_card_book_languages_become_idempotent_content_atoms(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")
+            card = {
+                "card_id": "question-card-100",
+                "mode": "question",
+                "english": {"term": "Would you accept the cost?"},
+                "japanese": {"term": "その代償を受け入れますか？"},
+                "chinese": {"simplified": "你会接受这个代价吗？"},
+                "evidence": [
+                    {
+                        "corpus_id": "book-of-questions",
+                        "entry_id": "question-100",
+                        "locator": "questions.xhtml",
+                        "excerpt": "Would you accept the cost?",
+                    }
+                ],
+            }
+
+            first = store.acquire_card_book_card(card)
+            second = store.acquire_card_book_card(card)
+
+            self.assertEqual(first, second)
+            self.assertEqual(store.status()["counts"]["content_items"], 3)
+            with closing(store._connect()) as connection:
+                self.assertEqual(
+                    connection.execute(
+                        "SELECT COUNT(*) FROM entity_edges WHERE relation = 'reviewed-translation'"
+                    ).fetchone()[0],
+                    2,
+                )
+                self.assertEqual(
+                    connection.execute(
+                        "SELECT COUNT(*) FROM entity_evidence"
+                    ).fetchone()[0],
+                    3,
+                )
+
     def test_atomic_word_knowledge_is_reused_and_projected_as_a_graph(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             database = Path(temp) / "knowledge.sqlite3"

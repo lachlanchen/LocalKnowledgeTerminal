@@ -292,6 +292,30 @@ class CardStore:
             ).fetchall()
         return [json.loads(row[0]) for row in rows]
 
+    def accepted_for_modes(self, modes: tuple[str, ...]) -> list[dict[str, Any]]:
+        """Return the complete accepted collection for an explicit migration.
+
+        Unlike ``recent``, this intentionally has no UI-oriented limit. It is
+        used by bounded maintenance commands that need to migrate every
+        already-published card in the selected modes.
+        """
+
+        selected = tuple(
+            dict.fromkeys(mode.strip() for mode in modes if mode.strip() in _VISIBLE_MODES)
+        )
+        if not selected:
+            return []
+        placeholders = ",".join("?" for _ in selected)
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                f"""SELECT payload FROM cards
+                    WHERE status = 'active' AND validation_state = 'accepted'
+                      AND mode IN ({placeholders})
+                    ORDER BY created_at""",
+                selected,
+            ).fetchall()
+        return [json.loads(row[0]) for row in rows]
+
     def find_active(self, mode: str, query: str) -> dict[str, Any] | None:
         """Return established card knowledge before scheduling new inference."""
 

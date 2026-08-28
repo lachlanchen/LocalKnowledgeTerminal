@@ -155,6 +155,29 @@ def command_knowledge_status(_args: argparse.Namespace) -> int:
     return 0
 
 
+def command_sync_card_knowledge(_args: argparse.Namespace) -> int:
+    """Backfill reviewed Answer/Question cards into normalized knowledge."""
+
+    settings = _settings()
+    knowledge = KnowledgeStore(settings.knowledge_db)
+    cards = CardStore(settings.cards_db).accepted_for_modes(("answer", "question"))
+    acquired = [knowledge.acquire_card_book_card(card) for card in cards]
+    print(
+        json.dumps(
+            {
+                "cards": len(acquired),
+                "language_atoms": sum(
+                    len(item.get("language_entity_ids", {})) for item in acquired
+                ),
+                "knowledge": knowledge.status(),
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+    return 0
+
+
 def command_rebuild_graph(args: argparse.Namespace) -> int:
     settings = _settings()
     destination = Path(args.database).resolve() if args.database else settings.graph_db
@@ -432,6 +455,12 @@ def parser() -> argparse.ArgumentParser:
         help="initialise and report the established-knowledge database",
     )
     knowledge_status.set_defaults(handler=command_knowledge_status)
+
+    sync_card_knowledge = commands.add_parser(
+        "sync-card-knowledge",
+        help="backfill accepted Answer/Question text into normalized knowledge",
+    )
+    sync_card_knowledge.set_defaults(handler=command_sync_card_knowledge)
 
     rebuild_graph = commands.add_parser(
         "rebuild-graph",

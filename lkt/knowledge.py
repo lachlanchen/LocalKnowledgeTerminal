@@ -1006,6 +1006,104 @@ class KnowledgeStore:
             connection.commit()
         return entity_id
 
+    def acquire_card_book_card(self, card: dict[str, Any]) -> dict[str, Any]:
+        """Persist one accepted Answer/Question card as reusable reviewed atoms.
+
+        The card ledger remains the versioned presentation record. This method
+        mirrors only the reviewed book text, language relationships, and
+        retrieval-owned citations into the normalized knowledge store so later
+        grammar or word investigations can reuse them without parsing the UI.
+        It is deliberately idempotent and never treats model reflection as book
+        evidence.
+        """
+
+        kind = str(card.get("mode", "")).strip().lower()
+        if kind not in {"answer", "question"}:
+            return {}
+        card_id = str(card.get("card_id", "")).strip()
+        evidence_values = card.get("evidence")
+        evidence_records = (
+            [item for item in evidence_values if isinstance(item, dict)]
+            if isinstance(evidence_values, list)
+            else []
+        )
+        if not card_id or not evidence_records:
+            raise ValueError("card-book acquisition requires a card ID and evidence")
+        source_key = str(evidence_records[0].get("entry_id", "")).strip()
+        if not source_key:
+            raise ValueError("card-book acquisition requires a stable source entry ID")
+
+        language_values = {
+            "en": str((card.get("english") or {}).get("term", "")).strip(),
+            "ja": str((card.get("japanese") or {}).get("term", "")).strip(),
+            "zh": str((card.get("chinese") or {}).get("simplified", "")).strip(),
+        }
+        if any(not value for value in language_values.values()):
+            raise ValueError("card-book acquisition requires reviewed en, ja, and zh text")
+
+        entities = {
+            language: self.upsert_content_item(
+                kind,
+                language,
+                text,
+                source_key=source_key,
+                status="accepted",
+            )
+            for language, text in language_values.items()
+        }
+        evidence_ids: list[str] = []
+        for record in evidence_records:
+            corpus_id = str(record.get("corpus_id", "")).strip()
+            entry_id = str(record.get("entry_id", "")).strip()
+            if not corpus_id or not entry_id:
+                continue
+            pages = record.get("pages")
+            locator = str(record.get("locator", "")).strip()
+            if not locator and isinstance(pages, list):
+                locator = ", ".join(str(page) for page in pages)
+            evidence_id = self.add_evidence(
+                corpus_id,
+                entry_id,
+                source_hash=str(record.get("source_hash", "")),
+                locator=locator,
+                excerpt=str(record.get("excerpt", "")),
+                payload=record,
+            )
+            evidence_ids.append(evidence_id)
+            for language, entity_id in entities.items():
+                self.link_evidence(
+                    entity_id,
+                    evidence_id,
+                    claim=f"reviewed {kind} text ({language})",
+                    confidence=1.0,
+                )
+
+        if not evidence_ids:
+            raise ValueError("card-book acquisition found no usable citation records")
+        source_entity_id = entities["en"]
+        for language in ("ja", "zh"):
+            self.add_edge(
+                source_entity_id,
+                entities[language],
+                "reviewed-translation",
+                basis="book",
+                confidence=1.0,
+                properties={
+                    "card_id": card_id,
+                    "source_entry_id": source_key,
+                    "target_language": language,
+                },
+            )
+        for language, entity_id in entities.items():
+            self.set_property(entity_id, "source_card_id", card_id)
+            self.set_property(entity_id, "source_entry_id", source_key)
+            self.set_property(entity_id, "reviewed_language", language)
+        return {
+            "source_entity_id": source_entity_id,
+            "language_entity_ids": entities,
+            "evidence_ids": list(dict.fromkeys(evidence_ids)),
+        }
+
     def add_grammar_analysis(
         self,
         subject_entity_id: str,

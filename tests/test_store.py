@@ -97,6 +97,45 @@ class StoreTests(unittest.TestCase):
             self.assertTrue(store.archive("card-1"))
             self.assertEqual(store.recent(), [])
 
+    def test_complete_mode_migration_reads_only_selected_accepted_cards(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            database = Path(temp) / "knowledge.sqlite3"
+            store = CardStore(database)
+            with closing(sqlite3.connect(database)) as connection:
+                for card_id, mode, state in (
+                    ("answer-1", "answer", "accepted"),
+                    ("question-1", "question", "accepted"),
+                    ("word-1", "knowledge", "accepted"),
+                    ("answer-rejected", "answer", "rejected"),
+                ):
+                    payload = {"card_id": card_id, "mode": mode}
+                    connection.execute(
+                        """INSERT INTO cards(
+                               card_id, mode, query, title, created_at, payload,
+                               status, revision_of, updated_at, validation_state,
+                               validation_errors
+                           ) VALUES (?, ?, ?, ?, ?, ?, ?, '', ?, ?, '[]')""",
+                        (
+                            card_id,
+                            mode,
+                            card_id,
+                            card_id,
+                            card_id,
+                            json.dumps(payload),
+                            "active" if state == "accepted" else "candidate",
+                            card_id,
+                            state,
+                        ),
+                    )
+                connection.commit()
+
+            migrated = store.accepted_for_modes(("answer", "question"))
+
+            self.assertEqual(
+                [card["card_id"] for card in migrated],
+                ["answer-1", "question-1"],
+            )
+
     def test_established_card_is_reused_by_mode_and_normalized_query(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             database = Path(temp) / "knowledge.sqlite3"

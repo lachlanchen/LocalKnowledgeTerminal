@@ -310,6 +310,7 @@ def handler_factory(
                     str(body.get("review_note", "")),
                     body.get("quality_score"),
                 )
+                knowledge.acquire_card_book_card(revised)
             except (ValueError, json.JSONDecodeError) as exc:
                 self._json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
                 return
@@ -365,9 +366,11 @@ def handler_factory(
                 if payload.get("refresh") is not True:
                     established = service.store.find_active(requested_mode, query)
                     if established is not None:
+                        knowledge.acquire_card_book_card(established)
                         self._json(renderable_card(established))
                         return
                 card = service.create(query, requested_mode)
+                knowledge.acquire_card_book_card(card.to_dict())
             except (ValueError, json.JSONDecodeError) as exc:
                 self._json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
                 return
