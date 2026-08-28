@@ -19,10 +19,15 @@ of source-specific conditionals.
 ## Prepared enrichment points
 
 The normalized knowledge schema and dependency-aware planner are implemented.
-Phoneme segmentation, Arabic grapheme segmentation, sentence grammar, linked
-word investigation, recursive origin expansion, and batch corpus preparation
-are represented as separate sequential jobs. The bounded worker now executes
-and checkpoints the first two jobs—combined book/dictionary retrieval and one
-validated English meaning—plus one sense-aligned target-language translation at
-a time, without claiming later unsupported work. Each remaining task gets its
-own handler and validator before promotion.
+For words, the bounded worker executes and checkpoints retrieval, one validated
+meaning, conservative morpheme splitting, bounded origin expansion, one
+language and pronunciation at a time, grammar properties, and deterministic
+Word Card/Origin composition. Phoneme segments, Arabic grapheme segments, and
+the connected ancestry graph are stored independently and reused.
+
+For accepted Answer and Question cards, exact reviewed English, Japanese, and
+Chinese text is now acquired as evidence-linked content atoms; the migration is
+idempotent and complete across the accepted card-book collection. The planner
+already represents sentence grammar, linked investigation terms, content
+translation, and content-card composition as separate jobs, but those content
+job handlers are still enrichment work—not a claimed runtime capability.

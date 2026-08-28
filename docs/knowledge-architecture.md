@@ -171,10 +171,17 @@ edge names stay in card JSON for future inspection instead of overlapping the
 large teaching nodes. Origin-source evidence is ordered before modern lexical
 evidence in the visible citation panel.
 
-Answer and Question preparation follows the same rule: source text, each
-language, grammar parts, and investigation candidates are separate tasks. A
-meaningful selected word can start a child investigation while retaining the
-source card/event relationship.
+Every accepted Answer and Question card immediately acquires its exact reviewed
+English, Japanese, and Chinese text as three idempotent `content_items`. All
+three atoms link to the retrieval-owned card-book evidence, while typed
+`reviewed-translation` edges preserve their relationship. Model reflection is
+not copied into book evidence. `sync-card-knowledge` safely backfills cards that
+predate this acquisition path and the LadybugDB projection remains rebuildable
+from the resulting SQLite atoms.
+
+Further content enrichment follows the same rule: sentence grammar and
+investigation candidates remain separate tasks. A later selected-word action
+can start a child inquiry while retaining its source content item and card.
 
 ## Compact lexical correction
 

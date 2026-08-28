@@ -75,6 +75,10 @@ pronunciations, phoneme/grapheme segments, morphemes, history, translations,
 grammar, provenance, revisions, and inquiry lineage as reusable atoms. Cards are
 reconstructable views over those atoms. A LadybugDB property graph is a derived
 traversal projection and can always be rebuilt from SQLite.
+Accepted Book Answer and Book Question cards also place their exact reviewed
+English, Japanese, and Chinese texts in this normalized store. Each language is
+an independent content atom linked to the retrieval-owned book citation; model
+reflection is deliberately excluded from that book evidence.
 
 Preparation uses small dependency-aware jobs: retrieve evidence, prepare one
 meaning, split components, recursively expand each origin branch, prepare each
@@ -161,6 +165,7 @@ python -m lkt.cli ingest-morphology affix "C:\path\to\affix-dictionary\output\js
 python -m lkt.cli search abacus
 python -m lkt.cli search technology --corpus question
 python -m lkt.cli knowledge-status
+python -m lkt.cli sync-card-knowledge
 python -m lkt.cli plan-word inspection --display-languages en ja zh fr ar
 python -m lkt.cli plan-translation inspection ar --prompt-version atomic-v2
 python -m lkt.cli work-atomic --limit 1
