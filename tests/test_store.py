@@ -4,6 +4,7 @@ import tempfile
 import unittest
 import sqlite3
 import json
+from contextlib import closing
 from pathlib import Path
 
 from lkt.store import CardStore
@@ -113,6 +114,40 @@ class StoreTests(unittest.TestCase):
             self.assertEqual(store.recent(), [])
             self.assertEqual(store.quarantine_unvalidated(), {"legacy-unreviewed": 1})
             self.assertEqual(store.recent(), [])
+
+    def test_dirty_cleanup_is_backed_up_and_keeps_raw_chat(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            database = Path(temp) / "cards.sqlite3"
+            backup = Path(temp) / "backups" / "before-cleanup.sqlite3"
+            store = CardStore(database)
+            connection = sqlite3.connect(database)
+            connection.execute(
+                """INSERT INTO cards(
+                    card_id, mode, query, title, created_at, payload,
+                    status, revision_of, updated_at, quality_score, review_note
+                ) VALUES ('dirty-1', 'knowledge', 'word', 'Dirty', 'now', ?,
+                          'active', '', 'now', NULL, '')""",
+                ('{"card_id":"dirty-1","mode":"knowledge"}',),
+            )
+            connection.commit()
+            connection.close()
+            run_id = store.start_preparation("root", "bad", "test")
+            store.save_preparation_artifact(run_id, "bad-output", {"bad": True})
+            store.finish_preparation(run_id, "failed", error="invalid")
+            store.save_observation(
+                "keep this", "raw answer", "test", {}, context_card_id="dirty-1"
+            )
+
+            result = store.purge_unvalidated(backup)
+            self.assertTrue(backup.is_file())
+            self.assertEqual(result["cards_removed"], 1)
+            self.assertEqual(result["preparation_runs_removed"], 1)
+            self.assertEqual(result["preparation_artifacts_removed"], 1)
+            self.assertIsNone(store.get("dirty-1"))
+            self.assertEqual(store.recent_observations(1)[0]["prompt"], "keep this")
+            self.assertEqual(store.recent_observations(1)[0]["context_card_id"], "")
+            with closing(sqlite3.connect(backup)) as restored:
+                self.assertEqual(restored.execute("SELECT COUNT(*) FROM cards").fetchone()[0], 1)
 
     def test_raw_model_observations_are_persistent_and_marked_uncited(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

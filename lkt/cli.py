@@ -254,6 +254,13 @@ def command_work_atomic(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_clean_cards(args: argparse.Namespace) -> int:
+    settings = _settings()
+    result = CardStore(settings.cards_db).purge_unvalidated(Path(args.backup))
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0
+
+
 def command_serve(_args: argparse.Namespace) -> int:
     from .web import run
 
@@ -377,6 +384,13 @@ def parser() -> argparse.ArgumentParser:
     )
     work_atomic.add_argument("--limit", type=int, default=1)
     work_atomic.set_defaults(handler=command_work_atomic)
+
+    clean_cards = commands.add_parser(
+        "clean-cards",
+        help="back up the card ledger and purge unvalidated legacy material",
+    )
+    clean_cards.add_argument("--backup", required=True)
+    clean_cards.set_defaults(handler=command_clean_cards)
 
     serve = commands.add_parser("serve", help="run the GUI and JSON API")
     serve.set_defaults(handler=command_serve)

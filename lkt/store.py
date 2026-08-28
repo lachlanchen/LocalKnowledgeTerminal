@@ -412,6 +412,82 @@ class CardStore:
             connection.commit()
         return counts
 
+    def purge_unvalidated(self, backup_path: Path) -> dict[str, int | str]:
+        """Back up the ledger, then remove rejected/legacy card material."""
+
+        backup_path = backup_path.resolve()
+        if backup_path == self.database:
+            raise ValueError("backup path must differ from the card database")
+        if backup_path.exists():
+            raise FileExistsError(backup_path)
+        backup_path.parent.mkdir(parents=True, exist_ok=True)
+        with closing(self._connect()) as source, closing(
+            sqlite3.connect(backup_path, timeout=10)
+        ) as destination:
+            source.backup(destination)
+
+        with closing(self._connect()) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            dirty_ids = [
+                str(row[0])
+                for row in connection.execute(
+                    "SELECT card_id FROM cards WHERE validation_state <> 'accepted'"
+                )
+            ]
+            placeholders = ",".join("?" for _ in dirty_ids)
+            linked_runs: list[str] = []
+            if dirty_ids:
+                linked_runs = [
+                    str(row[0])
+                    for row in connection.execute(
+                        f"""SELECT run_id FROM preparation_runs
+                            WHERE card_id IN ({placeholders}) OR status = 'failed'""",
+                        dirty_ids,
+                    )
+                ]
+                connection.execute(
+                    f"UPDATE observations SET context_card_id = '' "
+                    f"WHERE context_card_id IN ({placeholders})",
+                    dirty_ids,
+                )
+            else:
+                linked_runs = [
+                    str(row[0])
+                    for row in connection.execute(
+                        "SELECT run_id FROM preparation_runs WHERE status = 'failed'"
+                    )
+                ]
+            artifact_count = 0
+            if linked_runs:
+                run_placeholders = ",".join("?" for _ in linked_runs)
+                artifact_count = int(
+                    connection.execute(
+                        f"""SELECT COUNT(*) FROM preparation_artifacts
+                            WHERE run_id IN ({run_placeholders})""",
+                        linked_runs,
+                    ).fetchone()[0]
+                )
+                connection.execute(
+                    f"DELETE FROM preparation_artifacts "
+                    f"WHERE run_id IN ({run_placeholders})",
+                    linked_runs,
+                )
+                connection.execute(
+                    f"DELETE FROM preparation_runs WHERE run_id IN ({run_placeholders})",
+                    linked_runs,
+                )
+            if dirty_ids:
+                connection.execute(
+                    f"DELETE FROM cards WHERE card_id IN ({placeholders})", dirty_ids
+                )
+            connection.commit()
+        return {
+            "backup": str(backup_path),
+            "cards_removed": len(dirty_ids),
+            "preparation_runs_removed": len(linked_runs),
+            "preparation_artifacts_removed": artifact_count,
+        }
+
     def revise(
         self,
         card_id: str,

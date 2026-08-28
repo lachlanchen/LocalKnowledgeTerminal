@@ -367,3 +367,16 @@ source was live dictation and may contain recognition errors:
   implementation choice: retrieve a small relevant context, combine it with
   compact dictionary correction, and let local Qwen produce bounded dynamic
   results. Optimize for correctness, stable output, speed, and robustness.
+
+## Restraint as a product principle
+
+- Continue storing the owner's messages as durable product reference so design
+  intent is not lost across implementation sessions.
+- High-quality data comes from local Qwen plus book evidence plus dictionary
+  correction, prepared as small validated tasks and retained with provenance.
+- “Simple” must not mean incapable or incomplete. Keep the deep, reusable
+  knowledge underneath, but reveal only the correct information needed for the
+  current card or focused graph area.
+- Prefer progressive disclosure, generous space, and deliberate detail over
+  aggressive generation, greedy enrichment, crowded layouts, or too many facts
+  on one slide.
