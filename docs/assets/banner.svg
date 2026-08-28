@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="480" viewBox="0 0 1600 480" role="img" aria-labelledby="title desc">
+  <title id="title">Local Knowledge Terminal</title>
+  <desc id="desc">A local book becomes a multilingual knowledge card through an on-device model</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#0e2924"/><stop offset=".62" stop-color="#173f35"/><stop offset="1" stop-color="#26594a"/></linearGradient>
+    <linearGradient id="paper" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#fffaf0"/><stop offset="1" stop-color="#e8dfcb"/></linearGradient>
+    <pattern id="grid" width="44" height="44" patternUnits="userSpaceOnUse"><path d="M44 0H0V44" fill="none" stroke="#b8ddca" stroke-opacity=".045"/></pattern>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="180%"><feDropShadow dx="0" dy="14" stdDeviation="13" flood-color="#05120f" flood-opacity=".35"/></filter>
+  </defs>
+  <rect width="1600" height="480" rx="28" fill="url(#bg)"/>
+  <rect width="1600" height="480" rx="28" fill="url(#grid)"/>
+  <circle cx="1435" cy="-5" r="310" fill="#7bb99d" opacity=".08"/>
+  <circle cx="80" cy="500" r="290" fill="#e46e3d" opacity=".07"/>
+
+  <text x="86" y="104" fill="#a7d6bd" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="21" font-weight="700" letter-spacing="6">LOCAL · PRIVATE · GROUNDED</text>
+  <text x="82" y="193" fill="#fffaf0" font-family="Georgia,Times New Roman,serif" font-size="75" font-weight="600">Local Knowledge</text>
+  <text x="82" y="272" fill="#fffaf0" font-family="Georgia,Times New Roman,serif" font-size="75" font-weight="600">Terminal</text>
+  <text x="86" y="327" fill="#b8c9c0" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="23">Private, book-grounded intelligence on your own hardware.</text>
+  <g transform="translate(86 371)" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="16" font-weight="700" letter-spacing="2">
+    <text fill="#f0966f">EN</text><text x="52" fill="#aad9c1">日本語</text><text x="138" fill="#e9d29e">中文 · PINYIN · RUBY</text>
+  </g>
+
+  <g transform="translate(925 65)" filter="url(#shadow)">
+    <path d="M0 54Q105 18 210 57v288Q105 309 0 343z" fill="#d9cdb5"/>
+    <path d="M210 57Q315 18 420 54v289Q315 309 210 345z" fill="#cdbfa5"/>
+    <path d="M13 45Q110 17 210 58v273Q112 296 13 328z" fill="url(#paper)"/>
+    <path d="M210 58Q310 17 407 45v283Q308 296 210 331z" fill="url(#paper)"/>
+    <path d="M210 58v273" stroke="#9b8b71" stroke-opacity=".45"/>
+    <g stroke="#a69b88" stroke-width="3" stroke-linecap="round" opacity=".55">
+      <path d="M45 101h126M45 129h143M45 157h115M45 185h139M45 213h104"/>
+      <path d="M247 103h123M247 131h132M247 159h105M247 187h138M247 215h118"/>
+    </g>
+    <text x="47" y="278" fill="#173f35" font-family="Georgia,serif" font-size="43">λόγος</text>
+    <text x="250" y="278" fill="#e46e3d" font-family="Georgia,serif" font-size="34">語源</text>
+  </g>
+  <path d="M865 240h42" stroke="#a7d6bd" stroke-width="4" stroke-linecap="round" stroke-dasharray="4 11"/>
+  <circle cx="886" cy="240" r="6" fill="#e46e3d"/>
+  <text x="1358" y="422" fill="#8eafa0" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="17">LKT · v0.1</text>
+</svg>

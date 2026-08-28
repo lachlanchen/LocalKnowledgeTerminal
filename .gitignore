@@ -1,0 +1,29 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.coverage
+.venv/
+
+# Runtime state is installed or generated, never versioned.
+/data/
+/models/
+/runtime/
+/var/
+/logs/
+*.sqlite3
+*.sqlite3-*
+*.gguf
+
+# Incomplete/reference checkouts are not product dependencies.
+/upstream/
+
+.env
+.env.*
+!.env.example
+.idea/
+.vscode/
+Thumbs.db
+.DS_Store
+/gui-preview.png
+/banner-preview.png

@@ -1,0 +1,24 @@
+[Unit]
+Description=Local Knowledge Terminal web GUI
+Requires=lkt-llm.service
+After=lkt-llm.service network-online.target
+
+[Service]
+Type=simple
+User=lachlan
+Group=lachlan
+EnvironmentFile=/etc/lkt.env
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONPATH=/home/lachlan/LocalKnowledgeTerminal/source
+WorkingDirectory=/home/lachlan/LocalKnowledgeTerminal/source
+ExecStart=/usr/bin/python3 -m lkt.web
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/lachlan/LocalKnowledgeTerminal/data /home/lachlan/LocalKnowledgeTerminal/logs
+
+[Install]
+WantedBy=multi-user.target

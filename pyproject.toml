@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "local-knowledge-terminal"
+version = "0.1.0"
+description = "Private, book-grounded intelligence on your own hardware"
+requires-python = ">=3.11"
+authors = [{name = "Lachlan Chen"}]
+keywords = ["rag", "qwen", "raspberry-pi", "etymology", "knowledge-cards"]
+dependencies = []
+
+[project.scripts]
+lkt = "lkt.cli:main"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+include = ["lkt*"]
+
+[tool.setuptools.package-data]
+lkt = ["static/*"]
