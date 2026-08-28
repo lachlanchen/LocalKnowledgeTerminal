@@ -166,6 +166,10 @@ adds a whole-origin view, a word-parts view, and a focused root-history slide.
 It reuses accepted Japanese/Chinese ruby plus French/Arabic atoms and passes the
 same publication gate as every other visible card. `plan-origin-card` can rerun
 this projection without retrieval or inference.
+The full-screen graph renders relationships as quiet directed arrows; verbose
+edge names stay in card JSON for future inspection instead of overlapping the
+large teaching nodes. Origin-source evidence is ordered before modern lexical
+evidence in the visible citation panel.
 
 Answer and Question preparation follows the same rule: source text, each
 language, grammar parts, and investigation candidates are separate tasks. A

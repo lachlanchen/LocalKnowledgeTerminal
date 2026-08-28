@@ -1502,7 +1502,7 @@ graph over a decorative graph."""
             for evidence_id in step.get("evidence_ids", [])
         ]
         evidence_ids = list(
-            dict.fromkeys([*meaning_evidence, *component_evidence, *history_evidence])
+            dict.fromkeys([*history_evidence, *component_evidence, *meaning_evidence])
         )
         evidence = self._card_evidence(source, evidence_ids)
         if not evidence:
