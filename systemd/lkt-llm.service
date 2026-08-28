@@ -9,7 +9,7 @@ User=lachlan
 Group=lachlan
 WorkingDirectory=/home/lachlan/LocalKnowledgeTerminal
 Environment=OPENBLAS_NUM_THREADS=4
-ExecStart=/home/lachlan/LocalKnowledgeTerminal/runtime/llama.cpp/build/bin/llama-server \
+ExecStart=/home/lachlan/LocalKnowledgeTerminal/runtime/llama.cpp-0.3.0/build/bin/llama-server \
   --model /home/lachlan/LocalKnowledgeTerminal/models/Qwen3-4B-Q4_K_M.gguf \
   --ctx-size 4096 \
   --threads 4 \

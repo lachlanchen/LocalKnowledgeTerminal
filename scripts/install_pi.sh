@@ -8,7 +8,7 @@ LKT_HOME="/home/${LKT_USER}/LocalKnowledgeTerminal"
 SOURCE_DIR="${LKT_HOME}/source"
 CORPUS_SOURCE="${1:-}"
 MODEL_PATH="${LKT_HOME}/models/Qwen3-4B-Q4_K_M.gguf"
-LLAMA_SERVER="${LKT_HOME}/runtime/llama.cpp/build/bin/llama-server"
+LLAMA_SERVER="${LKT_HOME}/runtime/llama.cpp-0.3.0/build/bin/llama-server"
 
 [ -f "$SOURCE_DIR/lkt/web.py" ] || { echo "Missing Git checkout at $SOURCE_DIR" >&2; exit 1; }
 [ -x "$LLAMA_SERVER" ] || { echo "Missing llama-server; run scripts/bootstrap_runtime.sh first" >&2; exit 1; }

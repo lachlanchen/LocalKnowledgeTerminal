@@ -109,7 +109,7 @@ Pinned runtime artifacts:
 
 | Artifact | Revision | Integrity |
 | --- | --- | --- |
-| llama.cpp | `v0.3.0` | Git tag |
+| llama.cpp | `v0.3.0` / `c1d0e7a004015f23bc0233470b747b596f29b264` | Commit-pinned source archive |
 | Qwen3-4B-GGUF | `bc640142c66e1fdd12af0bd68f40445458f3869b` | Q4_K_M SHA-256 `7485fe6f…534fdf5` |
 | Model file | `Qwen3-4B-Q4_K_M.gguf` | 2,497,280,256 bytes |
 
