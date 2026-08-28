@@ -7,13 +7,20 @@ LKT_USER="${LKT_USER:-lachlan}"
 LKT_HOME="/home/${LKT_USER}/LocalKnowledgeTerminal"
 SOURCE_DIR="${LKT_HOME}/source"
 CORPUS_SOURCE="${1:-}"
+ANSWERS_SOURCE="${2:-}"
+QUESTIONS_SOURCE="${3:-}"
 MODEL_PATH="${LKT_HOME}/models/Qwen3-4B-Q4_K_M.gguf"
 LLAMA_SERVER="${LKT_HOME}/runtime/llama.cpp-0.3.0/build/bin/llama-server"
 
 [ -f "$SOURCE_DIR/lkt/web.py" ] || { echo "Missing Git checkout at $SOURCE_DIR" >&2; exit 1; }
 [ -x "$LLAMA_SERVER" ] || { echo "Missing llama-server; run scripts/bootstrap_runtime.sh first" >&2; exit 1; }
 [ -f "$MODEL_PATH" ] || { echo "Missing Qwen model; run scripts/bootstrap_runtime.sh first" >&2; exit 1; }
-[ -f "$CORPUS_SOURCE" ] || { echo "Usage: sudo $0 /path/to/entries.jsonl" >&2; exit 1; }
+[ -f "$CORPUS_SOURCE" ] || {
+  echo "Usage: sudo $0 /path/to/entries.jsonl [/path/to/answers.jsonl /path/to/questions.jsonl]" >&2
+  exit 1
+}
+[ -z "$ANSWERS_SOURCE" ] || [ -f "$ANSWERS_SOURCE" ] || { echo "Missing Answers JSONL: $ANSWERS_SOURCE" >&2; exit 1; }
+[ -z "$QUESTIONS_SOURCE" ] || [ -f "$QUESTIONS_SOURCE" ] || { echo "Missing Questions JSONL: $QUESTIONS_SOURCE" >&2; exit 1; }
 
 install -d -o "$LKT_USER" -g "$LKT_USER" -m 0755 "$LKT_HOME/data" "$LKT_HOME/logs"
 
@@ -21,6 +28,8 @@ cat >/etc/lkt.env <<EOF
 LKT_SOURCE=${SOURCE_DIR}
 LKT_DATA_DIR=${LKT_HOME}/data
 LKT_CORPUS_DB=${LKT_HOME}/data/word-origins.sqlite3
+LKT_ANSWERS_DB=${LKT_HOME}/data/book-of-answers.sqlite3
+LKT_QUESTIONS_DB=${LKT_HOME}/data/book-of-questions.sqlite3
 LKT_CARDS_DB=${LKT_HOME}/data/cards.sqlite3
 LKT_LLM_URL=http://127.0.0.1:8081/v1/chat/completions
 LKT_LLM_MODEL=Qwen3-4B-Q4_K_M
@@ -36,6 +45,18 @@ runuser -u "$LKT_USER" -- env \
   LKT_SOURCE="$SOURCE_DIR" \
   LKT_DATA_DIR="$LKT_HOME/data" \
   python3 -m lkt.cli ingest "$CORPUS_SOURCE"
+
+if [ -n "$ANSWERS_SOURCE" ]; then
+  runuser -u "$LKT_USER" -- env \
+    PYTHONPATH="$SOURCE_DIR" LKT_SOURCE="$SOURCE_DIR" LKT_DATA_DIR="$LKT_HOME/data" \
+    python3 -m lkt.cli ingest-card-book answer "$ANSWERS_SOURCE"
+fi
+
+if [ -n "$QUESTIONS_SOURCE" ]; then
+  runuser -u "$LKT_USER" -- env \
+    PYTHONPATH="$SOURCE_DIR" LKT_SOURCE="$SOURCE_DIR" LKT_DATA_DIR="$LKT_HOME/data" \
+    python3 -m lkt.cli ingest-card-book question "$QUESTIONS_SOURCE"
+fi
 
 install -o root -g root -m 0644 "$SOURCE_DIR/systemd/lkt-llm.service" /etc/systemd/system/
 install -o root -g root -m 0644 "$SOURCE_DIR/systemd/lkt-web.service" /etc/systemd/system/

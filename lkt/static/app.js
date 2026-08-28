@@ -5,6 +5,49 @@ const all = (selector) => [...document.querySelectorAll(selector)];
 let mode = "word";
 let activeCardId = null;
 
+const MODE_COPY = {
+  word: {
+    card: "WORD ORIGIN",
+    label: "Enter a word",
+    placeholder: "Try “abacus”",
+    examples: ["abacus", "algorithm", "memory"],
+    kicker: "WORD ORIGINS · MULTILINGUAL MEMORY",
+    title: "Trace a word through time, then carry it across languages.",
+    description: "Every historical claim stays beside the passage and page that supports it.",
+    narrative: "ORIGIN STORY",
+  },
+  knowledge: {
+    card: "WORD CARD",
+    label: "Ask from Word Origins",
+    placeholder: "Try “How did counting tools evolve?”",
+    examples: ["counting tools", "language change", "memory"],
+    kicker: "WORD CARD · BOOK-GROUNDED NOTE",
+    title: "Connect several entries into one memorable idea.",
+    description: "The local model can explain, but retrieved book passages remain the evidence.",
+    narrative: "BOOK-GROUNDED NOTE",
+  },
+  answer: {
+    card: "BOOK ANSWER",
+    label: "Ask, then draw an answer",
+    placeholder: "Try “Should I begin now?”",
+    examples: ["Should I begin now?", "What matters today?", "Is this the right time?"],
+    kicker: "BOOK OF ANSWERS · REFLECTION",
+    title: "Hold a question in mind, then draw a cited answer.",
+    description: "The selected answer and reviewed translations come directly from your local book.",
+    narrative: "REFLECTION",
+  },
+  question: {
+    card: "BOOK QUESTION",
+    label: "Choose a theme",
+    placeholder: "Try “technology”",
+    examples: ["technology", "friendship", "courage"],
+    kicker: "BOOK OF QUESTIONS · CURIOSITY",
+    title: "Find a question worth carrying through the day.",
+    description: "Search by theme; when no direct match exists, LKT draws a reproducible question.",
+    narrative: "REFLECTION PROMPT",
+  },
+};
+
 function show(name) {
   ["empty", "loading", "error", "card"].forEach((item) => {
     $(`#${item}-${item === "card" ? "view" : "state"}`).classList.toggle("hidden", item !== name);
@@ -27,9 +70,16 @@ function pagesLabel(pages) {
   return `${pages.length > 1 ? "Pages" : "Page"} ${pages.join(", ")}`;
 }
 
+function locatorLabel(item) {
+  if (item.pages && item.pages.length) return pagesLabel(item.pages);
+  if (item.locator) return item.locator.replace(/^.*\//, "Digital source · ");
+  return "Source location recorded by corpus";
+}
+
 function renderCard(card, refreshHistory = true) {
   activeCardId = card.card_id;
-  text("#card-mode", card.mode === "word" ? "WORD ORIGIN" : "KNOWLEDGE CARD");
+  const copy = MODE_COPY[card.mode] || MODE_COPY.word;
+  text("#card-mode", copy.card);
   text("#card-model", `${card.model} · LOCAL`);
   text("#card-title", card.title);
   text("#card-subtitle", card.subtitle);
@@ -46,10 +96,23 @@ function renderCard(card, refreshHistory = true) {
 
   const ruby = $("#japanese-ruby");
   ruby.replaceChildren();
-  const rubyNode = document.createElement("ruby");
-  rubyNode.append(document.createTextNode(card.japanese.term || "—"));
-  if (card.japanese.reading) rubyNode.append(element("rt", "", card.japanese.reading));
-  ruby.append(rubyNode);
+  const tokens = Array.isArray(card.japanese.ruby_tokens) ? card.japanese.ruby_tokens : [];
+  if (tokens.length) {
+    tokens.forEach((token) => {
+      if (!token.r) {
+        ruby.append(document.createTextNode(token.t || ""));
+        return;
+      }
+      const node = document.createElement("ruby");
+      node.append(document.createTextNode(token.t || ""), element("rt", "", token.r));
+      ruby.append(node);
+    });
+  } else {
+    const rubyNode = document.createElement("ruby");
+    rubyNode.append(document.createTextNode(card.japanese.term || "—"));
+    if (card.japanese.reading) rubyNode.append(element("rt", "", card.japanese.reading));
+    ruby.append(rubyNode);
+  }
 
   const points = $("#key-points");
   points.replaceChildren(...(card.key_points || []).map((item) => element("li", "", item)));
@@ -65,10 +128,12 @@ function renderCard(card, refreshHistory = true) {
 
   const evidence = $("#evidence-list");
   evidence.replaceChildren();
+  text("#evidence-title", card.extensions?.source_title || card.evidence?.[0]?.source_title || "Local library");
+  text("#narrative-label", copy.narrative);
   (card.evidence || []).forEach((item) => {
     const section = element("section", "evidence");
     section.append(element("h4", "", item.headword));
-    section.append(element("span", "page", pagesLabel(item.pages)));
+    section.append(element("span", "page", locatorLabel(item)));
     section.append(element("blockquote", "", `“${item.excerpt}”`));
     if (item.section) section.append(element("span", "section", item.section));
     evidence.append(section);
@@ -79,9 +144,18 @@ function renderCard(card, refreshHistory = true) {
 
 function setMode(nextMode) {
   mode = nextMode;
+  const copy = MODE_COPY[mode] || MODE_COPY.word;
   all(".mode").forEach((button) => button.classList.toggle("active", button.dataset.mode === mode));
-  text("#query-label", mode === "word" ? "Enter a word" : "Ask from the book");
-  $("#query").placeholder = mode === "word" ? "Try “abacus”" : "Try “How did counting tools evolve?”";
+  text("#query-label", copy.label);
+  $("#query").placeholder = copy.placeholder;
+  text("#empty-kicker", copy.kicker);
+  text("#empty-title", copy.title);
+  text("#empty-description", copy.description);
+  all(".examples button").forEach((button, index) => {
+    button.dataset.query = copy.examples[index];
+    button.dataset.mode = mode;
+    button.textContent = copy.examples[index];
+  });
 }
 
 async function submitQuery(query, requestedMode = mode) {
@@ -115,7 +189,9 @@ async function loadHealth() {
     const health = await response.json();
     const ready = health.status === "ready";
     container.classList.toggle("ready", ready);
-    text("#state-label", ready ? `${health.corpus.entries.toLocaleString()} entries · model ready` : "Model or corpus is starting…");
+    const bookItems = Object.values(health.card_books || {}).reduce((total, item) => total + (item.items || 0), 0);
+    const sourceCount = (health.corpus.entries || 0) + bookItems;
+    text("#state-label", ready ? `${sourceCount.toLocaleString()} sources · model ready` : "Model or corpus is starting…");
   } catch (_error) {
     text("#state-label", "Terminal unavailable");
   }
@@ -144,7 +220,7 @@ async function loadHistory() {
 }
 
 all(".mode").forEach((button) => button.addEventListener("click", () => setMode(button.dataset.mode)));
-all(".examples button").forEach((button) => button.addEventListener("click", () => submitQuery(button.dataset.query, "word")));
+all(".examples button").forEach((button) => button.addEventListener("click", () => submitQuery(button.dataset.query, button.dataset.mode || mode)));
 $("#card-form").addEventListener("submit", (event) => { event.preventDefault(); submitQuery($("#query").value); });
 $("#refresh-history").addEventListener("click", loadHistory);
 

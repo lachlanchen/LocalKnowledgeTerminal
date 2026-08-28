@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
+from .card_books import CardBookIndex
 from .config import Settings
 from .corpus import CorpusIndex
 from .llm import LlamaCppClient, ModelUnavailable
@@ -29,6 +30,10 @@ def build_service(settings: Settings) -> tuple[CardService, LlamaCppClient]:
         model,
         CardStore(settings.cards_db),
         settings.max_evidence,
+        {
+            "answer": CardBookIndex(settings.answers_db),
+            "question": CardBookIndex(settings.questions_db),
+        },
     )
     return service, model
 
@@ -88,22 +93,36 @@ def handler_factory(
                 self._asset("app.js")
                 return
             if parsed.path == "/api/health":
+                model_ready = model.health()
                 try:
                     count = service.corpus.count()
                     metadata = service.corpus.metadata()
                     corpus_ready = True
                 except (FileNotFoundError, OSError):
                     count, metadata, corpus_ready = 0, {}, False
+                card_books: dict[str, Any] = {}
+                for mode, index in service.card_books.items():
+                    try:
+                        book_metadata = index.metadata()
+                        card_books[mode] = {
+                            "ready": True,
+                            "items": index.count(),
+                            "title": book_metadata.get("source_title", ""),
+                            "sha256": book_metadata.get("source_sha256", ""),
+                        }
+                    except (FileNotFoundError, OSError):
+                        card_books[mode] = {"ready": False, "items": 0}
                 self._json(
                     {
-                        "status": "ready" if corpus_ready and model.health() else "starting",
+                        "status": "ready" if corpus_ready and model_ready else "starting",
                         "corpus": {
                             "ready": corpus_ready,
                             "entries": count,
                             "sha256": metadata.get("source_sha256", ""),
                         },
+                        "card_books": card_books,
                         "model": {
-                            "ready": model.health(),
+                            "ready": model_ready,
                             "name": model.model_name,
                             "local": True,
                         },
@@ -116,10 +135,21 @@ def handler_factory(
                 )
                 return
             if parsed.path == "/api/search":
-                query = parse_qs(parsed.query).get("q", [""])[0]
+                parameters = parse_qs(parsed.query)
+                query = parameters.get("q", [""])[0]
+                corpus = parameters.get("corpus", ["word-origins"])[0]
                 try:
-                    results = service.corpus.search(query, settings.max_evidence)
+                    if corpus == "word-origins":
+                        results = service.corpus.search(query, settings.max_evidence)
+                    elif corpus in {"answer", "question"}:
+                        results = service.card_books[corpus].search(
+                            query, settings.max_evidence
+                        )
+                    else:
+                        raise ValueError("unknown corpus")
                     self._json([item.to_dict() for item in results])
+                except ValueError as exc:
+                    self._json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
                 except FileNotFoundError as exc:
                     self._json({"error": str(exc)}, HTTPStatus.SERVICE_UNAVAILABLE)
                 return

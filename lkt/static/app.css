@@ -38,7 +38,7 @@ button { cursor: pointer; }
 .console-panel h1 { margin: 0; font: 500 39px/1.05 Georgia, "Times New Roman", serif; letter-spacing: -.02em; }
 .intro { margin: 18px 0 26px; color: #a7b8b0; font-size: 13px; line-height: 1.6; }
 .mode-switch { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; padding: 5px; border-radius: 13px; background: rgba(255,255,255,.055); }
-.mode { border: 0; border-radius: 9px; padding: 10px 8px; color: #9db0a8; background: transparent; font-size: 12px; transition: .2s ease; }
+.mode { display: flex; align-items: center; min-height: 40px; border: 0; border-radius: 9px; padding: 9px 8px; color: #9db0a8; background: transparent; font-size: 11px; text-align: left; transition: .2s ease; }
 .mode span { margin-right: 6px; color: #6e8c80; }
 .mode.active { color: #163e34; background: #d8e9df; box-shadow: 0 5px 12px rgba(0,0,0,.12); }
 .mode.active span { color: var(--orange); }
@@ -92,6 +92,8 @@ label { display: block; color: #9fb1a8; font-size: 11px; margin-bottom: 8px; }
 .language-block:last-child { border-right: 0; }
 .language-block > span { color: #7a8881; font-size: 9px; font-weight: 800; letter-spacing: .14em; }
 .language-block h3 { min-height: 36px; margin: 12px 0 2px; color: var(--forest); font: 500 26px/1.2 Georgia,"Yu Mincho","Noto Serif CJK JP",serif; overflow-wrap: anywhere; }
+.language-block ruby { ruby-position: over; }
+#japanese-ruby { line-height: 1.85; }
 .language-block small { color: var(--orange); font-size: 11px; }
 .language-block p { color: #59665f; font-size: 11px; line-height: 1.5; }
 rt { color: var(--orange); font: 10px sans-serif; }

@@ -23,6 +23,9 @@ class CorpusEntry:
             date_label=self.date_label,
             pages=self.source_pages,
             excerpt=excerpt,
+            corpus_id="word-origins",
+            source_title="Word Origins",
+            kind="entry",
         )
 
 
@@ -34,6 +37,11 @@ class Evidence:
     date_label: str
     pages: tuple[int, ...]
     excerpt: str
+    corpus_id: str = "word-origins"
+    source_title: str = "Word Origins"
+    kind: str = "entry"
+    locator: str = ""
+    translations: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         value = asdict(self)
@@ -52,7 +60,7 @@ class Card:
     origin_story: str
     key_points: list[str]
     english: dict[str, str]
-    japanese: dict[str, str]
+    japanese: dict[str, Any]
     chinese: dict[str, str]
     memory_hook: str
     related_terms: list[dict[str, str]]

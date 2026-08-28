@@ -12,6 +12,8 @@ class Settings:
     project_root: Path
     data_dir: Path
     corpus_db: Path
+    answers_db: Path
+    questions_db: Path
     cards_db: Path
     llm_url: str
     llm_model: str
@@ -33,6 +35,12 @@ class Settings:
             data_dir=data_dir,
             corpus_db=Path(
                 os.environ.get("LKT_CORPUS_DB", data_dir / "word-origins.sqlite3")
+            ).resolve(),
+            answers_db=Path(
+                os.environ.get("LKT_ANSWERS_DB", data_dir / "book-of-answers.sqlite3")
+            ).resolve(),
+            questions_db=Path(
+                os.environ.get("LKT_QUESTIONS_DB", data_dir / "book-of-questions.sqlite3")
             ).resolve(),
             cards_db=Path(
                 os.environ.get("LKT_CARDS_DB", data_dir / "cards.sqlite3")

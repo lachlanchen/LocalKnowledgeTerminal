@@ -10,53 +10,60 @@
 [![Target](https://img.shields.io/badge/Raspberry%20Pi%205-8GB-C51A4A?style=flat-square&logo=raspberrypi)](https://www.raspberrypi.com/products/raspberry-pi-5/)
 [![Sponsor](https://img.shields.io/badge/Sponsor-lachlanchen-EA4AAA?style=flat-square&logo=githubsponsors&logoColor=white)](https://github.com/sponsors/lachlanchen)
 
-Local Knowledge Terminal (LKT) turns a local book collection into cited word
-origin and knowledge cards. Its first corpus is the structured **Word Origins**
-edition; its first model is Qwen3-4B Q4_K_M running locally on an 8 GB Raspberry
-Pi 5. The application, retrieval index, model runtime, and browser GUI operate
-without a cloud API.
+Local Knowledge Terminal (LKT) turns a private book collection into cited,
+multilingual cards. Its first library combines structured editions of **Word
+Origins**, **The Book of Answers**, and **The Book of Questions**. Qwen3-4B
+Q4_K_M runs locally on an 8 GB Raspberry Pi 5; retrieval, inference, history,
+and the browser GUI operate without a cloud API.
 
-## Two experiences, one card contract
+## Four experiences, one card contract
 
 - **Word Origin** finds the strongest dictionary entry, explains the historical
   path, and creates English, Japanese, and Chinese memory views with Japanese
   reading/ruby and Chinese pinyin.
-- **Knowledge Card** retrieves several relevant book entries for a question and
-  composes a compact, evidence-bound explanation.
+- **Word Card** retrieves several relevant Word Origins entries and composes a
+  compact, evidence-bound explanation.
+- **Book Answer** makes a reproducible draw from 318 reviewed cards, preserves
+  the published answer translations, and adds a reflective note.
+- **Book Question** searches 291 reviewed questions by theme and falls back to a
+  reproducible draw when no lexical match exists.
 
-Both modes produce the same versioned card JSON. The web GUI renders that JSON
-today; e-ink and audio adapters will consume it later without changing corpus,
-retrieval, or model code.
+All four modes produce the same versioned card JSON. Japanese card-book text
+retains token-level furigana; Chinese views add tone-marked pinyin. The web GUI
+renders that JSON today; e-ink and audio adapters will consume it later without
+changing corpus, retrieval, or model code.
 
 ```text
-Word Origins entries.jsonl
-          │
-          ▼
-  SQLite FTS5 retrieval ──────► deterministic excerpts + book pages
-          │                                      │
-          ▼                                      │
-   Qwen3-4B via llama.cpp                        │
-          │                                      │
-          └────────► versioned card JSON ◄───────┘
-                              │
-                    ┌─────────┼─────────┐
-                    ▼         ▼         ▼
-                  Web GUI   E-ink     Audio
-                  (ready)  (adapter)  (adapter)
+ Word Origins ──► exact + lexical retrieval ──┐
+Book Answers ──► reproducible cited draw ─────┼──► evidence
+Book Questions ─► lexical search / draw ──────┘       │
+                                                       ▼
+                                             Qwen3-4B on llama.cpp
+                                                       │
+                                      ┌────────────────┴───────────────┐
+                                      ▼                                ▼
+                              versioned card JSON            deterministic citations
+                                      │
+                            ┌─────────┼─────────┐
+                            ▼         ▼         ▼
+                          Web GUI   E-ink     Audio
+                          (ready)  (adapter)  (adapter)
 ```
 
 ## Grounding rule
 
-The language model writes the explanation and translations, but it never writes
-the citation list. LKT attaches entry IDs, excerpts, sections, and page numbers
-directly from retrieval records. If the book has no matching evidence, the app
-does not generate a card.
+The language model writes explanations and missing language aids, but it never
+writes the citation list. LKT attaches entry IDs, excerpts, sections, page
+numbers, digital locators, and reviewed card-book translations directly from
+retrieval records. If the configured book has no evidence, the app does not
+generate a card.
 
 ## Repository map
 
 | Path | Responsibility |
 | --- | --- |
-| `lkt/corpus.py` | JSONL ingestion, atomic SQLite index, exact + FTS retrieval |
+| `lkt/corpus.py` | Word Origins ingestion, atomic SQLite index, exact + FTS retrieval |
+| `lkt/card_books.py` | Multilingual Answer/Question ingestion, search, and deterministic draws |
 | `lkt/llm.py` | Small OpenAI-compatible llama.cpp adapter and strict JSON prompt |
 | `lkt/service.py` | Card composition and normalization |
 | `lkt/store.py` | Local card history |
@@ -82,13 +89,18 @@ Build a local index from the structured book export:
 ```powershell
 $env:LKT_DATA_DIR="$PWD\var"
 python -m lkt.cli ingest "C:\path\to\word-origins-pdf2tex\json\entries.jsonl"
+python -m lkt.cli ingest-card-book answer "C:\path\to\book-of-answers\json\multilingual-items.jsonl"
+python -m lkt.cli ingest-card-book question "C:\path\to\book-of-questions\json\multilingual-items.jsonl"
 python -m lkt.cli search abacus
+python -m lkt.cli search technology --corpus question
 ```
 
 With a llama.cpp server listening on port 8081:
 
 ```powershell
 python -m lkt.cli generate abacus --mode word
+python -m lkt.cli generate "Should I begin?" --mode answer
+python -m lkt.cli generate technology --mode question
 python -m lkt.cli serve
 ```
 
@@ -117,7 +129,10 @@ On the Pi:
 
 ```bash
 ./scripts/bootstrap_runtime.sh
-sudo ./scripts/install_pi.sh /path/to/entries.jsonl
+sudo ./scripts/install_pi.sh \
+  /path/to/entries.jsonl \
+  /path/to/answers/multilingual-items.jsonl \
+  /path/to/questions/multilingual-items.jsonl
 ./scripts/smoke_test.sh
 ```
 
@@ -133,10 +148,11 @@ Then open `http://127.0.0.1:8090` in the Pi's VNC desktop, or
 
 ## Data and copyright
 
-The book PDF, extracted corpus, model weights, generated indexes, and saved
+The book PDFs, extracted corpora, model weights, generated indexes, and saved
 cards are deliberately excluded from Git. Provide a legally obtained local
-`entries.jsonl` during installation. LKT records its SHA-256 in the SQLite index
-so a generated card can be traced to the exact corpus build.
+JSONL export during installation. LKT records each SHA-256 in its SQLite index
+so a generated card can be traced to the exact corpus build. See
+[`docs/corpora.md`](docs/corpora.md) for the verified reference set.
 
 ## Lineage
 

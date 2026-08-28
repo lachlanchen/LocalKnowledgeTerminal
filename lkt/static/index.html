@@ -24,11 +24,13 @@
       <aside class="console-panel">
         <p class="kicker">CREATE A CARD</p>
         <h1>Your books,<br />made memorable.</h1>
-        <p class="intro">Ask for a word’s origin or turn a book-grounded idea into a compact multilingual card.</p>
+        <p class="intro">Explore word origins, draw a book answer, or open a question across English, Japanese, and Chinese.</p>
 
         <div class="mode-switch" role="group" aria-label="Card mode">
           <button class="mode active" data-mode="word"><span>Aa</span>Word origin</button>
-          <button class="mode" data-mode="knowledge"><span>⌁</span>Knowledge</button>
+          <button class="mode" data-mode="knowledge"><span>▤</span>Word card</button>
+          <button class="mode" data-mode="answer"><span>✦</span>Book answer</button>
+          <button class="mode" data-mode="question"><span>?</span>Book question</button>
         </div>
 
         <form id="card-form">
@@ -58,9 +60,9 @@
       <section class="workspace" aria-live="polite">
         <div class="empty-state" id="empty-state">
           <div class="orbit"><span>字</span><span>語</span><span>源</span></div>
-          <p class="kicker">WORD ORIGINS · MULTILINGUAL MEMORY</p>
-          <h2>Trace a word through time,<br />then carry it across languages.</h2>
-          <p>Every historical claim stays beside the passage and page that supports it.</p>
+          <p class="kicker" id="empty-kicker">WORD ORIGINS · MULTILINGUAL MEMORY</p>
+          <h2 id="empty-title">Trace a word through time,<br />then carry it across languages.</h2>
+          <p id="empty-description">Every historical claim stays beside the passage and page that supports it.</p>
         </div>
 
         <div class="loading-state hidden" id="loading-state">
@@ -82,7 +84,7 @@
             <p class="summary" id="card-summary"></p>
 
             <section class="origin-section">
-              <p class="section-label">ORIGIN STORY</p>
+              <p class="section-label" id="narrative-label">ORIGIN STORY</p>
               <p id="origin-story"></p>
             </section>
 
@@ -104,7 +106,7 @@
           </div>
 
           <aside class="evidence-panel">
-            <div class="evidence-head"><span class="book-icon">▰</span><div><p>BOOK EVIDENCE</p><strong>Word Origins</strong></div></div>
+            <div class="evidence-head"><span class="book-icon">▰</span><div><p>BOOK EVIDENCE</p><strong id="evidence-title">Word Origins</strong></div></div>
             <div id="evidence-list"></div>
             <div class="grounded-seal"><span>✓</span><div><strong>Grounded output</strong><small>Citations are attached by retrieval, not invented by the model.</small></div></div>
           </aside>

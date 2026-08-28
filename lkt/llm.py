@@ -23,22 +23,33 @@ class CardModel(Protocol):
 def _evidence_context(evidence: list[Evidence]) -> str:
     blocks = []
     for index, item in enumerate(evidence, 1):
-        pages = ", ".join(str(page) for page in item.pages) or "unknown"
+        pages = ", ".join(str(page) for page in item.pages) or "not applicable"
+        translations = (
+            json.dumps(item.translations, ensure_ascii=False)
+            if item.translations
+            else "not supplied"
+        )
         blocks.append(
             f"SOURCE {index}\n"
+            f"Book: {item.source_title}\n"
+            f"Record ID: {item.entry_id}\n"
+            f"Record kind: {item.kind}\n"
             f"Headword: {item.headword}\n"
             f"Section: {item.section or 'unknown'}\n"
             f"Date label: {item.date_label or 'unknown'}\n"
             f"Book pages: {pages}\n"
-            f"Text: {item.excerpt}"
+            f"Locator: {item.locator or 'not applicable'}\n"
+            f"Authoritative source text: {item.excerpt}\n"
+            f"Reviewed translations: {translations}"
         )
     return "\n\n".join(blocks)
 
 
 SYSTEM_PROMPT = """You create compact, accurate learning cards for Local Knowledge Terminal.
-Use the supplied Word Origins book excerpts as the only authority for etymology and historical claims.
+Use the supplied book records as the only authority for quoted text, etymology, and historical claims.
 If the excerpts do not support a detail, say it is not available; never invent a source or page.
-Translations and memory aids may be your own, but must not contradict the evidence.
+Reviewed translations are authoritative and must not be rewritten. Other translations, pinyin,
+explanations, and memory aids may be your own, but must not contradict the evidence.
 Return exactly one JSON object, with no markdown and no commentary.
 
 Required JSON shape:
@@ -88,9 +99,19 @@ class LlamaCppClient:
             return False
 
     def generate(self, query: str, mode: str, evidence: list[Evidence]) -> dict[str, Any]:
-        instruction = (
-            "Create a WORD ORIGIN card" if mode == "word" else "Create a KNOWLEDGE card"
-        )
+        instructions = {
+            "word": "Create a WORD ORIGIN card grounded in the retrieved dictionary entry",
+            "knowledge": "Create a WORD CARD grounded in the retrieved Word Origins entries",
+            "answer": (
+                "Create a BOOK ANSWER card. Preserve the selected answer and its reviewed "
+                "translations exactly; add a thoughtful reflection, not a prediction"
+            ),
+            "question": (
+                "Create a BOOK QUESTION card. Preserve the selected question and its reviewed "
+                "translations exactly; add prompts for thoughtful reflection"
+            ),
+        }
+        instruction = instructions.get(mode, "Create a grounded learning card")
         user_prompt = (
             f"{instruction} for this request: {query}\n\n"
             f"BOOK EVIDENCE\n{_evidence_context(evidence)}\n\n"
