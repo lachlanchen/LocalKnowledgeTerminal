@@ -9,6 +9,7 @@ from lkt.preparation import PreparationPlanner
 from lkt.web import (
     card_chat_context,
     chat_messages,
+    plan_interactive_word,
     renderable_card,
     word_card_preparation_state,
 )
@@ -46,6 +47,8 @@ class WebInputTests(unittest.TestCase):
         self.assertIn('response.status === 202', script)
         self.assertIn("Each finished step is saved", script)
         self.assertIn('id="loading-kicker"', page)
+        source = (root / "lkt" / "web.py").read_text(encoding="utf-8")
+        self.assertIn('requested_mode in _ATOMIC_WORD_MODES', source)
 
     def test_old_cards_receive_chinese_ruby_without_database_migration(self) -> None:
         card = {"chinese": {"simplified": "中国", "pinyin": "zhōng guó"}}
@@ -105,6 +108,23 @@ class WebInputTests(unittest.TestCase):
             state = word_card_preparation_state(plan, store)
             self.assertEqual(state["completed_jobs"], 1)
             self.assertEqual(state["current_job"], "prepare-meaning")
+
+    def test_every_lexical_view_uses_the_resumable_atomic_planner(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            for mode in ("knowledge", "word", "root", "affix"):
+                store = KnowledgeStore(Path(temp) / f"{mode}.sqlite3")
+                plan = plan_interactive_word(store, "inspection", mode, "local-qwen")
+                jobs = store.jobs_for_subject(plan.subject_key)
+                job_types = {job["job_type"] for job in jobs}
+                if mode == "knowledge":
+                    self.assertIn("compose-word-card", job_types)
+                    self.assertNotIn("expand-origin-branches", job_types)
+                else:
+                    self.assertIn("expand-origin-branches", job_types)
+                    self.assertIn("compose-origin-card", job_types)
+                state = word_card_preparation_state(plan, store, mode)
+                self.assertEqual(state["mode"], mode)
+                self.assertEqual(state["current_job"], "retrieve-evidence")
 
     def test_card_chat_context_keeps_retrieved_source(self) -> None:
         context = card_chat_context(

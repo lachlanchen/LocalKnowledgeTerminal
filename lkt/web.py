@@ -28,11 +28,16 @@ STATIC_DIR = Path(__file__).resolve().parent / "static"
 _PREPARATION_LABELS = {
     "retrieve-evidence": "Reading books and dictionaries",
     "prepare-meaning": "Choosing the central meaning",
+    "split-morphemes": "Separating the word into fixed parts",
+    "expand-origin-branches": "Tracing cited root histories",
     "prepare-translation": "Preparing one language",
     "prepare-pronunciation": "Aligning pronunciation",
     "prepare-grammar-properties": "Separating grammar properties",
     "compose-word-card": "Publishing the Word Card",
+    "compose-origin-card": "Publishing the origin graph",
 }
+
+_ATOMIC_WORD_MODES = {"knowledge", "word", "root", "affix"}
 
 
 def renderable_card(card: dict[str, Any]) -> dict[str, Any]:
@@ -98,9 +103,9 @@ def card_chat_context(card: dict[str, Any]) -> str:
 
 
 def word_card_preparation_state(
-    plan: PreparationPlan, knowledge: KnowledgeStore
+    plan: PreparationPlan, knowledge: KnowledgeStore, mode: str = "knowledge"
 ) -> dict[str, Any]:
-    """Return a small polling contract for one independently prepared card."""
+    """Return a small polling contract for one independently prepared view."""
 
     planned_ids = list(dict.fromkeys(plan.jobs.values()))
     by_id = {
@@ -114,25 +119,50 @@ def word_card_preparation_state(
     current = next((job for job in jobs if job["status"] == "running"), None)
     if current is None:
         current = next((job for job in jobs if job["status"] == "queued"), None)
+    final_job = "compose-word-card" if mode == "knowledge" else "compose-origin-card"
     payload: dict[str, Any] = {
         "status": "failed" if failed else "preparing",
-        "mode": "knowledge",
+        "mode": mode,
         "subject_entity_id": plan.subject_entity_id,
         "subject_key": plan.subject_key,
         "completed_jobs": completed,
         "total_jobs": len(jobs),
-        "current_job": str(current["job_type"]) if current else "compose-word-card",
+        "current_job": str(current["job_type"]) if current else final_job,
         "current_label": _PREPARATION_LABELS.get(
-            str(current["job_type"]) if current else "compose-word-card",
+            str(current["job_type"]) if current else final_job,
             "Preparing accepted knowledge",
         ),
         "poll_after_ms": 3000,
     }
     if failed:
         payload["error"] = str(failed[0].get("error", ""))[:500] or (
-            "atomic Word Card preparation failed validation"
+            f"atomic {mode} preparation failed validation"
         )
     return payload
+
+
+def plan_interactive_word(
+    knowledge: KnowledgeStore, query: str, mode: str, model: str
+) -> PreparationPlan:
+    """Route every lexical view through the same durable atomic planner."""
+
+    if mode not in _ATOMIC_WORD_MODES:
+        raise ValueError(f"{mode!r} is not an atomic word mode")
+    prompt_version = (
+        "interactive-word-card-v1"
+        if mode == "knowledge"
+        else "interactive-origin-graph-v1"
+    )
+    planner = PreparationPlanner(
+        knowledge,
+        model=model,
+        prompt_version=prompt_version,
+    )
+    return (
+        planner.plan_word_card(query)
+        if mode == "knowledge"
+        else planner.plan_word(query)
+    )
 
 
 def build_service(settings: Settings) -> tuple[CardService, LlamaCppClient]:
@@ -527,21 +557,41 @@ def handler_factory(
                         knowledge.acquire_card_book_card(established)
                         self._json(record_card_investigation(established, linked_context))
                         return
-                if linked_context is not None:
-                    plan = PreparationPlanner(
-                        knowledge,
-                        model=settings.llm_model,
-                        prompt_version="linked-word-v1",
-                    ).plan_word_card(query)
-                    preparation = word_card_preparation_state(plan, knowledge)
-                    preparation.update(
-                        {
-                            "query": query.strip(),
-                            "source_card_id": linked_context["source_card_id"],
-                            "source_entity_id": linked_context["source_entity_id"],
-                            "result_entity_id": linked_context["result_entity_id"],
-                        }
+                if requested_mode in _ATOMIC_WORD_MODES:
+                    plan = plan_interactive_word(
+                        knowledge, query, requested_mode, settings.llm_model
                     )
+                    preparation = word_card_preparation_state(
+                        plan, knowledge, requested_mode
+                    )
+                    preparation["query"] = query.strip()
+                    if linked_context is not None:
+                        preparation.update(
+                            {
+                                "source_card_id": linked_context["source_card_id"],
+                                "source_entity_id": linked_context["source_entity_id"],
+                                "result_entity_id": linked_context["result_entity_id"],
+                            }
+                        )
+                    if (
+                        preparation["completed_jobs"] == preparation["total_jobs"]
+                        and preparation["status"] != "failed"
+                    ):
+                        completed_card = service.store.find_active(
+                            requested_mode, query
+                        )
+                        if completed_card is not None:
+                            self._json(
+                                record_card_investigation(
+                                    completed_card, linked_context
+                                )
+                            )
+                            return
+                        preparation["status"] = "failed"
+                        preparation["error"] = (
+                            f"no accepted {requested_mode} view was produced for "
+                            f"{query.strip()!r}"
+                        )
                     self._json(
                         preparation,
                         (
