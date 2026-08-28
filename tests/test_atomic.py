@@ -10,6 +10,7 @@ from lkt.atomic import (
     PreparationWorker,
     _artifact_quality,
     _book_anchored_shape,
+    _book_decomposition_shape,
     _book_origin_steps,
     _clean_usage_note,
     _collapse_repeated_arabic_alternative,
@@ -335,6 +336,48 @@ class AtomicWorkerTests(unittest.TestCase):
                 {"surface": "in", "kind": "prefix"},
                 {"surface": "spect", "kind": "root"},
                 {"surface": "ion", "kind": "suffix"},
+            ],
+        )
+
+    def test_exact_book_formula_beats_incidental_substring_roots(self) -> None:
+        records = [
+            {
+                "headword": "predecessor",
+                "kind": "morphology-root",
+                "knowledge_evidence_id": "evidence-predecessor",
+                "excerpt": (
+                    "predecessor [pre(=before)＋de(=down)＋cess(=go)] "
+                    "former holder of an office"
+                ),
+            },
+            {
+                "headword": "PRED",
+                "kind": "morphology-root",
+                "component_hint": "root",
+                "component_surface": "pred",
+                "knowledge_evidence_id": "evidence-pred",
+                "excerpt": "PRED means to plunder",
+            },
+        ]
+        self.assertEqual(
+            _book_decomposition_shape("predecessor", records),
+            [
+                {
+                    "surface": "pre",
+                    "kind": "",
+                    "evidence_ids": ["evidence-predecessor"],
+                },
+                {
+                    "surface": "de",
+                    "kind": "",
+                    "evidence_ids": ["evidence-predecessor"],
+                },
+                {
+                    "surface": "cess",
+                    "kind": "root",
+                    "evidence_ids": ["evidence-predecessor"],
+                },
+                {"surface": "or", "kind": "suffix", "evidence_ids": []},
             ],
         )
 

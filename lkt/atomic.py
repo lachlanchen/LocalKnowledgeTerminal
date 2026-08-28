@@ -207,6 +207,86 @@ def _book_anchored_shape(
     return shape
 
 
+def _book_decomposition_shape(
+    letters: str, records: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Recover an explicit ordered split from an exact morphology entry.
+
+    The polished books commonly spell a word out as ``pre(=before) +
+    de(=down) + cess(=go)``.  This is stronger evidence than an unrelated
+    root whose spelling happens to occur inside the word.  Keep uncertain
+    component roles blank for the model to classify; the book fixes the
+    surfaces and supplies their provenance.
+    """
+
+    word = re.sub(r"[^A-Za-z]", "", letters).casefold()
+    if not word:
+        return []
+    component = re.compile(r"(?<![A-Za-z])([A-Za-z]{1,14})\s*[（(][^（）()]{1,90}[）)]")
+    candidates: list[tuple[int, int, list[dict[str, Any]]]] = []
+    for record in records:
+        headword = re.sub(
+            r"[^A-Za-z]", "", str(record.get("headword", ""))
+        ).casefold()
+        if headword != word or not str(record.get("kind", "")).startswith(
+            "morphology-"
+        ):
+            continue
+        excerpt = str(record.get("excerpt", ""))
+        matches = list(component.finditer(excerpt))
+        for start in range(len(matches)):
+            run = [matches[start]]
+            for following in matches[start + 1 :]:
+                between = excerpt[run[-1].end() : following.start()]
+                if not re.fullmatch(r"\s*[+＋]\s*", between):
+                    break
+                run.append(following)
+            if len(run) < 2:
+                continue
+            surfaces = [match.group(1).casefold() for match in run]
+            fixed = "".join(surfaces)
+            position = word.find(fixed)
+            if position < 0:
+                continue
+            end = position + len(fixed)
+            evidence_ids = [
+                str(record.get("knowledge_evidence_id", ""))
+            ] if record.get("knowledge_evidence_id") else []
+            shape: list[dict[str, Any]] = []
+            if position:
+                shape.append(
+                    {
+                        "surface": word[:position],
+                        "kind": "prefix",
+                        "evidence_ids": [],
+                    }
+                )
+            shape.extend(
+                {
+                    "surface": surface,
+                    "kind": "",
+                    "evidence_ids": evidence_ids,
+                }
+                for surface in surfaces
+            )
+            if end < len(word):
+                # When the reviewed formula stops before a trailing derivation,
+                # its final named component is the lexical root and the
+                # uncovered tail is the suffix.
+                shape[-1]["kind"] = "root"
+                shape.append(
+                    {
+                        "surface": word[end:],
+                        "kind": "suffix",
+                        "evidence_ids": [],
+                    }
+                )
+            candidates.append((len(fixed), len(surfaces), shape))
+    if not candidates:
+        return []
+    return sorted(candidates, key=lambda item: (-item[0], -item[1]))[0][2]
+
+
 def _morpheme_display_form(surface: str, kind: str) -> str:
     """Apply one deterministic notation convention to an already matched part."""
 
@@ -584,33 +664,38 @@ translations, examples, markdown, or claims absent from the evidence."""
             raise ValueError("current retrieval checkpoint is missing")
         records = list(evidence_artifacts[-1]["payload"].get("records", []))
         letters = re.sub(r"[^A-Za-z]", "", str(source["text"])).casefold()
+        explicit_shape = _book_decomposition_shape(letters, records)
         seen_hints: set[tuple[str, str]] = set()
-        for start in range(len(letters)):
-            for end in range(start + 3, min(len(letters), start + 8) + 1):
-                candidate = letters[start:end]
-                for record in self.retriever.component_evidence(candidate, "root"):
-                    key = (str(record.get("corpus_id", "")), str(record.get("entry_id", "")))
-                    if key in seen_hints:
-                        continue
-                    seen_hints.add(key)
-                    evidence_id = self.store.add_evidence(
-                        key[0],
-                        key[1],
-                        source_hash=str(record.get("source_hash", "")),
-                        locator=str(record.get("locator", "")),
-                        excerpt=str(record.get("excerpt", "")),
-                        payload=record,
-                    )
-                    records.append(
-                        {
-                            **record,
-                            "knowledge_evidence_id": evidence_id,
-                            "component_hint": "root",
-                            "component_surface": candidate,
-                            "component_start": start,
-                            "component_end": end,
-                        }
-                    )
+        if not explicit_shape:
+            for start in range(len(letters)):
+                for end in range(start + 3, min(len(letters), start + 8) + 1):
+                    candidate = letters[start:end]
+                    for record in self.retriever.component_evidence(candidate, "root"):
+                        key = (
+                            str(record.get("corpus_id", "")),
+                            str(record.get("entry_id", "")),
+                        )
+                        if key in seen_hints:
+                            continue
+                        seen_hints.add(key)
+                        evidence_id = self.store.add_evidence(
+                            key[0],
+                            key[1],
+                            source_hash=str(record.get("source_hash", "")),
+                            locator=str(record.get("locator", "")),
+                            excerpt=str(record.get("excerpt", "")),
+                            payload=record,
+                        )
+                        records.append(
+                            {
+                                **record,
+                                "knowledge_evidence_id": evidence_id,
+                                "component_hint": "root",
+                                "component_surface": candidate,
+                                "component_start": start,
+                                "component_end": end,
+                            }
+                        )
         allowed_evidence = {
             str(record.get("knowledge_evidence_id", "")) for record in records
         }
@@ -626,11 +711,19 @@ translations, examples, markdown, or claims absent from the evidence."""
             }
             for record in records
         ]
-        required_shape = _book_anchored_shape(letters, records)
+        required_shape = explicit_shape or _book_anchored_shape(letters, records)
+        prompt_shape = [
+            {
+                "surface": item["surface"],
+                **({"kind": item["kind"]} if item.get("kind") else {}),
+            }
+            for item in required_shape
+        ]
         shape_instruction = (
             "REQUIRED ORDERED SURFACES AND KINDS: "
-            f"{json.dumps(required_shape, ensure_ascii=False)}\n"
-            "Copy every required surface and kind exactly. Only supply its "
+            f"{json.dumps(prompt_shape, ensure_ascii=False)}\n"
+            "Return one part for every required surface, in that exact order. "
+            "Copy a kind when it is supplied; classify any omitted kind. Only supply its "
             "canonical form, language, meaning, confidence, and evidence IDs.\n"
             if required_shape
             else "No exact reviewed-book root anchor was found.\n"
@@ -736,11 +829,17 @@ model knowledge. Never merge, shorten, rename, or reclassify a required part."""
             raise ValueError("morpheme surfaces do not reproduce the source term")
         if not any(part["kind"] == "root" for part in cleaned):
             raise ValueError("morpheme split has no root")
-        if required_shape and [
-            {"surface": part["surface"].casefold(), "kind": part["kind"]}
-            for part in cleaned
-        ] != required_shape:
-            raise ValueError("morpheme split changed the book-anchored structure")
+        if required_shape:
+            if [part["surface"].casefold() for part in cleaned] != [
+                str(item["surface"]).casefold() for item in required_shape
+            ]:
+                raise ValueError("morpheme split changed the book-anchored surfaces")
+            for part, required in zip(cleaned, required_shape, strict=True):
+                if required.get("kind") and part["kind"] != required["kind"]:
+                    raise ValueError("morpheme split changed a book-anchored kind")
+                for evidence_id in required.get("evidence_ids", []):
+                    if evidence_id not in part["evidence_ids"]:
+                        part["evidence_ids"].append(evidence_id)
 
         for part in cleaned:
             direct = self.retriever.component_evidence(
