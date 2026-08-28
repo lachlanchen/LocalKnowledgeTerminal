@@ -8,7 +8,7 @@ stored in Git.
 
 | Layer | Verified revision/state |
 |---|---|
-| LKT source | `5476109f7efc1ad0d577fc69e4720b138d86dd20` |
+| LKT source | `0e708a12435d34767210a8800b8a98929abcd937` |
 | Model | `Qwen3-4B-Q4_K_M.gguf`, 2,497,280,256 bytes |
 | Model SHA-256 | `7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5` |
 | llama.cpp package | pinned `v0.3.0`, source commit `c1d0e7a004015f23bc0233470b747b596f29b264` |
@@ -41,6 +41,12 @@ chat smoke test returned from Qwen3-4B in 5.54 seconds at 3.52 tokens/second.
   typed translation edges. Running the migration twice left the same 12 atoms
   and 31 total knowledge edges, confirming idempotence. Reusing Question #100
   through the live API also preserved those counts.
+- A real two-turn Qwen3-4B discussion of Question #100 created one durable
+  inquiry thread and two events. The second event points to the first as its
+  parent; both retain the Question card ID and its normalized English
+  `content-item`. The replies completed in 39.97 seconds (3.01 tokens/second)
+  and 7.52 seconds (2.56 tokens/second), respectively, while remaining uncited
+  Model Lab observations rather than book claims.
 - The accepted `inspection` Word Card uses one OMW sense plus reviewed atomic
   Japanese, Chinese, French, and Arabic outputs and offline pronunciation.
 - The accepted `inspection` Word Origin card contains six nodes and five edges:

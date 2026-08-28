@@ -183,6 +183,13 @@ Further content enrichment follows the same rule: sentence grammar and
 investigation candidates remain separate tasks. A later selected-word action
 can start a child inquiry while retaining its source content item and card.
 
+Model Lab already uses that lineage boundary for conversation history. The
+first successful turn creates an `inquiry_thread`; each later turn records its
+parent event. A discussion launched from an accepted Answer or Question card
+stores both the card ID and normalized English source `content_item`. The raw
+Qwen observation, timing metrics, and uncited response remain in the separate
+observation ledger and are never promoted into book evidence.
+
 ## Compact lexical correction
 
 The local model remains the writer. Dictionary retrieval supplies small factual

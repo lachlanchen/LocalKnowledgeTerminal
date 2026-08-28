@@ -51,6 +51,9 @@ observations are retained in a separate table of the local knowledge ledger.
 Every repeated prompt still runs Qwen again; the ledger is history, not a cache.
 From any card, **Discuss this card** opens Model Lab with that saved card and its
 retrieved excerpt as bounded context.
+Each live Model Lab session also receives a durable inquiry thread. Successive
+turns preserve parent/child lineage; a card discussion links to its normalized
+source content atom while the Qwen response remains explicitly uncited.
 
 ## Product display
 
