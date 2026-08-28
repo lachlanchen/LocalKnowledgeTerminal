@@ -313,10 +313,32 @@ class LlamaCppClient:
             "presence_penalty": 1.5,
             "max_tokens": token_budgets[mode],
             "stream": False,
+            "response_format": {"type": "json_object"},
         }
-        body, _elapsed = self._request(payload)
-        content = self._content(body)
-        try:
-            return _extract_json(str(content))
-        except ValueError as exc:
-            raise ModelUnavailable(str(exc)) from exc
+        for attempt in range(2):
+            body, _elapsed = self._request(payload)
+            content = self._content(body)
+            try:
+                return _extract_json(str(content))
+            except ValueError as exc:
+                if attempt:
+                    raise ModelUnavailable(
+                        "model response was not valid JSON after one repair attempt"
+                    ) from exc
+                payload = {
+                    **payload,
+                    "temperature": 0.0,
+                    "presence_penalty": 0.0,
+                    "messages": [
+                        *payload["messages"],
+                        {"role": "assistant", "content": str(content)[:6000]},
+                        {
+                            "role": "user",
+                            "content": (
+                                "Repair the previous response. Return exactly one valid JSON "
+                                "object matching the required shape, with no markdown. /no_think"
+                            ),
+                        },
+                    ],
+                }
+        raise AssertionError("unreachable")

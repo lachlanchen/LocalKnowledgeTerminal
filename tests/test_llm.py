@@ -6,6 +6,7 @@ import unittest
 from unittest.mock import patch
 
 from lkt.llm import LlamaCppClient, WORD_ORIGIN_PROMPT, _extract_json
+from lkt.models import Evidence
 
 
 class LlmParsingTests(unittest.TestCase):
@@ -49,6 +50,25 @@ class LlmParsingTests(unittest.TestCase):
         self.assertEqual(result["metrics"]["tokens_per_second"], 3.25)
         sent = json.loads(urlopen.call_args.args[0].data)
         self.assertIn("CURRENT CARD", sent["messages"][0]["content"])
+
+    def test_card_generation_constrains_json_and_repairs_once(self) -> None:
+        client = LlamaCppClient("http://localhost/v1/chat/completions", "test")
+        invalid = {"choices": [{"message": {"content": "not json"}}]}
+        valid = {"choices": [{"message": {"content": '{"title":"Abacus"}'}}]}
+        evidence = [Evidence("entry-1", "abacus", "Greek", "", (1,), "source")]
+        with patch.object(
+            client,
+            "_request",
+            side_effect=[(invalid, 1.0), (valid, 1.0)],
+        ) as request:
+            result = client.generate("abacus", "word", evidence)
+        self.assertEqual(result["title"], "Abacus")
+        self.assertEqual(request.call_count, 2)
+        first_payload = request.call_args_list[0].args[0]
+        repair_payload = request.call_args_list[1].args[0]
+        self.assertEqual(first_payload["response_format"], {"type": "json_object"})
+        self.assertEqual(repair_payload["temperature"], 0.0)
+        self.assertIn("Repair the previous response", repair_payload["messages"][-1]["content"])
 
 
 if __name__ == "__main__":
