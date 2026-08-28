@@ -24,6 +24,9 @@ LLAMA_SERVER="${LKT_HOME}/runtime/llama.cpp-0.3.0/build/bin/llama-server"
 
 install -d -o "$LKT_USER" -g "$LKT_USER" -m 0755 "$LKT_HOME/data" "$LKT_HOME/logs"
 
+python3 -m pip install --break-system-packages --disable-pip-version-check \
+  "pypinyin==0.55.0"
+
 cat >/etc/lkt.env <<EOF
 LKT_SOURCE=${SOURCE_DIR}
 LKT_DATA_DIR=${LKT_HOME}/data

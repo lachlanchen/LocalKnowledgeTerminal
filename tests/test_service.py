@@ -28,6 +28,13 @@ class FakeModel:
             "chinese": {"simplified": "算盘", "traditional": "算盤", "pinyin": "suànpán", "meaning": "计算工具"},
             "memory_hook": "Count beads across languages.",
             "related_terms": [{"term": "calculate", "note": "a related action"}],
+            "origin_graph": [
+                {"stage": "Greek", "form": "abax", "meaning": "counting board", "basis": "book"},
+                {"stage": "Latin", "form": "abacus", "meaning": "calculation board", "basis": "model"},
+                {"stage": "English", "form": "abacus", "meaning": "bead frame", "basis": "book"},
+            ],
+            "french": {"term": "boulier", "pronunciation": "/bu.lje/", "meaning": "cadre de calcul"},
+            "arabic": {"term": "مِعْداد", "reading": "miʿdād", "meaning": "أداة حساب"},
             "pages": [999],
         }
 
@@ -40,11 +47,27 @@ class ServiceTests(unittest.TestCase):
             service = CardService(make_index(root), FakeModel(), store)
             card = service.create("abacus", "word")
             self.assertEqual(card.japanese["reading"], "そろばん")
-            self.assertEqual(card.chinese["pinyin"], "suànpán")
+            self.assertEqual(card.chinese["pinyin"], "suàn pán")
             self.assertEqual(card.evidence[0].pages, (12,))
+            self.assertEqual(card.origin_graph[0]["form"], "abax")
+            self.assertEqual(card.origin_graph[1]["basis"], "model")
             self.assertTrue(card.grounded)
             self.assertEqual(store.recent()[0]["card_id"], card.card_id)
             self.assertEqual(store.get(card.card_id)["title"], "Abacus")
+
+    def test_word_card_stores_rotating_language_equivalents(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            store = CardStore(root / "cards.sqlite3")
+            service = CardService(make_index(root), FakeModel(), store)
+            card = service.create("abacus", "knowledge")
+            self.assertEqual(card.origin_graph, [])
+            self.assertEqual(card.extra_languages["french"]["term"], "boulier")
+            self.assertEqual(card.extra_languages["arabic"]["term"], "مِعْداد")
+            self.assertEqual(
+                store.get(card.card_id)["extra_languages"]["arabic"]["reading"],
+                "miʿdād",
+            )
 
     def test_book_answer_keeps_reviewed_text_and_token_level_furigana(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

@@ -9,6 +9,8 @@ from .card_books import CardBookIndex
 from .corpus import CorpusIndex
 from .llm import CardModel
 from .models import Card, Evidence
+from .pronunciation import chinese_pinyin
+from .retrieval import RagEngine, build_rag_engines
 from .store import CardStore
 
 
@@ -60,6 +62,45 @@ def _related(value: Any) -> list[dict[str, str]]:
     return result
 
 
+def _origin_graph(
+    value: Any, evidence: list[Evidence], title: str
+) -> list[dict[str, str]]:
+    result: list[dict[str, str]] = []
+    if isinstance(value, list):
+        for item in value[:5]:
+            if not isinstance(item, dict):
+                continue
+            form = _short_text(item.get("form"), limit=80)
+            if not form:
+                continue
+            basis = _short_text(item.get("basis"), "model", 12).lower()
+            result.append(
+                {
+                    "stage": _short_text(item.get("stage"), "Earlier form", 80),
+                    "form": form,
+                    "meaning": _short_text(item.get("meaning"), limit=180),
+                    "basis": "book" if basis == "book" else "model",
+                }
+            )
+    if len(result) >= 2:
+        return result
+    anchor = evidence[0]
+    return [
+        {
+            "stage": anchor.date_label or anchor.section or "Book record",
+            "form": anchor.headword,
+            "meaning": _short_text(anchor.excerpt, limit=140),
+            "basis": "book",
+        },
+        {
+            "stage": "Modern English",
+            "form": title,
+            "meaning": "Present form",
+            "basis": "book",
+        },
+    ]
+
+
 class CardService:
     def __init__(
         self,
@@ -68,23 +109,22 @@ class CardService:
         store: CardStore,
         max_evidence: int = 4,
         card_books: dict[str, CardBookIndex] | None = None,
+        rag_engines: dict[str, RagEngine] | None = None,
     ):
         self.corpus = corpus
         self.model = model
         self.store = store
         self.max_evidence = max_evidence
         self.card_books = card_books or {}
+        self.rag_engines = rag_engines or build_rag_engines(
+            corpus, self.card_books, max_evidence
+        )
 
     def _retrieve(self, query: str, mode: str) -> list[Evidence]:
-        if mode in {"word", "knowledge"}:
-            return self.corpus.search(query, self.max_evidence)
-        book = self.card_books.get(mode)
-        if book is None:
+        engine = self.rag_engines.get(mode)
+        if engine is None:
             raise FileNotFoundError(f"{mode} corpus is not configured")
-        if mode == "answer":
-            return [book.draw(query)]
-        results = book.search(query, 1)
-        return results or [book.draw(query)]
+        return engine.retrieve(query)
 
     def create(self, query: str, mode: str = "word") -> Card:
         query = _short_text(query, limit=240)
@@ -118,6 +158,24 @@ class CardService:
             chinese["simplified"] = _short_text(
                 zh.get("primary"), chinese["simplified"], 3000
             )
+        chinese["pinyin"] = chinese_pinyin(
+            chinese["simplified"], chinese.get("pinyin", "")
+        )
+        extra_languages: dict[str, dict[str, str]] = {}
+        if mode == "knowledge":
+            extra_languages = {
+                "french": _language(
+                    generated.get("french"), ("term", "pronunciation", "meaning")
+                ),
+                "arabic": _language(
+                    generated.get("arabic"), ("term", "reading", "meaning")
+                ),
+            }
+            extra_languages = {
+                language: value
+                for language, value in extra_languages.items()
+                if value.get("term")
+            }
         card = Card(
             card_id=str(uuid.uuid4()),
             mode=mode,
@@ -140,7 +198,19 @@ class CardService:
                 "source_title": evidence[0].source_title,
                 "outputs": ["web"],
                 "future_outputs": ["eink", "audio"],
+                "experience": mode,
+                "knowledge_policy": (
+                    "book-anchored-model-enriched"
+                    if mode == "word"
+                    else "retrieval-grounded"
+                ),
             },
+            origin_graph=(
+                _origin_graph(generated.get("origin_graph"), evidence, title)
+                if mode == "word"
+                else []
+            ),
+            extra_languages=extra_languages,
         )
         self.store.save(card)
         return card

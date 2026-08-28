@@ -5,8 +5,8 @@ Lachlan Chen projects. They are references, not runtime dependencies.
 
 | Project | Pinned HEAD (2026-08-28) | Retained idea | Deliberately replaced |
 | --- | --- | --- | --- |
-| [WordsCardEink](https://github.com/lachlanchen/WordsCardEink) | `9c4116624a8cb17916bbbc3899cae745a52d1623` | Multilingual vocabulary cards, local cache, virtual preview, later Waveshare output | Coupled Tornado/OpenAI/data/hardware flow and vendored display stack |
-| [WordOrigins](https://github.com/lachlanchen/WordOrigins) | `83f1500be7c2b3014b483ff7fa2881b31cb4c32a` | Etymology exploration, structured model output, multilingual lineage | Cloud-only analysis, graph/image coupling, bundled font/archive weight |
+| [WordsCardEink](https://github.com/lachlanchen/WordsCardEink) | `9c4116624a8cb17916bbbc3899cae745a52d1623` | Multilingual vocabulary cards, French/Arabic alternation, local SQLite cache, virtual preview, later Waveshare output | Coupled Tornado/OpenAI/data/hardware flow and vendored display stack |
+| [WordOrigins](https://github.com/lachlanchen/WordOrigins) | `83f1500be7c2b3014b483ff7fa2881b31cb4c32a` | Depth-aware etymology paths, structured model output, multilingual lineage | Cloud-only analysis, NetworkX/PNG graph coupling, bundled font/archive weight |
 
 The first LKT corpus comes from the separate structured extraction at
 `word-origins-pdf2tex/json/entries.jsonl`. The observed export contains 6,994

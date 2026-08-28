@@ -6,12 +6,15 @@ LKT is organized around a versioned card document, not a display device.
 
 1. `corpus` and `card_books` import structured sources and return immutable
    evidence records through one contract.
-2. `llm` receives only the query, mode, and retrieved evidence. It returns an
-   untrusted draft object.
-3. `service` validates and normalizes the draft, then attaches deterministic
+2. `retrieval` exposes four independent RAG engines. Word Origin and Word Card
+   share a corpus but use different result limits; Answer and Question each own
+   their book policy.
+3. `llm` receives only the query, mode, and retrieved evidence. Four independent
+   prompts return untrusted draft objects tailored to their presentation.
+4. `service` validates and normalizes the draft, then attaches deterministic
    evidence and a schema version.
-4. `store` persists complete card documents for history and re-rendering.
-5. `outputs` transform a card document into media. The browser uses JSON;
+5. `store` persists complete card documents for history and re-rendering.
+6. `outputs` transform a card document into media. The browser uses JSON;
    future e-ink and audio implementations sit behind the same protocol.
 
 The browser does not call llama.cpp directly. The e-ink adapter will not call
@@ -22,6 +25,11 @@ The browser treats saved cards as a carousel over the acquired-knowledge
 ledger. Its fullscreen `display` mode removes navigation/composer chrome but
 renders the same card JSON, so screen, print, and future e-ink output share
 content semantics without sharing device code.
+
+Cards are composed to fit a single screen without internal scrolling. Word
+Origin renders its stored `origin_graph` as a chronological CSS grid, avoiding
+force-layout overlap and image-generation dependencies. Word Card keeps EN/JA/ZH
+stable and rotates the stored FR/AR alternative in one fixed fourth slot.
 
 Raw Chat is a deliberate diagnostic side path: the web service forwards bounded
 conversation history to the same local model and returns timing/token metrics.
@@ -53,13 +61,16 @@ against this lexical baseline.
 Model output is normalized text, never executable markup. Japanese ruby is
 constructed by the browser from separate term/reading fields or reviewed
 token-level furigana. Answer and Question translations are copied from corpus
-records after inference, so the model cannot rewrite them. Citation pages,
+records after inference, so the model cannot rewrite them. Chinese pinyin is
+recomputed locally from the final normalized Chinese string so incomplete model
+transliteration never reaches a new stored card. Citation pages,
 locators, and excerpts are never accepted from model output. The GUI ships no
 CDN scripts, fonts, analytics, or cloud calls.
 
 ## Extension contract
 
-`Card.schema_version` begins at `1.0`. E-ink should render a card to an image at
+`Card.schema_version` is `1.1`; this adds `origin_graph` and `extra_languages`
+while old `1.0` payloads remain renderable. E-ink should render a card to an image at
 a device-specific resolution/color profile and audio should synthesize selected
 language fields. Both adapters should fail explicitly until configured rather
 than silently degrade the core card.

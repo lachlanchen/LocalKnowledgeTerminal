@@ -16,22 +16,26 @@ Origins**, **The Book of Answers**, and **The Book of Questions**. Qwen3-4B
 Q4_K_M runs locally on an 8 GB Raspberry Pi 5; retrieval, inference, history,
 and the browser GUI operate without a cloud API.
 
-## Four experiences, one card contract
+## Four independent experiences, one card contract
 
-- **Word Origin** finds the strongest dictionary entry, explains the historical
-  path, and creates English, Japanese, and Chinese memory views with Japanese
-  reading/ruby and Chinese pinyin.
+- **Word Origin** uses its own one-entry retriever and prompt to make a bounded
+  provenance graph. Book-supported nodes and model-supplied linguistic context
+  are visibly distinguished.
 - **Word Card** retrieves several relevant Word Origins entries and composes a
-  compact, evidence-bound explanation.
+  compact multilingual memory view. English, Japanese, and Chinese remain fixed
+  while French and Arabic rotate in a fourth panel.
 - **Book Answer** makes a reproducible draw from 318 reviewed cards, preserves
   the published answer translations, and adds a reflective note.
 - **Book Question** searches 291 reviewed questions by theme and falls back to a
   reproducible draw when no lexical match exists.
 
-All four modes produce the same versioned card JSON. Japanese card-book text
-retains token-level furigana; Chinese views add tone-marked pinyin. The web GUI
-renders that JSON today; e-ink and audio adapters will consume it later without
-changing corpus, retrieval, or model code.
+Each mode has its own retrieval policy and strict model prompt. Word Origin and
+Word Card deliberately share the same Word Origins index while presenting it
+differently; Answer and Question use separate books and retrieval engines. All
+four modes produce the same versioned card JSON. Japanese card-book text retains
+token-level furigana, and Chinese views receive deterministic full tone-marked
+pinyin. The web GUI renders that JSON today; e-ink and audio adapters will
+consume it later without changing corpus, retrieval, or model code.
 
 A separate **Chat / Benchmark** workspace talks directly to Qwen and reports
 wall time, prompt/output tokens, and generation speed. It is visibly marked as
@@ -43,10 +47,12 @@ retrieved excerpt as bounded context.
 
 ## Product display
 
-The browser is an editorial card stage rather than a chat dashboard. It keeps
-only the main idea, one concise explanation, large multilingual text, one memory
-cue, and one compact source citation on the primary surface. Saved cards form an
-autoplaying carousel with previous/next controls.
+The browser is an editorial card stage rather than a chat dashboard. Every card
+is a no-scroll, one-screen composition with a large core idea, large language
+text, and one compact source citation. Word Origin reserves its center for a
+non-overlapping chronological graph; Word Card reserves it for fixed EN/JA/ZH
+and a rotating FR/AR panel. Saved cards form an autoplaying carousel with
+previous/next controls.
 Fullscreen display mode hides all application chrome, and `/?display=1` opens
 the same card document as a kiosk-friendly screen surface. Print CSS and the
 versioned card JSON provide clean boundaries for later e-ink rendering.
@@ -56,11 +62,12 @@ knowledge history. Asking the same question again creates a fresh Qwen result;
 the carousel can retain and compare both versions.
 
 ```text
- Word Origins ──► exact + lexical retrieval ──┐
-Book Answers ──► reproducible cited draw ─────┼──► evidence
-Book Questions ─► lexical search / draw ──────┘       │
-                                                       ▼
-                                             Qwen3-4B on llama.cpp
+ Word Origin ──► best Word Origins entry ─────┐
+   Word Card ──► multi-entry Word Origins ────┤
+ Book Answer ──► reproducible answer draw ────┼──► independent prompts
+Book Question ─► question search / draw ──────┘              │
+                                                              ▼
+                                                    Qwen3-4B on llama.cpp
                                                        │
                                       ┌────────────────┴───────────────┐
                                       ▼                                ▼
@@ -77,8 +84,9 @@ Book Questions ─► lexical search / draw ──────┘       │
 The language model writes explanations and missing language aids, but it never
 writes the citation list. LKT attaches entry IDs, excerpts, sections, page
 numbers, digital locators, and reviewed card-book translations directly from
-retrieval records. If the configured book has no evidence, the app does not
-generate a card.
+retrieval records. Word Origin may add reliable linguistic context, but every
+graph node records whether it came from the book anchor or model knowledge. If
+the configured book has no evidence, the app does not generate a card.
 
 ## Repository map
 
@@ -86,8 +94,10 @@ generate a card.
 | --- | --- |
 | `lkt/corpus.py` | Word Origins ingestion, atomic SQLite index, exact + FTS retrieval |
 | `lkt/card_books.py` | Multilingual Answer/Question ingestion, search, and deterministic draws |
-| `lkt/llm.py` | Small OpenAI-compatible llama.cpp adapter and strict JSON prompt |
+| `lkt/retrieval.py` | Independent Word Origin, Word Card, Answer, and Question RAG policies |
+| `lkt/llm.py` | Small llama.cpp adapter and one strict prompt per experience |
 | `lkt/service.py` | Card composition and normalization |
+| `lkt/pronunciation.py` | Deterministic full-sentence tone-marked pinyin |
 | `lkt/store.py` | Local card history |
 | `lkt/web.py` | Dependency-free HTTP API and GUI server |
 | `lkt/outputs.py` | Stable web/e-ink/audio output boundary |
@@ -99,10 +109,11 @@ generate a card.
 
 ## Local development
 
-LKT's core has no third-party Python runtime dependency:
+Install the small pinned pronunciation dependency, then run the suite:
 
 ```powershell
 cd C:\Users\Administrator\Projects\LocalKnowledge
+python -m pip install -e .
 python -m unittest discover -s tests -v
 python -m compileall -q lkt tests
 ```

@@ -68,8 +68,10 @@ class Card:
     model: str
     created_at: str
     grounded: bool = True
-    schema_version: str = "1.0"
+    schema_version: str = "1.1"
     extensions: dict[str, Any] = field(default_factory=dict)
+    origin_graph: list[dict[str, str]] = field(default_factory=list)
+    extra_languages: dict[str, dict[str, str]] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         result = asdict(self)

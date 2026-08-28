@@ -58,8 +58,8 @@
         <section class="chat-view hidden" id="chat-view">
           <header class="lab-head">
             <div>
-              <p class="kicker">MODEL LAB · RAW LOCAL OUTPUT</p>
-              <h1>Qwen3-4B quality &amp; speed</h1>
+              <p class="kicker">MODEL LAB · LOCAL &amp; PRIVATE</p>
+              <h1>Ask. Test. Explore.</h1>
             </div>
             <div class="lab-note" id="lab-context">Uncited · saved separately · never mixed with book cards</div>
           </header>
@@ -68,6 +68,7 @@
               <header><span>QWEN · LOCAL</span></header>
               <p>Enter a prompt below. The response will include generation time and token speed. Choose a book mode when you need cited knowledge.</p>
             </article>
+            <div class="lab-starters" id="lab-starters"></div>
           </div>
           <footer class="lab-actions"><button id="clear-chat" type="button">Clear visible session</button></footer>
         </section>
@@ -82,20 +83,28 @@
 
             <p class="summary" id="card-summary"></p>
 
+            <section class="origin-graph hidden" id="origin-graph" aria-label="Etymology path">
+              <header><span>LINGUISTIC PATH</span><p><b></b>Book anchor <i></i>Model context</p></header>
+              <div class="origin-path" id="origin-path"></div>
+            </section>
+
             <section class="narrative-section">
               <p class="section-label" id="narrative-label">ORIGIN STORY</p>
               <p id="origin-story"></p>
             </section>
 
-            <section class="language-grid" aria-label="Multilingual card">
+            <section class="language-grid" id="language-grid" aria-label="Multilingual card">
               <article class="language-block english-block">
-                <span>ENGLISH</span><h2 id="english-term"></h2><small id="english-pronunciation"></small><p id="english-meaning"></p>
+                <span>ENGLISH · PRONUNCIATION</span><h2 id="english-term"></h2><small id="english-pronunciation"></small><p id="english-meaning"></p>
               </article>
               <article class="language-block japanese-block">
-                <span>日本語</span><h2 id="japanese-ruby"></h2><p id="japanese-meaning"></p>
+                <span>日本語 · FURIGANA</span><h2 id="japanese-ruby"></h2><p id="japanese-meaning"></p>
               </article>
               <article class="language-block chinese-block">
-                <span>中文</span><h2 id="chinese-term"></h2><small id="chinese-pinyin"></small><p id="chinese-meaning"></p>
+                <span>中文 · PINYIN</span><h2 id="chinese-term"></h2><small id="chinese-pinyin"></small><p id="chinese-meaning"></p>
+              </article>
+              <article class="language-block alternate-block hidden" id="alternate-block">
+                <span id="alternate-label">FRANÇAIS</span><h2 id="alternate-term"></h2><small id="alternate-reading"></small><p id="alternate-meaning"></p>
               </article>
             </section>
 
@@ -113,7 +122,7 @@
             </header>
             <div id="evidence-list"></div>
             <footer class="evidence-actions">
-              <div class="grounded-seal"><span>✓</span><div><strong>Grounded in the book</strong><small>Citations come from retrieval, not the model.</small></div></div>
+              <div class="grounded-seal"><span>✓</span><div><strong id="grounded-label">Grounded in the book</strong><small>Citations come from retrieval, not the model.</small></div></div>
               <button id="discuss-card" type="button">Discuss this card →</button>
             </footer>
           </aside>

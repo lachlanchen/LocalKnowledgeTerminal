@@ -46,36 +46,62 @@ def _evidence_context(evidence: list[Evidence]) -> str:
     return "\n\n".join(blocks)
 
 
-SYSTEM_PROMPT = """You create compact, accurate learning cards for Local Knowledge Terminal.
-Use the supplied book records as the only authority for quoted text, etymology, and historical claims.
-If the excerpts do not support a detail, say it is not available; never invent a source or page.
-Reviewed translations are authoritative and must not be rewritten. Other translations, pinyin,
-explanations, and memory aids may be your own, but must not contradict the evidence.
-Return exactly one JSON object, with no markdown and no commentary.
+WORD_ORIGIN_PROMPT = """You are the independent Word Origin engine in Local Knowledge Terminal.
+Create a visually structured etymology from BOOK EVIDENCE plus your own reliable linguistic
+knowledge. The book is the anchor. Never invent a quotation, record, or page. A graph node whose
+claim is directly supported by the supplied excerpt must use basis "book"; a useful established
+detail added from your own knowledge must use basis "model". Prefer accuracy over extra detail.
+Return exactly one compact JSON object with no markdown or commentary.
 
 Required JSON shape:
 {
   "title": "short title, no more than 8 words",
   "subtitle": "one short line of orientation",
-  "summary_en": "clear English definition or answer in 1 to 2 sentences",
-  "origin_story": "concise book-grounded etymology, explanation, or reflection",
-  "key_points": ["2 to 4 concise points"],
+  "summary_en": "clear modern definition in one sentence",
+  "origin_story": "one concise synthesis of the linguistic journey",
+  "origin_graph": [
+    {"stage": "language or era", "form": "historical form", "meaning": "at most 8 words", "basis": "book or model"}
+  ],
+  "key_points": ["at most 2 concise points"],
   "english": {"term": "", "pronunciation": "", "meaning": ""},
-  "japanese": {"term": "", "reading": "hiragana/katakana reading", "meaning": "Japanese explanation"},
-  "chinese": {"simplified": "", "traditional": "", "pinyin": "tone-marked pinyin", "meaning": "Chinese explanation"},
+  "japanese": {"term": "established equivalent", "reading": "hiragana or katakana", "meaning": "short Japanese meaning"},
+  "chinese": {"simplified": "established equivalent", "traditional": "", "pinyin": "tone-marked pinyin", "meaning": "short Chinese meaning"},
   "memory_hook": "short memorable connection",
-  "related_terms": [{"term": "", "note": ""}]
+  "related_terms": []
 }
-Use Unicode characters directly. For Japanese and Chinese terms, prefer the
-established modern lexical equivalent over a phonetic transliteration whenever
-one exists. Prefer card-sized phrases over paragraphs. Keep the total response
-under 500 words."""
+Make origin_graph a chronological path of 3 to 5 non-overlapping stages, earliest first and
+Modern English last. Use Unicode directly and established Japanese/Chinese equivalents instead
+of phonetic imitations. Everything must fit one screen. Keep the response under 360 words. /no_think"""
 
 
-CARD_BOOK_PROMPT = """You create exceptionally concise Answer and Question cards.
-The selected source text and reviewed translations in BOOK EVIDENCE are authoritative.
-Do not rewrite them and never invent a citation. Return exactly one JSON object with
-no markdown and no commentary.
+WORD_CARD_PROMPT = """You are the independent multilingual Word Card engine in Local Knowledge
+Terminal. Use the Word Origins excerpts as retrieved reference, then make one compact memory card.
+The core learning object is the established equivalent in English, Japanese, Chinese, French, and
+Arabic. Never invent a quotation, source, or page. Return exactly one JSON object with no markdown.
+
+Required JSON shape:
+{
+  "title": "the English word",
+  "subtitle": "one vivid orientation line",
+  "summary_en": "one concise definition",
+  "origin_story": "one short useful note grounded in the excerpts",
+  "key_points": ["at most 2 concise points"],
+  "english": {"term": "", "pronunciation": "IPA", "meaning": "short meaning"},
+  "japanese": {"term": "established equivalent", "reading": "hiragana or katakana", "meaning": "short Japanese meaning"},
+  "chinese": {"simplified": "established equivalent", "traditional": "", "pinyin": "tone-marked pinyin", "meaning": "short Chinese meaning"},
+  "french": {"term": "established equivalent", "pronunciation": "IPA if known", "meaning": "short French meaning"},
+  "arabic": {"term": "established equivalent", "reading": "simple transliteration", "meaning": "short Arabic meaning"},
+  "memory_hook": "one memorable cross-language connection",
+  "related_terms": []
+}
+Prefer lexical equivalents over transliterations. Use Unicode directly. Keep every meaning to one
+short phrase and the whole response under 300 words so it fits one screen. /no_think"""
+
+
+ANSWER_PROMPT = """You are the independent Book Answer engine in Local Knowledge Terminal.
+The selected answer and reviewed translations in BOOK EVIDENCE are authoritative: preserve them
+exactly and never invent a citation. Add only one concise reflection. Return exactly one JSON object
+with no markdown or commentary.
 
 Required JSON shape:
 {
@@ -95,7 +121,28 @@ Required JSON shape:
   "memory_hook": "one memorable line",
   "related_terms": []
 }
-Use Unicode directly. Keep the entire response under 220 words. /no_think"""
+Use Unicode directly. Keep the entire response under 200 words. /no_think"""
+
+
+QUESTION_PROMPT = """You are the independent Book Question engine in Local Knowledge Terminal.
+The selected question and reviewed translations in BOOK EVIDENCE are authoritative: preserve them
+exactly and never invent a citation. Add only one concise reflection prompt. Return exactly one JSON
+object with no markdown or commentary.
+
+Required JSON shape:
+{
+  "title": "2 to 5 word title",
+  "subtitle": "one short orientation line",
+  "summary_en": "one concise sentence",
+  "origin_story": "one concise reflection sentence",
+  "key_points": ["at most 2 short prompts"],
+  "english": {"term": "", "pronunciation": "", "meaning": "one short meaning"},
+  "japanese": {"term": "", "reading": "", "meaning": "one short Japanese meaning"},
+  "chinese": {"simplified": "", "traditional": "", "pinyin": "full tone-marked pinyin", "meaning": "one short Chinese meaning"},
+  "memory_hook": "one memorable line",
+  "related_terms": []
+}
+Use Unicode directly. Keep the entire response under 200 words. /no_think"""
 
 
 def _extract_json(text: str) -> dict[str, Any]:
@@ -232,13 +279,19 @@ class LlamaCppClient:
             f"BOOK EVIDENCE\n{_evidence_context(evidence)}\n\n"
             "/no_think"
         )
-        compact_mode = mode in {"answer", "question"}
+        prompts = {
+            "word": WORD_ORIGIN_PROMPT,
+            "knowledge": WORD_CARD_PROMPT,
+            "answer": ANSWER_PROMPT,
+            "question": QUESTION_PROMPT,
+        }
+        token_budgets = {"word": 820, "knowledge": 760, "answer": 520, "question": 520}
         payload = {
             "model": self.model_name,
             "messages": [
                 {
                     "role": "system",
-                    "content": CARD_BOOK_PROMPT if compact_mode else SYSTEM_PROMPT,
+                    "content": prompts[mode],
                 },
                 {"role": "user", "content": user_prompt},
             ],
@@ -246,7 +299,7 @@ class LlamaCppClient:
             "top_p": 0.8,
             "top_k": 20,
             "presence_penalty": 1.5,
-            "max_tokens": 520 if compact_mode else 900,
+            "max_tokens": token_budgets[mode],
             "stream": False,
         }
         body, _elapsed = self._request(payload)

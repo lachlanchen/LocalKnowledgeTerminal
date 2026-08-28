@@ -13,6 +13,13 @@ let carouselCards = [];
 let carouselIndex = -1;
 let autoplayEnabled = true;
 let autoplayTimer = null;
+let alternateTimer = null;
+let alternateIndex = 0;
+
+const ALTERNATE_LANGUAGES = {
+  french: { label: "FRANÇAIS · PRONONCIATION", className: "french" },
+  arabic: { label: "العربية · النطق", className: "arabic" },
+};
 
 const MODE_COPY = {
   word: {
@@ -130,6 +137,32 @@ function renderChatMessage(role, content, metrics = null, pending = false) {
   return article;
 }
 
+function renderLabStarters() {
+  let starters = $("#lab-starters");
+  if (!starters) {
+    starters = element("div", "lab-starters");
+    starters.id = "lab-starters";
+    $("#chat-messages").append(starters);
+  }
+  const prompts = chatContextCardId
+    ? [
+        "Explain the core idea more simply.",
+        "Compare its Japanese and Chinese wording.",
+        "Give me one stronger memory hook.",
+      ]
+    : [
+        "Explain RAG in two vivid sentences.",
+        "用中文解释为什么词源有趣。",
+        "日本語で「記憶」を短く説明して。",
+      ];
+  starters.replaceChildren(...prompts.map((prompt, index) => {
+    const button = element("button", `starter starter-${index + 1}`);
+    button.append(element("span", "", `0${index + 1}`), element("strong", "", prompt));
+    button.addEventListener("click", () => submitQuery(prompt, "chat"));
+    return button;
+  }));
+}
+
 function resetChat() {
   chatHistory = [];
   $("#chat-messages").replaceChildren();
@@ -142,6 +175,7 @@ function resetChat() {
       ? "Ask about this card. I have its saved text and retrieved source excerpt as context."
       : "Enter a prompt below. I will answer locally and report generation speed. Use the four book modes when you need citations.",
   );
+  renderLabStarters();
 }
 
 function pagesLabel(pages) {
@@ -153,6 +187,55 @@ function locatorLabel(item) {
   if (item.pages && item.pages.length) return pagesLabel(item.pages);
   if (item.locator) return item.locator.replace(/^.*\//, "Digital source · ");
   return "Source location recorded by corpus";
+}
+
+function renderOriginGraph(card) {
+  const graph = $("#origin-graph");
+  const path = $("#origin-path");
+  path.replaceChildren();
+  const nodes = Array.isArray(card.origin_graph) ? card.origin_graph.slice(0, 5) : [];
+  graph.classList.toggle("hidden", card.mode !== "word" || nodes.length < 2);
+  if (card.mode !== "word" || nodes.length < 2) return;
+  nodes.forEach((item, index) => {
+    const node = element("article", `origin-node basis-${item.basis === "book" ? "book" : "model"}`);
+    node.append(element("span", "origin-stage", item.stage || `Stage ${index + 1}`));
+    node.append(element("strong", "origin-form", item.form || "—"));
+    if (item.meaning) node.append(element("p", "origin-meaning", item.meaning));
+    path.append(node);
+  });
+  path.style.setProperty("--graph-count", nodes.length);
+}
+
+function showAlternate(card, requestedIndex = alternateIndex) {
+  const block = $("#alternate-block");
+  const available = Object.entries(card.extra_languages || {})
+    .filter(([language, value]) => ALTERNATE_LANGUAGES[language] && value?.term);
+  const enabled = card.mode === "knowledge" && available.length > 0;
+  block.classList.toggle("hidden", !enabled);
+  $("#language-grid").classList.toggle("has-alternate", enabled);
+  if (!enabled) return;
+
+  alternateIndex = requestedIndex % available.length;
+  const [language, value] = available[alternateIndex];
+  const metadata = ALTERNATE_LANGUAGES[language];
+  block.className = `language-block alternate-block ${metadata.className}-block`;
+  block.dir = language === "arabic" ? "rtl" : "ltr";
+  text("#alternate-label", metadata.label);
+  text("#alternate-term", value.term);
+  optionalText("#alternate-reading", value.pronunciation || value.reading);
+  optionalText("#alternate-meaning", value.meaning);
+}
+
+function startAlternateLoop(card) {
+  window.clearInterval(alternateTimer);
+  alternateIndex = 0;
+  showAlternate(card, 0);
+  const count = Object.values(card.extra_languages || {}).filter((value) => value?.term).length;
+  if (card.mode !== "knowledge" || count < 2) return;
+  alternateTimer = window.setInterval(() => {
+    alternateIndex += 1;
+    showAlternate(card, alternateIndex);
+  }, 9000);
 }
 
 function renderCard(card, refreshHistory = true) {
@@ -182,6 +265,12 @@ function renderCard(card, refreshHistory = true) {
   optionalText("#chinese-pinyin", card.chinese.pinyin);
   optionalText("#chinese-meaning", card.chinese.meaning);
   text("#memory-hook", card.memory_hook);
+  text(
+    "#grounded-label",
+    card.mode === "word" ? "Book anchor + model context" : "Grounded in the book",
+  );
+  renderOriginGraph(card);
+  startAlternateLoop(card);
 
   const ruby = $("#japanese-ruby");
   ruby.replaceChildren();
@@ -265,6 +354,7 @@ function setMode(nextMode, preserveView = false) {
 }
 
 async function submitChat(message) {
+  $("#lab-starters")?.remove();
   const priorHistory = chatHistory.slice(-10);
   renderChatMessage("user", message);
   chatHistory.push({ role: "user", content: message });
@@ -308,6 +398,7 @@ async function loadObservations() {
     const response = await fetch("/api/observations?limit=3");
     const observations = await response.json();
     if (!response.ok || !Array.isArray(observations) || !observations.length) return;
+    $("#lab-starters")?.remove();
     observations.reverse().forEach((item) => {
       renderChatMessage("user", item.prompt);
       renderChatMessage("assistant", item.response, { ...item.metrics, saved: true });
@@ -384,7 +475,9 @@ async function loadHistory() {
       });
       history.append(button);
     });
-    if (!activeCardId && mode !== "chat") renderCard(cards[0], false);
+    if (!activeCardId && mode !== "chat") {
+      renderCard(cards.find((card) => card.mode === mode) || cards[0], false);
+    }
     updateCarouselChrome();
     scheduleCarousel();
   } catch (_error) {
@@ -429,12 +522,17 @@ async function toggleFullscreen() {
 }
 
 all(".mode").forEach((button) => button.addEventListener("click", () => {
-  if (button.dataset.mode === "chat") {
+  const nextMode = button.dataset.mode;
+  if (nextMode === "chat") {
     chatContextCardId = "";
     chatContextTitle = "";
     resetChat();
+    setMode(nextMode);
+    return;
   }
-  setMode(button.dataset.mode);
+  const saved = carouselCards.find((card) => card.mode === nextMode);
+  if (saved) renderCard(saved, false);
+  else setMode(nextMode);
 }));
 all(".examples button").forEach((button) => button.addEventListener("click", () => submitQuery(button.dataset.query, button.dataset.mode || mode)));
 $("#card-form").addEventListener("submit", (event) => { event.preventDefault(); submitQuery($("#query").value); });
@@ -461,5 +559,6 @@ setMode(initialMode);
 if (initialParameters.has("display")) document.body.classList.add("display-mode");
 loadHealth();
 loadHistory();
+renderLabStarters();
 loadObservations();
 setInterval(loadHealth, 30000);
