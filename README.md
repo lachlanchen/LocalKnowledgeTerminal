@@ -178,6 +178,7 @@ tmux new-session -d -s lkt-8b-download \
 sudo ./scripts/select_model.sh status
 sudo ./scripts/select_model.sh 8b
 sudo ./scripts/select_model.sh 4b
+sudo ./scripts/benchmark_models.sh
 ```
 
 Only one model is loaded at a time. The 8B profile uses a 3,072-token context
@@ -185,6 +186,9 @@ and smaller batch to protect the 8 GB memory boundary. If its server does not
 become healthy, `select_model.sh 8b` restores the 4B profile automatically.
 The downloader resumes a partial transfer, verifies the official SHA-256, and
 only then atomically exposes the final GGUF.
+The benchmark activates one model at a time, runs the same bounded multilingual
+quality/speed probe, records wall time, llama.cpp token rate, and process memory
+to `logs/model-benchmark-*.jsonl`, and restores 4B even when the 8B trial fails.
 
 On the Pi:
 
