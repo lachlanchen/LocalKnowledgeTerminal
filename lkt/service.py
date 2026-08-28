@@ -373,6 +373,26 @@ class CardService:
         return engine.retrieve(query)
 
     def create(self, query: str, mode: str = "word") -> Card:
+        normalized_query = _short_text(query, limit=240)
+        if len(normalized_query) < 1:
+            raise ValueError("enter a word or question")
+        if mode not in {"word", "knowledge", "answer", "question", "root", "affix"}:
+            raise ValueError(
+                "mode must be word, knowledge, answer, question, root, or affix"
+            )
+        evidence = self._retrieve(normalized_query, mode)
+        return self.create_from_evidence(normalized_query, mode, evidence)
+
+    def create_from_evidence(
+        self, query: str, mode: str, evidence: list[Evidence]
+    ) -> Card:
+        """Prepare one card from retrieval-owned records selected upstream.
+
+        Autonomous deck preparation uses this entry point to walk a complete
+        book without changing citation ownership or asking the model to choose
+        its own sources.
+        """
+
         query = _short_text(query, limit=240)
         if len(query) < 1:
             raise ValueError("enter a word or question")
@@ -380,7 +400,6 @@ class CardService:
             raise ValueError(
                 "mode must be word, knowledge, answer, question, root, or affix"
             )
-        evidence = self._retrieve(query, mode)
         if not evidence:
             raise NoEvidence(f"no book evidence found for '{query}'")
         preparation_run_id = self.store.start_preparation(

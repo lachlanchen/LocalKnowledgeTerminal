@@ -14,7 +14,7 @@ Environment=PYTHONPATH=/home/lachlan/LocalKnowledgeTerminal/source
 WorkingDirectory=/home/lachlan/LocalKnowledgeTerminal/source
 ExecStartPre=/usr/bin/test -x /home/lachlan/LocalKnowledgeTerminal/runtime/knowledge-venv/bin/python
 ExecStartPre=/bin/bash -c 'for attempt in {1..120}; do /usr/bin/curl --silent --fail http://127.0.0.1:8081/health >/dev/null && exit 0; /bin/sleep 2; done; exit 1'
-ExecStart=/home/lachlan/LocalKnowledgeTerminal/runtime/knowledge-venv/bin/python -m lkt.cli work-atomic --watch --recover-running --idle-seconds 2 --job-delay 1
+ExecStart=/home/lachlan/LocalKnowledgeTerminal/runtime/knowledge-venv/bin/python -m lkt.cli work-atomic --watch --recover-running --idle-seconds 2 --job-delay 1 --autoprepare-book-deck --autoprepare-modes answer question --autoprepare-interval-seconds 120
 Restart=on-failure
 RestartSec=3
 Nice=10

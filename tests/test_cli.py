@@ -48,8 +48,24 @@ class AtomicWatchTests(unittest.TestCase):
         unit = (root / "systemd" / "lkt-worker.service").read_text(encoding="utf-8")
         self.assertIn("work-atomic --watch --recover-running", unit)
         self.assertIn("--job-delay 1", unit)
+        self.assertIn("--autoprepare-book-deck", unit)
+        self.assertIn("--autoprepare-modes answer question", unit)
         self.assertIn("Nice=10", unit)
         self.assertIn("CPUWeight=25", unit)
+
+    def test_watch_runs_bounded_idle_action(self) -> None:
+        emitted: list[str] = []
+        status = run_atomic_watch(
+            _Worker([None]),
+            _StopAfterWaits(1),
+            idle_seconds=2,
+            job_delay=1,
+            emit=lambda result: emitted.append(result.job_id),
+            idle_action=lambda: SimpleNamespace(job_id="deck-card-1"),
+            idle_action_interval=120,
+        )
+        self.assertEqual(status, 0)
+        self.assertEqual(emitted, ["deck-card-1"])
 
 
 if __name__ == "__main__":

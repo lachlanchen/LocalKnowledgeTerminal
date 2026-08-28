@@ -279,6 +279,32 @@ class CardBookIndex:
             raise LookupError("could not draw a card-book item")
         return self._evidence(row, metadata)
 
+    def draw_unseen(self, seed: str, excluded_entry_ids: Iterable[str]) -> Evidence | None:
+        """Draw one not-yet-published record without repeating earlier entries.
+
+        The seed changes the starting point, while the circular scan guarantees
+        that every source record remains reachable. Once every record has been
+        excluded, the caller receives ``None`` and can stop preparation rather
+        than silently generating duplicate cards.
+        """
+
+        metadata = self.metadata()
+        excluded = {str(item).strip() for item in excluded_entry_ids if str(item).strip()}
+        with closing(self._connect()) as connection:
+            rows = connection.execute("SELECT * FROM items ORDER BY ordinal").fetchall()
+        if not rows:
+            return None
+        material = f"{metadata.get('corpus_id', '')}\0{seed.strip().casefold()}"
+        start = (
+            int.from_bytes(hashlib.sha256(material.encode("utf-8")).digest()[:8], "big")
+            % len(rows)
+        )
+        for step in range(len(rows)):
+            row = rows[(start + step) % len(rows)]
+            if str(row["item_id"]) not in excluded:
+                return self._evidence(row, metadata)
+        return None
+
     def search(self, query: str, limit: int = 4) -> list[Evidence]:
         query = query.strip()
         if not query:

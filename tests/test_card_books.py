@@ -116,6 +116,25 @@ class CardBookTests(unittest.TestCase):
             self.assertEqual(result.locator, "OEBPS/questions_split_000.xhtml")
             self.assertEqual(result.pages, ())
 
+    def test_unseen_draw_walks_every_record_once_then_stops(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            index = make_card_book(
+                Path(temp),
+                "answer",
+                [
+                    record("answer-001", "answer", 1, "Begin", "始める", "开始"),
+                    record("answer-002", "answer", 2, "Wait", "待つ", "等待"),
+                ],
+            )
+            first = index.draw_unseen("cycle-one", set())
+            self.assertIsNotNone(first)
+            second = index.draw_unseen("cycle-one", {first.entry_id})
+            self.assertIsNotNone(second)
+            self.assertNotEqual(first.entry_id, second.entry_id)
+            self.assertIsNone(
+                index.draw_unseen("cycle-one", {first.entry_id, second.entry_id})
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

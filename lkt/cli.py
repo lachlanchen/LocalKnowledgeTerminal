@@ -6,12 +6,14 @@ import signal
 import sys
 from pathlib import Path
 from threading import Event
+from time import monotonic
 from typing import Any, Callable
 
 from .atomic import build_worker
 from .card_books import CardBookIndex, build_card_book_index
 from .config import Settings
 from .corpus import CorpusIndex, build_index
+from .deck import AutonomousDeckSeeder
 from .graph import rebuild_ladybug
 from .llm import LlamaCppClient
 from .knowledge import KnowledgeStore
@@ -442,6 +444,26 @@ def command_plan_card_investigations(args: argparse.Namespace) -> int:
     return 0
 
 
+def _deck_seeder(
+    settings: Settings, modes: list[str] | tuple[str, ...]
+) -> AutonomousDeckSeeder:
+    return AutonomousDeckSeeder(
+        _service(settings),
+        CardStore(settings.cards_db),
+        KnowledgeStore(settings.knowledge_db),
+        modes=modes,
+    )
+
+
+def command_seed_deck(args: argparse.Namespace) -> int:
+    """Prepare one unseen reviewed Answer/Question record with local Qwen."""
+
+    settings = _settings()
+    result = _deck_seeder(settings, args.modes).run_once(args.seed)
+    print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
+    return 0
+
+
 def run_atomic_watch(
     worker: Any,
     stop_event: Any,
@@ -449,12 +471,20 @@ def run_atomic_watch(
     idle_seconds: float,
     job_delay: float,
     emit: Callable[[Any], None],
+    idle_action: Callable[[], Any] | None = None,
+    idle_action_interval: float = 120.0,
 ) -> int:
-    """Run one persisted task at a time until the service is stopped."""
+    """Run one persisted task at a time, then do bounded idle work."""
 
+    next_idle_action = monotonic()
     while not stop_event.is_set():
         result = worker.run_once()
         if result is None:
+            if idle_action is not None and monotonic() >= next_idle_action:
+                emit(idle_action())
+                next_idle_action = monotonic() + max(1.0, idle_action_interval)
+                stop_event.wait(job_delay)
+                continue
             stop_event.wait(idle_seconds)
             continue
         emit(result)
@@ -487,6 +517,11 @@ def command_work_atomic(args: argparse.Namespace) -> int:
     )
     if args.watch:
         stop_event = Event()
+        seeder = (
+            _deck_seeder(settings, args.autoprepare_modes)
+            if args.autoprepare_book_deck
+            else None
+        )
 
         def stop_worker(_signum: int, _frame: Any) -> None:
             stop_event.set()
@@ -500,6 +535,10 @@ def command_work_atomic(args: argparse.Namespace) -> int:
             job_delay=max(0.0, min(float(args.job_delay), 60.0)),
             emit=lambda result: print(
                 json.dumps(result.__dict__, ensure_ascii=False), flush=True
+            ),
+            idle_action=(lambda: seeder.run_once()) if seeder is not None else None,
+            idle_action_interval=max(
+                10.0, min(float(args.autoprepare_interval_seconds), 86_400.0)
             ),
         )
     print(
@@ -751,6 +790,19 @@ def parser() -> argparse.ArgumentParser:
     plan_card_investigations.add_argument("--source-fingerprint", default="")
     plan_card_investigations.set_defaults(handler=command_plan_card_investigations)
 
+    seed_deck = commands.add_parser(
+        "seed-deck",
+        help="prepare one unseen reviewed book record with the local model",
+    )
+    seed_deck.add_argument(
+        "--modes",
+        nargs="+",
+        choices=("answer", "question"),
+        default=("answer", "question"),
+    )
+    seed_deck.add_argument("--seed", default="")
+    seed_deck.set_defaults(handler=command_seed_deck)
+
     work_atomic = commands.add_parser(
         "work-atomic",
         help="run bounded evidence/meaning jobs and checkpoint accepted results",
@@ -763,6 +815,20 @@ def parser() -> argparse.ArgumentParser:
     )
     work_atomic.add_argument("--idle-seconds", type=float, default=2.0)
     work_atomic.add_argument("--job-delay", type=float, default=1.0)
+    work_atomic.add_argument(
+        "--autoprepare-book-deck",
+        action="store_true",
+        help="prepare one unseen Answer/Question record whenever the queue is idle",
+    )
+    work_atomic.add_argument(
+        "--autoprepare-modes",
+        nargs="+",
+        choices=("answer", "question"),
+        default=("answer", "question"),
+    )
+    work_atomic.add_argument(
+        "--autoprepare-interval-seconds", type=float, default=120.0
+    )
     work_atomic.add_argument(
         "--recover-running",
         action="store_true",
