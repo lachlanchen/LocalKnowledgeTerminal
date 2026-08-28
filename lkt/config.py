@@ -14,6 +14,8 @@ class Settings:
     corpus_db: Path
     answers_db: Path
     questions_db: Path
+    roots_db: Path
+    affixes_db: Path
     cards_db: Path
     llm_url: str
     llm_model: str
@@ -42,6 +44,12 @@ class Settings:
             questions_db=Path(
                 os.environ.get("LKT_QUESTIONS_DB", data_dir / "book-of-questions.sqlite3")
             ).resolve(),
+            roots_db=Path(
+                os.environ.get("LKT_ROOTS_DB", data_dir / "english-roots.sqlite3")
+            ).resolve(),
+            affixes_db=Path(
+                os.environ.get("LKT_AFFIXES_DB", data_dir / "english-affixes.sqlite3")
+            ).resolve(),
             cards_db=Path(
                 os.environ.get("LKT_CARDS_DB", data_dir / "cards.sqlite3")
             ).resolve(),
@@ -51,7 +59,7 @@ class Settings:
             llm_model=os.environ.get("LKT_LLM_MODEL", "Qwen3-4B-Q4_K_M"),
             host=os.environ.get("LKT_HOST", "0.0.0.0"),
             port=int(os.environ.get("LKT_PORT", "8090")),
-            request_timeout=int(os.environ.get("LKT_REQUEST_TIMEOUT", "360")),
+            request_timeout=int(os.environ.get("LKT_REQUEST_TIMEOUT", "720")),
             max_evidence=int(os.environ.get("LKT_MAX_EVIDENCE", "4")),
         )
 

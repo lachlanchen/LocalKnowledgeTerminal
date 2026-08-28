@@ -8,21 +8,17 @@ of source-specific conditionals.
 
 | Experience | Corpus | Retrieval policy | Grounded |
 | --- | --- | --- | --- |
-| Word Origin | Word Origins | exact headword, then lexical FTS5 | yes |
-| Word Card | Word Origins | multi-entry lexical FTS5 | yes |
+| Word Origin | Word Origins + Root + Affix | origin-first exact/FTS, then morphology support | yes |
+| Word Card | Word Origins + Root + Affix | multi-entry lexical FTS5 + exact morphology | yes |
 | Book Answer | Paul-edition Answer cards | query-seeded reproducible draw | yes |
 | Book Question | Question cards | multilingual FTS5, then seeded draw | yes |
+| Root Graph | Root + Affix dictionaries | root-primary exact/FTS, then affix support | yes |
+| Affix Graph | Affix + Root dictionaries | affix-primary exact/FTS, then root support | yes |
 | Chat / Benchmark | Qwen3-4B | direct bounded conversation | no |
 
-## Prepared extension points
+## Prepared enrichment points
 
-Future morphology material can add separate **Suffix**, **Affix**, and **Root**
-experiences. Each source should provide stable record IDs, source text, location
-metadata, and reviewed language fields when available. The adapter then returns
-the existing `Evidence` contract; the card service and GUI can reuse the current
-multilingual card schema, ruby renderer, deterministic citations, model client,
-history, and future e-ink/audio outputs.
-
-The forthcoming book’s exact title, author spelling, license, schema, and hash
-will be recorded only after its prepared export is supplied and validated. No
-empty buttons or fabricated attribution are shipped before then.
+Phoneme segmentation, Arabic grapheme segmentation, sentence grammar, linked
+word investigation, and batch corpus preparation are separate sequential jobs.
+Each saves reusable artifacts into the preparation ledger and enriches a card
+revision without coupling retrieval, generation, or rendering.

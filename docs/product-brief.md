@@ -34,8 +34,8 @@ yet. They are future references only.
   Card, with different retrieval and presentation policies.
 - Local Book of Answers and Book of Questions structured editions: independent
   RAG sources for their respective modes.
-- Future references: books about English suffixes, affixes, roots, and Kim
-  Jeong-gi material when preparation is complete.
+- Local reviewed English Root Dictionary and English Affix Dictionary exports:
+  first-class morphology evidence for Word Card, Word Origin, Root, and Affix.
 - Future architecture references only: `LazyingArt/AgInTiFlow` and
   `lachlanchen/LocalLLM`.
 
@@ -88,6 +88,18 @@ yet. They are future references only.
 - Related vocabulary may be a separate slide rather than another block on the
   main question.
 
+### Root and Affix
+
+- Keep Root and Affix as separate top-level collections with different primary
+  retrieval order, while both consult the Root and Affix books.
+- Save one complete connected morphology/history graph around the center word,
+  including typed nodes, directed edges, exact evidence IDs, confidence, and
+  focus areas.
+- Show an overview map in the graph corner. Inner slides focus/zoom the main
+  graph onto each root, prefix, suffix, or historical branch.
+- Retain rich recursive JSON in SQLite while showing only one clear teaching
+  point per screen.
+
 ### Model Lab
 
 - Keep a simple raw local chat/benchmark page for testing Qwen quality and
@@ -106,10 +118,15 @@ yet. They are future references only.
   or sentence segment.
 - Use an outer, mode-local carousel for saved cards: Origin cycles only through
   Origin, Word Card only through Word Card, and likewise for Answer/Question.
+- The six knowledge tabs are Word Card, Word Origin, Answer, Question, Root,
+  and Affix. Model Lab remains a separate uncited utility.
 - Autoplay should be calm and predictable, with clear manual previous/next
   controls.
 - Generated, formatted cards are saved to a local SQLite knowledge ledger. A
   repeated request may run the model again and save another version.
+- Save retrieved evidence, cleaned model draft, normalized card/graph, and final
+  published revision as reusable preparation artifacts. Archive weak cards from
+  the active carousel without destructive deletion.
 
 ## Local inference
 
@@ -119,6 +136,8 @@ yet. They are future references only.
   SHA-256, and benchmark it safely.
 - Never run 4B and 8B together on an 8 GB Pi. Keep a one-command, automatic 4B
   fallback and do not replace the default until 8B proves stable.
+- If 8B proves stable and materially better on real morphology JSON, use it as
+  the default offline preparation model; prepared SQLite display remains fast.
 - Model downloads must be resumable and must not interrupt the live 4B service.
 - Use the Word Origins book RAG to correct hallucinated etymology and ground
   source claims.

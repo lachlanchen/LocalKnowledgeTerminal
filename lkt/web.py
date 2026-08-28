@@ -13,6 +13,7 @@ from .card_books import CardBookIndex
 from .config import Settings
 from .corpus import CorpusIndex
 from .llm import LlamaCppClient, ModelUnavailable
+from .morphology import MorphologyIndex
 from .pronunciation import chinese_ruby_tokens
 from .service import CardService, NoEvidence
 from .store import CardStore
@@ -96,6 +97,10 @@ def build_service(settings: Settings) -> tuple[CardService, LlamaCppClient]:
         {
             "answer": CardBookIndex(settings.answers_db),
             "question": CardBookIndex(settings.questions_db),
+        },
+        {
+            "root": MorphologyIndex(settings.roots_db),
+            "affix": MorphologyIndex(settings.affixes_db),
         },
     )
     return service, model
@@ -185,15 +190,33 @@ def handler_factory(
                         }
                     except (FileNotFoundError, OSError):
                         card_books[mode] = {"ready": False, "items": 0}
+                morphology: dict[str, Any] = {}
+                for kind, index in service.morphology.items():
+                    try:
+                        morphology_metadata = index.metadata()
+                        morphology[kind] = {
+                            "ready": True,
+                            "items": index.count(),
+                            "title": morphology_metadata.get("source_title", ""),
+                            "sha256": morphology_metadata.get("source_sha256", ""),
+                        }
+                    except (FileNotFoundError, OSError):
+                        morphology[kind] = {"ready": False, "items": 0}
+                sources_ready = (
+                    corpus_ready
+                    and all(item.get("ready") for item in card_books.values())
+                    and all(item.get("ready") for item in morphology.values())
+                )
                 self._json(
                     {
-                        "status": "ready" if corpus_ready and model_ready else "starting",
+                        "status": "ready" if sources_ready and model_ready else "starting",
                         "corpus": {
                             "ready": corpus_ready,
                             "entries": count,
                             "sha256": metadata.get("source_sha256", ""),
                         },
                         "card_books": card_books,
+                        "morphology": morphology,
                         "model": {
                             "ready": model_ready,
                             "name": model.model_name,
@@ -216,6 +239,10 @@ def handler_factory(
                         results = service.corpus.search(query, settings.max_evidence)
                     elif corpus in {"answer", "question"}:
                         results = service.card_books[corpus].search(
+                            query, settings.max_evidence
+                        )
+                    elif corpus in {"root", "affix"}:
+                        results = service.morphology[corpus].search(
                             query, settings.max_evidence
                         )
                     else:
@@ -245,6 +272,46 @@ def handler_factory(
                 self._json(service.store.recent_observations(parsed_limit))
                 return
             self._json({"error": "not found"}, HTTPStatus.NOT_FOUND)
+
+        def do_DELETE(self) -> None:  # noqa: N802
+            path = urlparse(self.path).path
+            prefix = "/api/cards/"
+            if not path.startswith(prefix):
+                self._json({"error": "not found"}, HTTPStatus.NOT_FOUND)
+                return
+            card_id = path[len(prefix):].strip()[:100]
+            if not card_id or not service.store.archive(card_id):
+                self._json({"error": "card not found"}, HTTPStatus.NOT_FOUND)
+                return
+            self._json({"card_id": card_id, "status": "archived"})
+
+        def do_PATCH(self) -> None:  # noqa: N802
+            path = urlparse(self.path).path
+            prefix = "/api/cards/"
+            if not path.startswith(prefix):
+                self._json({"error": "not found"}, HTTPStatus.NOT_FOUND)
+                return
+            card_id = path[len(prefix):].strip()[:100]
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                if length < 2 or length > 131_072:
+                    raise ValueError("invalid request size")
+                body = json.loads(self.rfile.read(length).decode("utf-8"))
+                if not isinstance(body, dict) or not isinstance(body.get("patch"), dict):
+                    raise ValueError("revision requires a JSON object in patch")
+                revised = service.store.revise(
+                    card_id,
+                    body["patch"],
+                    str(body.get("review_note", "")),
+                    body.get("quality_score"),
+                )
+            except (ValueError, json.JSONDecodeError) as exc:
+                self._json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+                return
+            except KeyError:
+                self._json({"error": "card not found"}, HTTPStatus.NOT_FOUND)
+                return
+            self._json(renderable_card(revised), HTTPStatus.CREATED)
 
         def do_POST(self) -> None:  # noqa: N802
             path = urlparse(self.path).path

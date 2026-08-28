@@ -4,10 +4,18 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from lkt.retrieval import AnswerRag, QuestionRag, WordCardRag, WordOriginRag
+from lkt.retrieval import (
+    AffixRag,
+    AnswerRag,
+    QuestionRag,
+    RootRag,
+    WordCardRag,
+    WordOriginRag,
+)
 
 from test_card_books import make_card_book, record
 from test_corpus import make_index
+from test_morphology import make_morphology_index
 
 
 class RetrievalTests(unittest.TestCase):
@@ -34,6 +42,19 @@ class RetrievalTests(unittest.TestCase):
             )
             self.assertEqual(AnswerRag(answer).retrieve("now")[0].kind, "answer")
             self.assertEqual(QuestionRag(question).retrieve("begin")[0].kind, "question")
+
+    def test_morphology_modes_share_sources_but_keep_primary_order(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            roots = make_morphology_index(root, "root")
+            affixes = make_morphology_index(root, "affix")
+            root_evidence = RootRag(roots, affixes).retrieve("aspect")
+            affix_evidence = AffixRag(affixes, roots).retrieve("aspect")
+            self.assertEqual(root_evidence[0].kind, "morphology-root")
+            self.assertEqual(affix_evidence[0].kind, "morphology-affix")
+            self.assertEqual({item.kind for item in root_evidence}, {
+                "morphology-root", "morphology-affix"
+            })
 
 
 if __name__ == "__main__":

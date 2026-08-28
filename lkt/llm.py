@@ -46,36 +46,34 @@ def _evidence_context(evidence: list[Evidence]) -> str:
     return "\n\n".join(blocks)
 
 
-WORD_ORIGIN_PROMPT = """You are the independent Word Origin engine in Local Knowledge Terminal.
-Create a visually structured etymology from BOOK EVIDENCE plus your own reliable linguistic
-knowledge. The book is the anchor. Never invent a quotation, record, or page. A graph node whose
-claim is directly supported by the supplied excerpt must use basis "book"; a useful established
-detail added from your own knowledge must use basis "model". Prefer accuracy over extra detail.
-Return exactly one compact JSON object with no markdown or commentary. Fill every required field
-with real content; never return a blank template or placeholder.
+WORD_ORIGIN_PROMPT = """You prepare the durable Word Origin graph in Local Knowledge Terminal.
+Use every relevant supplied Word Origins, Root Dictionary, and Affix Dictionary record. Decompose
+the center word into all useful evidenced components, then trace each component's history
+recursively until another step becomes uncertain or stops aiding understanding. BOOK EVIDENCE is
+authoritative. You may add established linguistic knowledge, but label it model. Never invent a
+quotation, record ID, or page. A book node must list an exact supplied Record ID in evidence_ids.
 
-Required JSON shape:
+Return exactly one JSON object with no markdown:
 {
-  "title": "the modern English word",
-  "summary_en": "clear modern definition in one sentence",
-  "origin_graph": [
-    {"id": "short-unique-id", "parent": "id of the later form this feeds, or empty only for the modern root", "stage": "language or era", "form": "historical form or morpheme", "meaning": "at most 8 words", "basis": "book or model"}
-  ],
-  "english": {"term": "", "pronunciation": "", "meaning": ""},
-  "japanese": {"term": "established equivalent", "reading": "exact hiragana or katakana", "meaning": "short meaning written in Japanese", "ruby_tokens": [{"t": "kanji or kana segment", "r": "exact kana reading; empty for plain kana"}]},
-  "chinese": {"simplified": "established equivalent", "traditional": "", "pinyin": "tone-marked pinyin", "meaning": "short Chinese meaning"}
+  "title": "center English word",
+  "summary_en": "one concise modern definition",
+  "english": {"term": "", "pronunciation": "IPA", "meaning": "short meaning"},
+  "japanese": {"term": "established equivalent", "reading": "exact kana", "meaning": "short Japanese meaning", "ruby_tokens": [{"t": "visible segment", "r": "kana or empty"}]},
+  "chinese": {"simplified": "established equivalent", "traditional": "", "pinyin": "tone-marked pinyin", "meaning": "short Chinese meaning"},
+  "morphology_graph": {
+    "center_id": "word",
+    "nodes": [{"id": "unique-id", "type": "word|prefix|root|suffix|historical|related", "form": "visible form", "meaning": "at most 10 words", "language": "language or era", "history": "one concise factual sentence", "basis": "book|model", "evidence_ids": ["exact Record ID"], "confidence": "high|medium"}],
+    "edges": [{"source": "earlier/component id", "target": "later/formed word id", "relationship": "developed-into|prefix-of|root-of|suffix-of|related-form"}],
+    "focus_areas": [{"id": "overview-or-branch-id", "label": "short slide label", "kind": "overview|root|prefix|suffix|history", "node_ids": ["visible ids"], "headline": "one core idea", "explanation": "one short teaching sentence"}]
+  }
 }
-Make origin_graph a directed ancestry graph of 3 to 5 nodes like a compact dictionary etymology
-tree. Put the modern English word first as the single root with an empty parent. Its ancestors or
-component morphemes point to the later descendant using parent, so two roots/components may branch
-into one word. For a compound, use exactly this topology: modern-word parent "";
-earlier-compound parent modern-word; component-a parent earlier-compound; component-b parent
-earlier-compound. Components are siblings and must never parent one another unless one is actually
-derived from the other. Do not force a linear timeline when the word has multiple components.
-Before returning, check that every parent is the later form receiving that node. Use Unicode
-directly and established Japanese/Chinese equivalents instead of phonetic imitations. Everything
-must fit one screen. Japanese ruby token text must concatenate exactly to japanese.term. Keep the
-response under 260 words. /no_think"""
+
+Use 7 to 14 connected nodes. Components point into the word or compound they form; historical
+forms point into descendants. Sibling components never parent one another. Begin focus_areas with
+an overview containing every node, then add one area per important component/history branch. The
+saved graph may be detailed; each focus explanation must stay sparse enough for one screen.
+Japanese ruby token text must concatenate exactly to japanese.term. Use Unicode directly. Keep the
+whole response under 700 words. /no_think"""
 
 
 WORD_CARD_PROMPT = """You are the independent multilingual Word Card engine in Local Knowledge
@@ -118,6 +116,37 @@ exactly one compact JSON object with no markdown or commentary:
 
 {"title": "2 to 5 word title", "origin_story": "one concise reflection prompt"}
 Use Unicode directly. Keep the response under 40 words. /no_think"""
+
+
+MORPHOLOGY_PROMPT = """You prepare a durable morphology graph for Local Knowledge Terminal.
+The requested mode is Root or Affix, but build one complete graph for the center English word:
+include every useful evidenced prefix, root, and suffix, concise historical ancestors, and a few
+high-value related words. BOOK EVIDENCE is authoritative. You may add established linguistic
+knowledge, but label it model. Never invent a quotation, record ID, or page. A book node must list
+at least one exact supplied Record ID in evidence_ids; otherwise label it model. Prefer a smaller
+accurate graph over speculative decomposition.
+
+Return exactly one JSON object with no markdown:
+{
+  "title": "center English word",
+  "summary_en": "one concise modern definition",
+  "english": {"term": "", "pronunciation": "IPA", "meaning": "short meaning"},
+  "japanese": {"term": "established equivalent", "reading": "exact kana", "meaning": "short Japanese meaning", "ruby_tokens": [{"t": "visible segment", "r": "kana or empty"}]},
+  "chinese": {"simplified": "established equivalent", "traditional": "", "pinyin": "tone-marked pinyin", "meaning": "short Chinese meaning"},
+  "morphology_graph": {
+    "center_id": "word",
+    "nodes": [{"id": "unique-id", "type": "word|prefix|root|suffix|historical|related", "form": "visible form", "meaning": "at most 10 words", "language": "English/Latin/Greek/etc", "history": "one concise factual sentence", "basis": "book|model", "evidence_ids": ["exact Record ID"], "confidence": "high|medium"}],
+    "edges": [{"source": "earlier/component node id", "target": "later/formed word id", "relationship": "developed-into|prefix-of|root-of|suffix-of|related-form"}],
+    "focus_areas": [{"id": "overview-or-node-id", "label": "short slide label", "kind": "overview|root|prefix|suffix|history", "node_ids": ["ids visible in this area"], "headline": "one core idea", "explanation": "one short teaching sentence"}]
+  }
+}
+
+Use 7 to 14 nodes and a connected directed graph. Components point into words; historical forms
+point into descendants. Never chain sibling components into each other. Start focus_areas with an
+overview containing all node IDs, then add one area for each important root, prefix, and suffix.
+Recursive history should stop when evidence becomes uncertain or ceases to aid understanding.
+Japanese ruby token text must concatenate exactly to japanese.term. Use Unicode directly. Keep the
+whole response under 700 words. /no_think"""
 
 
 def _extract_json(text: str) -> dict[str, Any]:
@@ -172,22 +201,87 @@ def _validate_card_draft(value: dict[str, Any], mode: str) -> None:
         ),
         "answer": (("title",), ("origin_story",)),
         "question": (("title",), ("origin_story",)),
+        "root": (
+            ("title",),
+            ("summary_en",),
+            ("english", "term"),
+            ("english", "meaning"),
+            ("japanese", "term"),
+            ("japanese", "reading"),
+            ("chinese", "simplified"),
+            ("chinese", "pinyin"),
+        ),
+        "affix": (
+            ("title",),
+            ("summary_en",),
+            ("english", "term"),
+            ("english", "meaning"),
+            ("japanese", "term"),
+            ("japanese", "reading"),
+            ("chinese", "simplified"),
+            ("chinese", "pinyin"),
+        ),
     }
     missing = [
         ".".join(path)
         for path in required_paths[mode]
         if not _nonempty_path(value, *path)
     ]
-    if mode == "word":
-        graph = value.get("origin_graph")
-        if not isinstance(graph, list) or len(graph) < 3:
-            missing.append("origin_graph[3+]")
-        elif any(
-            not isinstance(node, dict)
-            or any(not str(node.get(key, "")).strip() for key in ("id", "stage", "form", "meaning"))
-            for node in graph
-        ):
-            missing.append("origin_graph.complete_nodes")
+    if mode in {"word", "root", "affix"}:
+        graph = value.get("morphology_graph")
+        if not isinstance(graph, dict):
+            missing.append("morphology_graph")
+        else:
+            nodes = graph.get("nodes")
+            edges = graph.get("edges")
+            focuses = graph.get("focus_areas")
+            center_id = str(graph.get("center_id", "")).strip()
+            if not isinstance(nodes, list) or len(nodes) < 5:
+                missing.append("morphology_graph.nodes[5+]")
+                nodes = []
+            node_ids = {
+                str(node.get("id", "")).strip()
+                for node in nodes
+                if isinstance(node, dict)
+            }
+            if not center_id or center_id not in node_ids:
+                missing.append("morphology_graph.center_id")
+            if any(
+                not isinstance(node, dict)
+                or any(
+                    not str(node.get(key, "")).strip()
+                    for key in ("id", "type", "form", "meaning", "basis")
+                )
+                for node in nodes
+            ):
+                missing.append("morphology_graph.complete_nodes")
+            valid_edges = [
+                edge
+                for edge in edges
+                if isinstance(edge, dict)
+                and str(edge.get("source", "")).strip() in node_ids
+                and str(edge.get("target", "")).strip() in node_ids
+            ] if isinstance(edges, list) else []
+            if len(valid_edges) < max(1, len(nodes) - 1):
+                missing.append("morphology_graph.connected_edges")
+            else:
+                adjacency = {node_id: set() for node_id in node_ids}
+                for edge in valid_edges:
+                    source = str(edge["source"]).strip()
+                    target = str(edge["target"]).strip()
+                    adjacency[source].add(target)
+                    adjacency[target].add(source)
+                reached = {center_id} if center_id in adjacency else set()
+                frontier = list(reached)
+                while frontier:
+                    current = frontier.pop()
+                    for neighbor in adjacency[current] - reached:
+                        reached.add(neighbor)
+                        frontier.append(neighbor)
+                if reached != node_ids:
+                    missing.append("morphology_graph.connected")
+            if not isinstance(focuses, list) or len(focuses) < 2:
+                missing.append("morphology_graph.focus_areas[2+]")
     if missing:
         raise ValueError(f"model returned incomplete card fields: {', '.join(missing)}")
 
@@ -303,6 +397,14 @@ class LlamaCppClient:
                 "Create a BOOK QUESTION card. Preserve the selected question and its reviewed "
                 "translations exactly; add prompts for thoughtful reflection"
             ),
+            "root": (
+                "Prepare a complete ROOT-FOCUSED morphology graph grounded in both supplied "
+                "root and affix dictionary records"
+            ),
+            "affix": (
+                "Prepare a complete AFFIX-FOCUSED morphology graph grounded in both supplied "
+                "affix and root dictionary records"
+            ),
         }
         instruction = instructions.get(mode, "Create a grounded learning card")
         user_prompt = (
@@ -315,8 +417,17 @@ class LlamaCppClient:
             "knowledge": WORD_CARD_PROMPT,
             "answer": ANSWER_PROMPT,
             "question": QUESTION_PROMPT,
+            "root": MORPHOLOGY_PROMPT,
+            "affix": MORPHOLOGY_PROMPT,
         }
-        token_budgets = {"word": 520, "knowledge": 300, "answer": 140, "question": 140}
+        token_budgets = {
+            "word": 900,
+            "knowledge": 300,
+            "answer": 140,
+            "question": 140,
+            "root": 900,
+            "affix": 900,
+        }
         payload = {
             "model": self.model_name,
             "messages": [
@@ -326,10 +437,10 @@ class LlamaCppClient:
                 },
                 {"role": "user", "content": user_prompt},
             ],
-            "temperature": 0.7,
+            "temperature": 0.25 if mode in {"word", "root", "affix"} else 0.7,
             "top_p": 0.8,
             "top_k": 20,
-            "presence_penalty": 1.5,
+            "presence_penalty": 0.2 if mode in {"word", "root", "affix"} else 1.5,
             "max_tokens": token_budgets[mode],
             "stream": False,
         }

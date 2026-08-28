@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 from lkt.llm import (
     LlamaCppClient,
+    MORPHOLOGY_PROMPT,
     WORD_ORIGIN_PROMPT,
     _extract_json,
     _validate_card_draft,
@@ -15,9 +16,45 @@ from lkt.models import Evidence
 
 
 class LlmParsingTests(unittest.TestCase):
+    def test_morphology_prompt_and_validator_require_connected_focus_graph(self) -> None:
+        self.assertIn("evidence_ids", MORPHOLOGY_PROMPT)
+        self.assertIn("Components point into words", MORPHOLOGY_PROMPT)
+        draft = {
+            "title": "inspection",
+            "summary_en": "careful examination",
+            "english": {"term": "inspection", "meaning": "careful examination"},
+            "japanese": {"term": "検査", "reading": "けんさ"},
+            "chinese": {"simplified": "检查", "pinyin": "jiǎn chá"},
+            "morphology_graph": {
+                "center_id": "word",
+                "nodes": [
+                    {"id": "word", "type": "word", "form": "inspection", "meaning": "examination", "basis": "book"},
+                    {"id": "in", "type": "prefix", "form": "in-", "meaning": "into", "basis": "book"},
+                    {"id": "spect", "type": "root", "form": "spect", "meaning": "look", "basis": "book"},
+                    {"id": "ion", "type": "suffix", "form": "-ion", "meaning": "action", "basis": "book"},
+                    {"id": "latin", "type": "historical", "form": "specere", "meaning": "to look", "basis": "model"},
+                ],
+                "edges": [
+                    {"source": "in", "target": "word"},
+                    {"source": "spect", "target": "word"},
+                    {"source": "ion", "target": "word"},
+                    {"source": "latin", "target": "spect"},
+                ],
+                "focus_areas": [
+                    {"kind": "overview", "node_ids": ["word", "in", "spect", "ion", "latin"]},
+                    {"kind": "root", "node_ids": ["spect", "latin"]},
+                ],
+            },
+        }
+        _validate_card_draft(draft, "root")
+        draft["morphology_graph"]["edges"].pop()
+        with self.assertRaisesRegex(ValueError, "connected_edges"):
+            _validate_card_draft(draft, "root")
+
     def test_origin_prompt_defines_compound_siblings(self) -> None:
-        self.assertIn("component-a parent earlier-compound", WORD_ORIGIN_PROMPT)
-        self.assertIn("Components are siblings", WORD_ORIGIN_PROMPT)
+        self.assertIn("Sibling components never parent one another", WORD_ORIGIN_PROMPT)
+        self.assertIn("Root Dictionary, and Affix Dictionary", WORD_ORIGIN_PROMPT)
+        self.assertIn("focus_areas", WORD_ORIGIN_PROMPT)
         self.assertIn("ruby token text must concatenate exactly", WORD_ORIGIN_PROMPT)
 
     def test_extracts_fenced_json_after_thinking(self) -> None:
@@ -74,6 +111,26 @@ class LlmParsingTests(unittest.TestCase):
                 {"id": "latin", "parent": "modern", "stage": "Latin", "form": "abacus", "meaning": "counting board", "basis": "book"},
                 {"id": "greek", "parent": "latin", "stage": "Greek", "form": "abax", "meaning": "board", "basis": "book"},
             ],
+            "morphology_graph": {
+                "center_id": "modern",
+                "nodes": [
+                    {"id": "modern", "type": "word", "form": "abacus", "meaning": "counting frame", "basis": "book"},
+                    {"id": "latin", "type": "historical", "form": "abacus", "meaning": "counting board", "basis": "book"},
+                    {"id": "greek", "type": "historical", "form": "abax", "meaning": "board", "basis": "book"},
+                    {"id": "plural", "type": "related", "form": "abaci", "meaning": "plural form", "basis": "model"},
+                    {"id": "calculate", "type": "related", "form": "calculate", "meaning": "find a number", "basis": "model"},
+                ],
+                "edges": [
+                    {"source": "greek", "target": "latin", "relationship": "developed-into"},
+                    {"source": "latin", "target": "modern", "relationship": "developed-into"},
+                    {"source": "modern", "target": "plural", "relationship": "related-form"},
+                    {"source": "modern", "target": "calculate", "relationship": "related-form"},
+                ],
+                "focus_areas": [
+                    {"id": "overview", "kind": "overview", "node_ids": ["modern", "latin", "greek", "plural", "calculate"]},
+                    {"id": "history", "kind": "history", "node_ids": ["modern", "latin", "greek"]},
+                ],
+            },
             "english": {"term": "abacus", "pronunciation": "", "meaning": "counting frame"},
             "japanese": {"term": "soroban", "reading": "soroban", "meaning": "counting tool", "ruby_tokens": [{"t": "soroban", "r": ""}]},
             "chinese": {"simplified": "suanpan", "traditional": "", "pinyin": "suan pan", "meaning": "counting tool"},
@@ -94,7 +151,7 @@ class LlmParsingTests(unittest.TestCase):
         self.assertEqual(request.call_count, 2)
         first_payload = request.call_args_list[0].args[0]
         repair_payload = request.call_args_list[1].args[0]
-        self.assertEqual(first_payload["max_tokens"], 520)
+        self.assertEqual(first_payload["max_tokens"], 900)
         self.assertNotIn("response_format", first_payload)
         self.assertEqual(repair_payload["temperature"], 0.0)
         self.assertIn("Repair the previous response", repair_payload["messages"][-1]["content"])

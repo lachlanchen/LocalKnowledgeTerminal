@@ -6,7 +6,12 @@ from pathlib import Path
 from typing import Any
 
 from lkt.models import Evidence
-from lkt.service import CardService, _origin_graph, _ruby_tokens_for_term
+from lkt.service import (
+    CardService,
+    _morphology_graph,
+    _origin_graph,
+    _ruby_tokens_for_term,
+)
 from lkt.store import CardStore
 
 from test_card_books import make_card_book, record
@@ -40,6 +45,44 @@ class FakeModel:
 
 
 class ServiceTests(unittest.TestCase):
+    def test_morphology_graph_keeps_cited_nodes_and_downgrades_fake_book_ids(self) -> None:
+        evidence = [
+            Evidence(
+                "root-spect",
+                "SPECT",
+                "Root dictionary",
+                "",
+                (58,),
+                "spect means look",
+            )
+        ]
+        graph = _morphology_graph(
+            {
+                "center_id": "inspect",
+                "nodes": [
+                    {"id": "inspect", "type": "word", "form": "inspect", "meaning": "examine", "basis": "model"},
+                    {"id": "spect", "type": "root", "form": "spect", "meaning": "look", "basis": "book", "evidence_ids": ["root-spect"]},
+                    {"id": "in", "type": "prefix", "form": "in-", "meaning": "into", "basis": "book", "evidence_ids": ["invented-record"]},
+                ],
+                "edges": [
+                    {"source": "spect", "target": "inspect", "relationship": "root-of"},
+                    {"source": "in", "target": "inspect", "relationship": "prefix-of"},
+                ],
+                "focus_areas": [
+                    {"id": "spect-focus", "label": "SPECT", "kind": "root", "node_ids": ["spect", "inspect"], "headline": "Look within", "explanation": "The root carries seeing."}
+                ],
+            },
+            evidence,
+            "inspect",
+        )
+        by_id = {node["id"]: node for node in graph["nodes"]}
+        self.assertEqual(by_id["spect"]["basis"], "book")
+        self.assertEqual(by_id["in"]["basis"], "model")
+        self.assertEqual(graph["focus_areas"][0]["kind"], "overview")
+        self.assertEqual(
+            set(graph["focus_areas"][0]["node_ids"]), {"inspect", "spect", "in"}
+        )
+
     def test_generated_ruby_must_cover_the_exact_term(self) -> None:
         tokens = [
             {"t": "\u4e00\u6642", "r": "\u3044\u3061\u3058"},

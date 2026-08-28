@@ -12,11 +12,12 @@
 
 Local Knowledge Terminal (LKT) turns a private book collection into cited,
 multilingual cards. Its first library combines structured editions of **Word
-Origins**, **The Book of Answers**, and **The Book of Questions**. Qwen3-4B
+Origins**, **The Book of Answers**, **The Book of Questions**, an **English Root
+Dictionary**, and an **English Affix Dictionary**. Qwen3-4B
 Q4_K_M runs locally on an 8 GB Raspberry Pi 5; retrieval, inference, history,
 and the browser GUI operate without a cloud API.
 
-## Four independent experiences, one card contract
+## Six independent experiences, one card contract
 
 - **Word Origin** uses its own one-entry retriever and prompt to make a bounded,
   interactive directed ancestry graph. Branching morphemes are preserved;
@@ -29,11 +30,15 @@ and the browser GUI operate without a cloud API.
   the published answer translations, and adds a reflective note.
 - **Book Question** searches 291 reviewed questions by theme and falls back to a
   reproducible draw when no lexical match exists.
+- **Root Graph** prioritizes 6,327 reviewed root records, then exact supporting
+  affix entries, and saves a recursive word-family graph.
+- **Affix Graph** reverses that priority across 5,189 reviewed affix records and
+  the Root Dictionary while retaining one complete center-word graph.
 
 Each mode has its own retrieval policy and strict model prompt. Word Origin and
 Word Card deliberately share the same Word Origins index while presenting it
 differently; Answer and Question use separate books and retrieval engines. All
-four modes produce the same versioned card JSON. Japanese card-book text retains
+six modes produce the same versioned card JSON. Japanese card-book text retains
 token-level furigana, and Chinese views receive deterministic full tone-marked
 pinyin. The web GUI renders that JSON today; e-ink and audio adapters will
 consume it later without changing corpus, retrieval, or model code.
@@ -56,6 +61,9 @@ and a rotating French/Arabic panel. Answer and Question use an inner language
 carousel—English, Japanese ruby, Chinese pinyin ruby—and split unusually long
 sentences into additional readable slides. Saved cards form independent,
 mode-local outer carousels with previous/next controls.
+Root, Affix, and Word Origin share one Cytoscape graph renderer: a complete
+saved graph, a corner overview map, and inner focus slides that zoom into a
+root, prefix, suffix, or history branch without duplicating the graph.
 Fullscreen display mode hides all application chrome, and `/?display=1` opens
 the same card document as a kiosk-friendly screen surface. Print CSS and the
 versioned card JSON provide clean boundaries for later e-ink rendering.
@@ -96,12 +104,13 @@ the configured book has no evidence, the app does not generate a card.
 | Path | Responsibility |
 | --- | --- |
 | `lkt/corpus.py` | Word Origins ingestion, atomic SQLite index, exact + FTS retrieval |
+| `lkt/morphology.py` | Root/Affix polished-JSONL ingestion, provenance, exact + FTS retrieval |
 | `lkt/card_books.py` | Multilingual Answer/Question ingestion, search, and deterministic draws |
 | `lkt/retrieval.py` | Independent Word Origin, Word Card, Answer, and Question RAG policies |
 | `lkt/llm.py` | Small llama.cpp adapter and one strict prompt per experience |
 | `lkt/service.py` | Card composition and normalization |
 | `lkt/pronunciation.py` | Deterministic full-sentence tone-marked pinyin |
-| `lkt/store.py` | Local card history |
+| `lkt/store.py` | Versioned cards, preparation artifacts, revisions, archive, and chat ledger |
 | `lkt/web.py` | Dependency-free HTTP API and GUI server |
 | `lkt/outputs.py` | Stable web/e-ink/audio output boundary |
 | `lkt/static/` | Desktop-class GUI, responsive enough for later kiosk use |
@@ -131,6 +140,8 @@ $env:LKT_DATA_DIR="$PWD\var"
 python -m lkt.cli ingest "C:\path\to\word-origins-pdf2tex\json\entries.jsonl"
 python -m lkt.cli ingest-card-book answer "C:\path\to\book-of-answers\json\multilingual-items.jsonl"
 python -m lkt.cli ingest-card-book question "C:\path\to\book-of-questions\json\multilingual-items.jsonl"
+python -m lkt.cli ingest-morphology root "C:\path\to\root-dictionary\json\entries-polished.jsonl"
+python -m lkt.cli ingest-morphology affix "C:\path\to\affix-dictionary\json\entries-polished.jsonl"
 python -m lkt.cli search abacus
 python -m lkt.cli search technology --corpus question
 ```
@@ -141,6 +152,8 @@ With a llama.cpp server listening on port 8081:
 python -m lkt.cli generate abacus --mode word
 python -m lkt.cli generate "Should I begin?" --mode answer
 python -m lkt.cli generate technology --mode question
+python -m lkt.cli generate inspection --mode root
+python -m lkt.cli generate abnormal --mode affix
 python -m lkt.cli serve
 ```
 
@@ -197,7 +210,9 @@ On the Pi:
 sudo ./scripts/install_pi.sh \
   /path/to/entries.jsonl \
   /path/to/answers/multilingual-items.jsonl \
-  /path/to/questions/multilingual-items.jsonl
+  /path/to/questions/multilingual-items.jsonl \
+  /path/to/root/entries-polished.jsonl \
+  /path/to/affix/entries-polished.jsonl
 ./scripts/smoke_test.sh
 ```
 

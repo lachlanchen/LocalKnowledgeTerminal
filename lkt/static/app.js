@@ -2,7 +2,7 @@
 
 const $ = (selector) => document.querySelector(selector);
 const all = (selector) => [...document.querySelectorAll(selector)];
-let mode = "word";
+let mode = "knowledge";
 let activeCardId = null;
 let activeCard = null;
 let visibleView = "empty";
@@ -16,10 +16,14 @@ let autoplayTimer = null;
 let alternateTimer = null;
 let alternateIndex = 0;
 let originCy = null;
+let overviewCy = null;
+let graphFocusAreas = [];
+let graphFocusIndex = 0;
 let allSavedCards = [];
 let sentenceSlides = [];
 let sentenceSlideIndex = 0;
 let sentenceSlideTimer = null;
+let chromeTimer = null;
 
 const ALTERNATE_LANGUAGES = {
   french: { label: "FRANÇAIS · PRONONCIATION", className: "french" },
@@ -67,6 +71,26 @@ const MODE_COPY = {
     description: "Search by theme; when no direct match exists, LKT draws a reproducible question.",
     narrative: "REFLECTION PROMPT",
   },
+  root: {
+    card: "ROOT GRAPH",
+    label: "Enter a word or root",
+    placeholder: "Try “inspection”",
+    examples: ["inspection", "spect", "transport"],
+    kicker: "ROOT GRAPH · WORD FAMILIES",
+    title: "See the roots inside a word and the families growing from them.",
+    description: "The complete saved graph uses both root and affix books, then focuses one branch per slide.",
+    narrative: "ROOT FOCUS",
+  },
+  affix: {
+    card: "AFFIX GRAPH",
+    label: "Enter a word or affix",
+    placeholder: "Try “abnormal”",
+    examples: ["abnormal", "preview", "happiness"],
+    kicker: "AFFIX GRAPH · PREFIX + SUFFIX",
+    title: "See how prefixes and suffixes reshape a word.",
+    description: "One complete morphology graph, with a clean focus slide for every useful affix.",
+    narrative: "AFFIX FOCUS",
+  },
   chat: {
     card: "MODEL LAB",
     label: "Prompt the local model",
@@ -84,6 +108,8 @@ const SOURCE_TITLES = {
   knowledge: "Word Origins",
   answer: "The Book of Answers",
   question: "The Book of Questions",
+  root: "New Oriental English Root Dictionary",
+  affix: "English Affix Dictionary",
 };
 
 function show(name) {
@@ -98,6 +124,18 @@ function show(name) {
     $(selector).classList.toggle("hidden", item !== name);
   });
   visibleView = name;
+  noteActivity();
+}
+
+function noteActivity() {
+  document.body.classList.remove("chrome-collapsed");
+  window.clearTimeout(chromeTimer);
+  if (visibleView !== "card" || document.body.classList.contains("display-mode")) return;
+  chromeTimer = window.setTimeout(() => {
+    if (!["INPUT", "BUTTON", "TEXTAREA"].includes(document.activeElement?.tagName)) {
+      document.body.classList.add("chrome-collapsed");
+    }
+  }, 9000);
 }
 
 function text(selector, value) {
@@ -339,7 +377,7 @@ function locatorLabel(item) {
   return "Source location recorded by corpus";
 }
 
-function renderOriginGraph(card) {
+function renderLegacyOriginGraph(card) {
   const graph = $("#origin-graph");
   const canvas = $("#origin-canvas");
   if (originCy) {
@@ -469,6 +507,269 @@ function renderOriginGraph(card) {
   originCy.fit(originCy.elements(), 22);
 }
 
+function unifiedGraph(card) {
+  const rich = card.extensions?.morphology_graph;
+  if (Array.isArray(rich?.nodes) && rich.nodes.length > 1) return rich;
+  const legacy = Array.isArray(card.origin_graph) ? card.origin_graph : [];
+  if (legacy.length < 2) return null;
+  const ids = new Set(legacy.map((node, index) => node.id || `origin-${index}`));
+  const nodes = legacy.map((node, index) => ({
+    id: node.id || `origin-${index}`,
+    type: !node.parent || !ids.has(node.parent) ? "word" : "historical",
+    form: node.form,
+    meaning: node.meaning,
+    language: node.stage,
+    basis: node.basis,
+  }));
+  const center = nodes.find((node) => node.type === "word") || nodes[0];
+  return {
+    center_id: center.id,
+    nodes,
+    edges: legacy
+      .filter((node) => node.parent && ids.has(node.parent))
+      .map((node, index) => ({
+        id: `legacy-edge-${index}`,
+        source: node.id,
+        target: node.parent,
+        relationship: "developed-into",
+      })),
+    focus_areas: [{
+      id: "overview",
+      label: "Whole history",
+      kind: "overview",
+      node_ids: nodes.map((node) => node.id),
+      headline: card.title,
+      explanation: card.summary_en,
+    }],
+  };
+}
+
+function graphStyles(compact = false) {
+  if (compact) return [
+    { selector: "node", style: { width: 15, height: 15, label: "", "background-color": "#1769ff", "border-width": 1, "border-color": "#ffffff" } },
+    { selector: "node.book", style: { "background-color": "#ff5d45" } },
+    { selector: "node.center", style: { width: 23, height: 23, "background-color": "#ffcf3d", "border-color": "#17213d", "border-width": 2 } },
+    { selector: "node.focus-node", style: { width: 23, height: 23, "border-color": "#17213d", "border-width": 3 } },
+    { selector: "edge", style: { width: 1.5, "curve-style": "bezier", "line-color": "#9aa7bf", "target-arrow-color": "#9aa7bf", "target-arrow-shape": "triangle", "arrow-scale": .55 } },
+  ];
+  return [
+    {
+      selector: "node",
+      style: {
+        width: 146,
+        height: 78,
+        shape: "round-rectangle",
+        "background-color": "#eaf2ff",
+        "border-width": 3,
+        "border-color": "#1769ff",
+        label: "data(label)",
+        color: "#17213d",
+        "font-family": "Inter, Segoe UI, Noto Sans CJK SC, sans-serif",
+        "font-size": 14,
+        "font-weight": 700,
+        "text-wrap": "wrap",
+        "text-max-width": 126,
+        "text-valign": "center",
+        "text-halign": "center",
+        "transition-property": "opacity, border-width, width, height",
+        "transition-duration": "250ms",
+      },
+    },
+    { selector: "node.book", style: { "background-color": "#fff0e8", "border-color": "#ff5d45" } },
+    { selector: "node.prefix", style: { "background-color": "#e5faf4", "border-color": "#00a98f" } },
+    { selector: "node.root", style: { "background-color": "#f2eaff", "border-color": "#8b3dff" } },
+    { selector: "node.suffix", style: { "background-color": "#fff7d6", "border-color": "#e29a00" } },
+    { selector: "node.center", style: { width: 184, height: 106, shape: "ellipse", "background-color": "#ffcf3d", "border-color": "#17213d", "border-width": 4, "font-size": 17, "text-max-width": 158 } },
+    { selector: ".dimmed", style: { opacity: .14 } },
+    { selector: "node.focus-node", style: { "border-width": 5 } },
+    {
+      selector: "edge",
+      style: {
+        width: 3,
+        "curve-style": "bezier",
+        "line-color": "#71809e",
+        "target-arrow-color": "#71809e",
+        "target-arrow-shape": "triangle",
+        label: "data(relationship)",
+        color: "#52607d",
+        "font-size": 9,
+        "font-weight": 800,
+        "text-background-color": "#ffffff",
+        "text-background-opacity": .9,
+        "text-background-padding": 3,
+        "text-rotation": "autorotate",
+      },
+    },
+  ];
+}
+
+function showGraphFocus(requestedIndex) {
+  if (!originCy || !graphFocusAreas.length) return;
+  graphFocusIndex = (requestedIndex + graphFocusAreas.length) % graphFocusAreas.length;
+  const focus = graphFocusAreas[graphFocusIndex];
+  const ids = new Set(focus.node_ids || []);
+  originCy.elements().removeClass("dimmed focus-node");
+  overviewCy?.nodes().removeClass("focus-node");
+  const focusNodes = originCy.nodes().filter((node) => ids.has(node.id()));
+  if (focus.kind !== "overview") {
+    originCy.nodes().not(focusNodes).addClass("dimmed");
+    originCy.edges()
+      .filter((edge) => !ids.has(edge.source().id()) || !ids.has(edge.target().id()))
+      .addClass("dimmed");
+    focusNodes.addClass("focus-node");
+    overviewCy?.nodes().filter((node) => ids.has(node.id())).addClass("focus-node");
+  }
+  const target = focus.kind === "overview"
+    ? originCy.elements()
+    : focusNodes.union(focusNodes.connectedEdges());
+  originCy.animate({
+    fit: { eles: target, padding: focus.kind === "overview" ? 28 : 70 },
+    duration: 350,
+  });
+  text("#graph-focus-headline", focus.headline || focus.label);
+  optionalText("#graph-focus-explanation", focus.explanation);
+  text("#graph-focus-position", `${graphFocusIndex + 1} / ${graphFocusAreas.length}`);
+  all("#graph-focus-dots button").forEach((button, index) => {
+    button.classList.toggle("active", index === graphFocusIndex);
+  });
+}
+
+function semanticGraphPositions(data) {
+  const positions = new Map([[data.center_id, { x: 0, y: 0 }]]);
+  const components = data.nodes.filter((node) => ["prefix", "root", "suffix"].includes(node.type));
+  const histories = data.nodes.filter((node) => node.type === "historical");
+  const related = data.nodes.filter((node) => (
+    node.id !== data.center_id
+    && !["prefix", "root", "suffix", "historical"].includes(node.type)
+  ));
+  const placeRows = (
+    nodes, firstY, direction, perRow = 5, gapX = 170, rowGap = 100,
+  ) => {
+    for (let start = 0, row = 0; start < nodes.length; start += perRow, row += 1) {
+      const group = nodes.slice(start, start + perRow);
+      group.forEach((node, column) => {
+        positions.set(node.id, {
+          x: (column - (group.length - 1) / 2) * gapX,
+          y: firstY + direction * row * rowGap,
+        });
+      });
+    }
+  };
+  placeRows(components, -90, -1, 5, 170);
+  placeRows(histories, -205, -1, 5, 165);
+  placeRows(related, 110, 1, 5, 170);
+  data.nodes.forEach((node, index) => {
+    if (!positions.has(node.id)) positions.set(node.id, { x: index * 170, y: 145 });
+  });
+  return positions;
+}
+
+function renderOriginGraph(card) {
+  const graph = $("#origin-graph");
+  const canvas = $("#origin-canvas");
+  const overview = $("#graph-overview");
+  originCy?.destroy();
+  overviewCy?.destroy();
+  originCy = null;
+  overviewCy = null;
+  canvas.replaceChildren();
+  overview.replaceChildren();
+  const data = unifiedGraph(card);
+  const enabled = ["word", "root", "affix"].includes(card.mode)
+    && Array.isArray(data?.nodes) && data.nodes.length > 1;
+  graph.classList.toggle("hidden", !enabled);
+  if (!enabled) return;
+  text("#graph-kind", card.mode === "word" ? "WORD ORIGIN GRAPH" : `${card.mode.toUpperCase()} GRAPH`);
+  if (typeof window.cytoscape !== "function") {
+    canvas.append(element("p", "graph-error", "Graph renderer unavailable."));
+    return;
+  }
+  const semanticPositions = semanticGraphPositions(data);
+  const graphNodes = data.nodes.map((node) => ({
+    data: {
+      id: node.id,
+      label: [node.form || "—", node.language, node.meaning].filter(Boolean).join("\n"),
+      type: node.type || "related",
+    },
+    classes: [
+      node.basis === "book" ? "book" : "model",
+      node.type || "related",
+      node.id === data.center_id ? "center" : "",
+    ].filter(Boolean).join(" "),
+    position: semanticPositions.get(node.id),
+  }));
+  const ids = new Set(data.nodes.map((node) => node.id));
+  const graphEdges = (data.edges || [])
+    .filter((edge) => ids.has(edge.source) && ids.has(edge.target))
+    .map((edge, index) => ({
+      data: {
+        id: edge.id || `edge-${index}`,
+        source: edge.source,
+        target: edge.target,
+        relationship: edge.relationship || "related",
+      },
+    }));
+  originCy = window.cytoscape({
+    container: canvas,
+    elements: [...graphNodes, ...graphEdges],
+    minZoom: .25,
+    maxZoom: 2.2,
+    wheelSensitivity: .16,
+    boxSelectionEnabled: false,
+    autoungrabify: true,
+    layout: { name: "preset", fit: true, padding: 24 },
+    style: graphStyles(),
+  });
+  originCy.fit(originCy.elements(), 28);
+  const overviewNodes = graphNodes.map((item) => ({
+    ...item,
+    position: originCy.$id(item.data.id).position(),
+  }));
+  overviewCy = window.cytoscape({
+    container: overview,
+    elements: [...overviewNodes, ...graphEdges],
+    layout: { name: "preset", fit: true, padding: 9 },
+    userZoomingEnabled: false,
+    userPanningEnabled: false,
+    autoungrabify: true,
+    style: graphStyles(true),
+  });
+  const allIds = data.nodes.map((node) => node.id);
+  graphFocusAreas = Array.isArray(data.focus_areas) && data.focus_areas.length
+    ? data.focus_areas.map((area, index) => ({
+      ...area,
+      id: area.id || `focus-${index}`,
+      node_ids: (area.node_ids || []).filter((id) => ids.has(id)),
+    }))
+    : [{ id: "overview", label: "Overview", kind: "overview", node_ids: allIds, headline: card.title, explanation: card.summary_en }];
+  if (!graphFocusAreas.some((area) => area.kind === "overview")) {
+    graphFocusAreas.unshift({
+      id: "overview",
+      label: "Overview",
+      kind: "overview",
+      node_ids: allIds,
+      headline: card.title,
+      explanation: card.summary_en,
+    });
+  }
+  const dots = $("#graph-focus-dots");
+  dots.replaceChildren(...graphFocusAreas.map((area, index) => {
+    const button = element("button");
+    button.type = "button";
+    button.title = area.label || `Area ${index + 1}`;
+    button.addEventListener("click", () => showGraphFocus(index));
+    return button;
+  }));
+  $("#graph-focus-controls").classList.toggle("hidden", graphFocusAreas.length < 2);
+  originCy.on("tap", "node", (event) => {
+    const index = graphFocusAreas.findIndex((area) => (
+      area.kind !== "overview" && area.node_ids?.includes(event.target.id())
+    ));
+    if (index >= 0) showGraphFocus(index);
+  });
+  showGraphFocus(0);
+}
+
 function showAlternate(card, requestedIndex = alternateIndex) {
   const block = $("#alternate-block");
   const available = Object.entries(card.extra_languages || {})
@@ -544,6 +845,8 @@ function renderCard(card, refreshHistory = true) {
       knowledge: "Book anchor + model languages",
       answer: "Reviewed book translations",
       question: "Reviewed book translations",
+      root: "Root book + affix book + model context",
+      affix: "Affix book + root book + model context",
     }[card.mode] || "Book evidence attached",
   );
   renderOriginGraph(card);
@@ -705,7 +1008,8 @@ async function loadHealth() {
     const ready = health.status === "ready";
     container.classList.toggle("ready", ready);
     const bookItems = Object.values(health.card_books || {}).reduce((total, item) => total + (item.items || 0), 0);
-    const sourceCount = (health.corpus.entries || 0) + bookItems;
+    const morphologyItems = Object.values(health.morphology || {}).reduce((total, item) => total + (item.items || 0), 0);
+    const sourceCount = (health.corpus.entries || 0) + bookItems + morphologyItems;
     text("#state-label", ready ? `${sourceCount.toLocaleString()} sources · model ready` : "Model or corpus is starting…");
   } catch (_error) {
     text("#state-label", "Terminal unavailable");
@@ -811,6 +1115,8 @@ $("#previous-card").addEventListener("click", () => navigateCards(-1));
 $("#next-card").addEventListener("click", () => navigateCards(1));
 $("#previous-sentence-slide").addEventListener("click", () => showSentenceSlide(sentenceSlideIndex - 1));
 $("#next-sentence-slide").addEventListener("click", () => showSentenceSlide(sentenceSlideIndex + 1));
+$("#previous-graph-focus").addEventListener("click", () => showGraphFocus(graphFocusIndex - 1));
+$("#next-graph-focus").addEventListener("click", () => showGraphFocus(graphFocusIndex + 1));
 $("#toggle-autoplay").addEventListener("click", () => {
   autoplayEnabled = !autoplayEnabled;
   updateCarouselChrome();
@@ -822,9 +1128,13 @@ document.addEventListener("fullscreenchange", () => {
     document.body.classList.remove("display-mode");
   }
 });
+document.addEventListener("pointermove", noteActivity, { passive: true });
+document.addEventListener("pointerdown", noteActivity, { passive: true });
+document.addEventListener("keydown", noteActivity);
+document.addEventListener("focusin", noteActivity);
 
 const initialParameters = new URLSearchParams(location.search);
-const initialMode = MODE_COPY[initialParameters.get("mode")] ? initialParameters.get("mode") : "word";
+const initialMode = MODE_COPY[initialParameters.get("mode")] ? initialParameters.get("mode") : "knowledge";
 setMode(initialMode);
 if (initialParameters.has("display")) document.body.classList.add("display-mode");
 loadHealth();

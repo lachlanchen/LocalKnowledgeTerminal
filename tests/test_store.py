@@ -3,12 +3,89 @@ from __future__ import annotations
 import tempfile
 import unittest
 import sqlite3
+import json
 from pathlib import Path
 
 from lkt.store import CardStore
 
 
 class StoreTests(unittest.TestCase):
+    def test_preparation_artifacts_survive_as_reusable_stages(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            store = CardStore(Path(temp) / "knowledge.sqlite3")
+            run_id = store.start_preparation("root", "inspection", "qwen-test")
+            store.save_preparation_artifact(
+                run_id,
+                "retrieved-evidence",
+                [{"entry_id": "root-1", "excerpt": "spect means look"}],
+            )
+            store.save_preparation_artifact(
+                run_id,
+                "cleaned-model-draft",
+                {"center": "inspection", "nodes": [{"id": "center"}]},
+            )
+            store.finish_preparation(run_id, "complete", "card-1")
+            artifacts = store.preparation_artifacts(run_id)
+            self.assertEqual(
+                [artifact["stage"] for artifact in artifacts],
+                ["retrieved-evidence", "cleaned-model-draft"],
+            )
+            self.assertTrue(all(artifact["reusable"] for artifact in artifacts))
+
+    def test_archive_removes_card_from_active_carousel(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            database = Path(temp) / "knowledge.sqlite3"
+            store = CardStore(database)
+            connection = sqlite3.connect(database)
+            connection.execute(
+                """INSERT INTO cards(
+                    card_id, mode, query, title, created_at, payload,
+                    status, revision_of, updated_at, quality_score, review_note
+                ) VALUES ('card-1', 'root', 'spect', 'SPECT', 'now', ?,
+                          'active', '', 'now', NULL, '')""",
+                ('{"card_id":"card-1","mode":"root"}',),
+            )
+            connection.commit()
+            connection.close()
+            self.assertEqual(len(store.recent()), 1)
+            self.assertTrue(store.archive("card-1"))
+            self.assertEqual(store.recent(), [])
+
+    def test_revision_preserves_source_and_supersedes_old_card(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            database = Path(temp) / "knowledge.sqlite3"
+            store = CardStore(database)
+            connection = sqlite3.connect(database)
+            payload = {
+                "card_id": "card-1",
+                "mode": "root",
+                "query": "spect",
+                "title": "SPECT",
+                "created_at": "now",
+                "evidence": [{"entry_id": "root-1", "pages": [58]}],
+                "extensions": {"morphology_graph": {"nodes": []}},
+            }
+            connection.execute(
+                """INSERT INTO cards(
+                    card_id, mode, query, title, created_at, payload,
+                    status, revision_of, updated_at, quality_score, review_note
+                ) VALUES ('card-1', 'root', 'spect', 'SPECT', 'now', ?,
+                          'active', '', 'now', NULL, '')""",
+                (json.dumps(payload),),
+            )
+            connection.commit()
+            connection.close()
+            revised = store.revise(
+                "card-1",
+                {"summary_en": "to look or see"},
+                review_note="reviewed wording",
+                quality_score=0.9,
+            )
+            self.assertNotEqual(revised["card_id"], "card-1")
+            self.assertEqual(revised["evidence"], payload["evidence"])
+            self.assertEqual(revised["extensions"]["revision_of"], "card-1")
+            self.assertEqual([card["card_id"] for card in store.recent()], [revised["card_id"]])
+
     def test_raw_model_observations_are_persistent_and_marked_uncited(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             database = Path(temp) / "knowledge.sqlite3"

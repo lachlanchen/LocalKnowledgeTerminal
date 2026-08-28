@@ -9,6 +9,7 @@ from .card_books import CardBookIndex, build_card_book_index
 from .config import Settings
 from .corpus import CorpusIndex, build_index
 from .llm import LlamaCppClient
+from .morphology import MorphologyIndex, build_morphology_index
 from .service import CardService
 from .store import CardStore
 
@@ -31,6 +32,10 @@ def _service(settings: Settings) -> CardService:
             "answer": CardBookIndex(settings.answers_db),
             "question": CardBookIndex(settings.questions_db),
         },
+        morphology={
+            "root": MorphologyIndex(settings.roots_db),
+            "affix": MorphologyIndex(settings.affixes_db),
+        },
     )
 
 
@@ -52,6 +57,8 @@ def command_search(args: argparse.Namespace) -> int:
         "word-origins": CorpusIndex(settings.corpus_db),
         "answer": CardBookIndex(settings.answers_db),
         "question": CardBookIndex(settings.questions_db),
+        "root": MorphologyIndex(settings.roots_db),
+        "affix": MorphologyIndex(settings.affixes_db),
     }
     evidence = indexes[args.corpus].search(args.query, args.limit)
     print(
@@ -81,6 +88,38 @@ def command_ingest_card_book(args: argparse.Namespace) -> int:
         print(f"indexed {count} {args.kind} cards", flush=True)
 
     result = build_card_book_index(
+        Path(args.source),
+        destination,
+        args.corpus_id or default_corpus_id,
+        args.title or default_title,
+        args.kind,
+        progress,
+    )
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0
+
+
+def command_ingest_morphology(args: argparse.Namespace) -> int:
+    settings = _settings()
+    defaults = {
+        "root": (
+            settings.roots_db,
+            "english-root-dictionary-jin-pdf2tex",
+            "New Oriental English Root Dictionary",
+        ),
+        "affix": (
+            settings.affixes_db,
+            "english-affix-dictionary-jin-pdf2tex",
+            "English Affix Dictionary",
+        ),
+    }
+    default_database, default_corpus_id, default_title = defaults[args.kind]
+    destination = Path(args.database).resolve() if args.database else default_database
+
+    def progress(count: int) -> None:
+        print(f"indexed {count} {args.kind} records", flush=True)
+
+    result = build_morphology_index(
         Path(args.source),
         destination,
         args.corpus_id or default_corpus_id,
@@ -127,12 +166,22 @@ def parser() -> argparse.ArgumentParser:
     card_book.add_argument("--title", help="human-readable evidence title")
     card_book.set_defaults(handler=command_ingest_card_book)
 
+    morphology = commands.add_parser(
+        "ingest-morphology", help="build a reviewed Root or Affix FTS index"
+    )
+    morphology.add_argument("kind", choices=("root", "affix"))
+    morphology.add_argument("source", help="path to entries-polished.jsonl")
+    morphology.add_argument("--database", help="override destination database")
+    morphology.add_argument("--corpus-id", help="stable source identifier")
+    morphology.add_argument("--title", help="human-readable evidence title")
+    morphology.set_defaults(handler=command_ingest_morphology)
+
     search = commands.add_parser("search", help="inspect retrieved book evidence")
     search.add_argument("query")
     search.add_argument("--limit", type=int, default=4)
     search.add_argument(
         "--corpus",
-        choices=("word-origins", "answer", "question"),
+        choices=("word-origins", "answer", "question", "root", "affix"),
         default="word-origins",
     )
     search.set_defaults(handler=command_search)
@@ -140,7 +189,9 @@ def parser() -> argparse.ArgumentParser:
     generate = commands.add_parser("generate", help="generate a grounded card")
     generate.add_argument("query")
     generate.add_argument(
-        "--mode", choices=("word", "knowledge", "answer", "question"), default="word"
+        "--mode",
+        choices=("word", "knowledge", "answer", "question", "root", "affix"),
+        default="word",
     )
     generate.set_defaults(handler=command_generate)
 

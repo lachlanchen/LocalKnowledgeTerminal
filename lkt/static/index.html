@@ -16,10 +16,12 @@
         </a>
 
         <nav class="mode-switch" aria-label="Experience">
-          <button class="mode active" data-mode="word"><span>01</span>Word origin</button>
-          <button class="mode" data-mode="knowledge"><span>02</span>Word card</button>
+          <button class="mode active" data-mode="knowledge"><span>01</span>Word card</button>
+          <button class="mode" data-mode="word"><span>02</span>Word origin</button>
           <button class="mode" data-mode="answer"><span>03</span>Answer</button>
           <button class="mode" data-mode="question"><span>04</span>Question</button>
+          <button class="mode" data-mode="root"><span>05</span>Root</button>
+          <button class="mode" data-mode="affix"><span>06</span>Affix</button>
           <button class="mode" data-mode="chat"><span>LAB</span>Model lab</button>
         </nav>
 
@@ -102,8 +104,19 @@
             <p class="summary" id="card-summary"></p>
 
             <section class="origin-graph hidden" id="origin-graph" aria-label="Etymology path">
-              <header><span>ETYMOLOGY GRAPH</span><p><b></b>Book anchor <i></i>Model context</p></header>
+              <header><span id="graph-kind">ETYMOLOGY GRAPH</span><p><b></b>Book anchor <i></i>Model context</p></header>
+              <div class="graph-focus-copy" id="graph-focus-copy">
+                <strong id="graph-focus-headline"></strong>
+                <span id="graph-focus-explanation"></span>
+              </div>
               <div class="origin-canvas" id="origin-canvas" role="img" aria-label="Interactive directed ancestry graph"></div>
+              <div class="graph-overview" id="graph-overview" aria-label="Complete graph overview"></div>
+              <footer class="graph-focus-controls" id="graph-focus-controls">
+                <button id="previous-graph-focus" type="button" aria-label="Previous graph area">←</button>
+                <div id="graph-focus-dots"></div>
+                <button id="next-graph-focus" type="button" aria-label="Next graph area">→</button>
+                <span id="graph-focus-position">1 / 1</span>
+              </footer>
             </section>
 
             <section class="narrative-section">
