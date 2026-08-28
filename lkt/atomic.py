@@ -2119,7 +2119,6 @@ the sentence, add translations, or include markdown."""
 ACCEPTED ENGLISH SENSE: {meaning['definition']}
 TARGET LANGUAGE: {_LANGUAGE_NAMES[language]} ({language})
 DICTIONARY CANDIDATES: {json.dumps(candidates[:10], ensure_ascii=False)}
-SUPPORTING EVIDENCE IDS: {json.dumps(evidence_ids, ensure_ascii=False)}
 
 Return exactly one JSON object with these keys:
 term: the most natural concise equivalent for this exact sense
@@ -2128,9 +2127,9 @@ reading: kana for Japanese kanji, tone-marked pinyin for Chinese, simple Latin
 transliteration for Arabic, or an empty string for French
 usage_note: at most 14 English words, empty when unnecessary
 confidence: number from 0 to 1
-evidence_ids: non-empty array containing only supplied evidence IDs
 
 When dictionary candidates are non-empty, term must exactly equal one candidate.
+Source provenance is attached by the system after validation; do not return IDs.
 Use natural, non-redundant wording; never repeat a content word around "or".
 For Arabic, term and meaning must contain Arabic script only. Never copy Latin
 letters or the English source term into either field.
@@ -2158,7 +2157,6 @@ Do not add alternatives, markdown, etymology, or example sentences."""
                 "You repair one Arabic lexical entry. Arabic fields must contain no Latin letters.",
                 f"""ARABIC SCRIPT REPAIR
 SOURCE ENGLISH SENSE: {meaning['definition']}
-SUPPORTING EVIDENCE IDS: {json.dumps(evidence_ids, ensure_ascii=False)}
 
 Return exactly one JSON object with these keys:
 term: a natural Modern Standard Arabic noun using Arabic letters only; choose
@@ -2167,9 +2165,9 @@ meaning: a concise definition written entirely in Arabic, at most 18 words
 reading: a simple Latin transliteration of the Arabic term
 usage_note: at most 10 English words, or empty
 confidence: number from 0 to 1
-evidence_ids: non-empty array containing only supplied evidence IDs
 
 Do not copy, transliterate, or include the English headword in term or meaning.
+Source provenance is attached by the system after validation; do not return IDs.
 Do not use markdown, alternatives, labels, or explanations.""",
                 max_tokens=160,
             )
@@ -2222,13 +2220,9 @@ Do not use markdown, alternatives, labels, or explanations.""",
             reading = ""
         if language in {"ja", "zh", "ar"} and not reading:
             raise ValueError("translation reading is missing")
-        selected = [
-            str(item)
-            for item in value.get("evidence_ids", [])
-            if str(item) in evidence_ids
-        ] if isinstance(value.get("evidence_ids"), list) else []
+        selected = list(dict.fromkeys(evidence_ids))
         if not selected:
-            raise ValueError("translation did not cite supplied evidence")
+            raise ValueError("translation has no retrieved source evidence")
         confidence = max(0.0, min(float(value.get("confidence", 0.0)), 1.0))
         if confidence < 0.6:
             raise ValueError("translation confidence is below acceptance threshold")

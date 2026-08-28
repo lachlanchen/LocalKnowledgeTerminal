@@ -81,8 +81,8 @@ class FakeAtomicModel:
         self, _system: str, prompt: str, *, max_tokens: int = 256
     ) -> dict[str, Any]:
         match = re.search(r'"(evidence-[^"]+)"', prompt)
-        assert match is not None
         if "ONE ORIGIN BRANCH" in prompt:
+            assert match is not None
             component_ids = re.findall(r'"component_id": "([^"]+)"', prompt)
             evidence_ids = re.findall(r'"evidence_id": "(evidence-[^"]+)"', prompt)
             assert len(component_ids) == 1
@@ -112,6 +112,7 @@ class FakeAtomicModel:
                 "metrics": {"completion_tokens": 120},
             }
         if "MORPHEME SPLIT" in prompt:
+            assert match is not None
             return {
                 "value": {
                     "parts": [
@@ -155,12 +156,12 @@ class FakeAtomicModel:
                     "reading": "\u3051\u3093\u3055",
                     "usage_note": "standard formal examination sense",
                     "confidence": 0.9,
-                    "evidence_ids": [match.group(1)],
                 },
                 "model": self.model_name,
                 "metrics": {"completion_tokens": 48},
             }
         return {
+            # Meaning prompts expose fixed evidence IDs; translation prompts do not.
             "value": {
                 "definition": "A careful examination to assess condition or quality.",
                 "part_of_speech": "noun",
@@ -474,8 +475,6 @@ class AtomicWorkerTests(unittest.TestCase):
             ) -> dict[str, Any]:
                 if "TARGET LANGUAGE: French" not in prompt:
                     return super().complete_json(system, prompt, max_tokens=max_tokens)
-                evidence = re.search(r'"(evidence-[^"]+)"', prompt)
-                assert evidence is not None
                 return {
                     "value": {
                         "term": "inspection",
@@ -483,7 +482,6 @@ class AtomicWorkerTests(unittest.TestCase):
                         "reading": "inspektion",
                         "usage_note": "sens standard et officiel",
                         "confidence": 0.9,
-                        "evidence_ids": [evidence.group(1)],
                     },
                     "model": self.model_name,
                 }
@@ -509,8 +507,6 @@ class AtomicWorkerTests(unittest.TestCase):
             ) -> dict[str, Any]:
                 if "TARGET LANGUAGE: Arabic" not in prompt:
                     return super().complete_json(system, prompt, max_tokens=max_tokens)
-                evidence = re.search(r'"(evidence-[^"]+)"', prompt)
-                assert evidence is not None
                 return {
                     "value": {
                         "term": "\u0645\u0639\u0627\u064a\u0646\u0629",
@@ -518,7 +514,6 @@ class AtomicWorkerTests(unittest.TestCase):
                         "reading": "mu'ayana",
                         "usage_note": "official inspection",
                         "confidence": 0.9,
-                        "evidence_ids": [evidence.group(1)],
                     },
                     "model": self.model_name,
                 }
@@ -551,8 +546,6 @@ class AtomicWorkerTests(unittest.TestCase):
             ) -> dict[str, Any]:
                 if "TARGET LANGUAGE: Arabic" not in prompt:
                     return super().complete_json(system, prompt, max_tokens=max_tokens)
-                evidence = re.search(r'"(evidence-[^"]+)"', prompt)
-                assert evidence is not None
                 return {
                     "value": {
                         "term": "انBREAKTHROUGH",
@@ -560,7 +553,6 @@ class AtomicWorkerTests(unittest.TestCase):
                         "reading": "breakthrough",
                         "usage_note": "",
                         "confidence": 0.9,
-                        "evidence_ids": [evidence.group(1)],
                     },
                     "model": self.model_name,
                 }
@@ -586,8 +578,6 @@ class AtomicWorkerTests(unittest.TestCase):
             def complete_json(
                 self, system: str, prompt: str, *, max_tokens: int = 256
             ) -> dict[str, Any]:
-                evidence = re.search(r'"(evidence-[^"]+)"', prompt)
-                assert evidence is not None
                 if "ARABIC SCRIPT REPAIR" in prompt:
                     return {
                         "value": {
@@ -596,7 +586,6 @@ class AtomicWorkerTests(unittest.TestCase):
                             "reading": "ikhtiraq",
                             "usage_note": "major advance sense",
                             "confidence": 0.86,
-                            "evidence_ids": [evidence.group(1)],
                         },
                         "model": self.model_name,
                     }
@@ -608,7 +597,6 @@ class AtomicWorkerTests(unittest.TestCase):
                             "reading": "breakthrough",
                             "usage_note": "",
                             "confidence": 0.7,
-                            "evidence_ids": [evidence.group(1)],
                         },
                         "model": self.model_name,
                     }
