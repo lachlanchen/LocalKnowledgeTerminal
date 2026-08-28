@@ -21,10 +21,11 @@ the model reported as local and ready.
 
 ## Real-data smoke results
 
-- Two accepted Answer cards were drawn from the real Book of Answers index:
-  Answer #031 (“Breathe fresh air”) and Answer #279 (“Unnecessary concession”).
-  The full-screen Answer carousel visibly advanced between them after its
-  30-second interval.
+- Three accepted Answer cards were drawn from the real Book of Answers index:
+  Answer #012 (“Learn to cherish”), Answer #031 (“Breathe fresh air”), and
+  Answer #279 (“Unnecessary concession”). The newest answer opens first; the
+  remaining answers are shuffled and the full-screen carousel advances every
+  30 seconds without repeating a card within that pass.
 - The accepted `inspection` Word Card uses one OMW sense plus reviewed atomic
   Japanese, Chinese, French, and Arabic outputs and offline pronunciation.
 - The accepted `inspection` Word Origin card contains six nodes and five edges:

@@ -14,6 +14,9 @@ class WebInputTests(unittest.TestCase):
         self.assertIn('let mode = "answer";', script)
         self.assertIn('initialParameters.get("mode") : "answer"', script)
         self.assertIn('class="mode active" data-mode="answer"', page)
+        self.assertIn("shuffledAnswerDeck(carouselCards)", script)
+        self.assertIn("carouselCards.length > 1", script)
+        self.assertIn("}, 30000);", script)
 
     def test_old_cards_receive_chinese_ruby_without_database_migration(self) -> None:
         card = {"chinese": {"simplified": "中国", "pinyin": "zhōng guó"}}

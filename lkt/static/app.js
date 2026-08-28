@@ -1021,9 +1021,21 @@ async function loadHistory() {
   }
 }
 
+function shuffledAnswerDeck(cards) {
+  const deck = [...cards];
+  // Keep the newly prepared answer visible on refresh, then traverse every
+  // other answer once in a shuffled order before the carousel repeats.
+  for (let index = deck.length - 1; index > 1; index -= 1) {
+    const swapIndex = 1 + Math.floor(Math.random() * index);
+    [deck[index], deck[swapIndex]] = [deck[swapIndex], deck[index]];
+  }
+  return deck;
+}
+
 function rebuildModeCarousel(openLatest = false) {
   const history = $("#history");
   carouselCards = mode === "chat" ? [] : allSavedCards.filter((card) => card.mode === mode);
+  if (mode === "answer") carouselCards = shuffledAnswerDeck(carouselCards);
   history.replaceChildren();
   if (!carouselCards.length) {
     carouselIndex = -1;
