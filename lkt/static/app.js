@@ -842,7 +842,7 @@ function renderCard(card, refreshHistory = true) {
     "#grounded-label",
     {
       word: "Book anchor + model context",
-      knowledge: "Book anchor + model languages",
+      knowledge: "Book-grounded · accepted atoms",
       answer: "Reviewed book translations",
       question: "Reviewed book translations",
       root: "Root book + affix book + model context",
