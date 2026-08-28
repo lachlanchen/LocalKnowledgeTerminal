@@ -2134,10 +2134,32 @@ Use natural, non-redundant wording; never repeat a content word around "or".
 For Arabic, term and meaning must contain Arabic script only. Never copy Latin
 letters or the English source term into either field.
 Do not add alternatives, markdown, etymology, or example sentences."""
+        system_prompt = (
+            "You prepare one sense-aligned translation at a time. Preserve scripts accurately."
+        )
+        token_budget = 176
+        if language == "ar":
+            prompt = f"""ARABIC TRANSLATION
+TARGET LANGUAGE: Arabic (ar)
+SOURCE TERM: {term['text']}
+EXACT ENGLISH SENSE: {meaning['definition']}
+DICTIONARY CANDIDATES: {json.dumps(candidates[:10], ensure_ascii=False)}
+
+Return exactly one compact JSON object with only these keys:
+term: the natural Modern Standard Arabic equivalent in Arabic script
+meaning: a concise Arabic definition, at most 12 words
+reading: a simple Latin transliteration of term
+confidence: number from 0 to 1
+
+If candidates are supplied, copy one exactly. Term and meaning must contain no
+Latin letters. Return no alternatives, markdown, labels, IDs, or explanation.
+End immediately after the JSON object."""
+            system_prompt = "Return one compact Arabic lexical JSON object only."
+            token_budget = 128
         completion = self.model.complete_json(
-            "You prepare one sense-aligned translation at a time. Preserve scripts accurately.",
+            system_prompt,
             prompt,
-            max_tokens=256 if language == "ar" else 176,
+            max_tokens=token_budget,
         )
         value = completion.get("value")
         if not isinstance(value, dict):
