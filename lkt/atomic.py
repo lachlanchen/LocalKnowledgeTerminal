@@ -2159,17 +2159,16 @@ Do not add alternatives, markdown, etymology, or example sentences."""
 SOURCE ENGLISH SENSE: {meaning['definition']}
 
 Return exactly one JSON object with these keys:
-term: a natural Modern Standard Arabic noun using Arabic letters only; choose
-the exact sense, such as اختراق, طفرة, إنجاز نوعي, or اكتشاف مهم when appropriate
+term: the natural Modern Standard Arabic equivalent using Arabic letters only
 meaning: a concise definition written entirely in Arabic, at most 18 words
 reading: a simple Latin transliteration of the Arabic term
-usage_note: at most 10 English words, or empty
 confidence: number from 0 to 1
 
 Do not copy, transliterate, or include the English headword in term or meaning.
 Source provenance is attached by the system after validation; do not return IDs.
-Do not use markdown, alternatives, labels, or explanations.""",
-                max_tokens=160,
+Do not return usage notes, markdown, alternatives, labels, or explanations.
+End immediately after the JSON object.""",
+                max_tokens=192,
             )
             repaired_value = repair.get("value")
             if not isinstance(repaired_value, dict):
