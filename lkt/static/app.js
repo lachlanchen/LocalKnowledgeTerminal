@@ -581,7 +581,7 @@ function graphStyles(compact = false) {
     { selector: "node.root", style: { "background-color": "#f2eaff", "border-color": "#8b3dff" } },
     { selector: "node.suffix", style: { "background-color": "#fff7d6", "border-color": "#e29a00" } },
     { selector: "node.center", style: { width: 184, height: 106, shape: "ellipse", "background-color": "#ffcf3d", "border-color": "#17213d", "border-width": 4, "font-size": 17, "text-max-width": 158 } },
-    { selector: ".dimmed", style: { opacity: 0 } },
+    { selector: ".dimmed", style: { display: "none" } },
     { selector: "node.focus-node", style: { "border-width": 5 } },
     {
       selector: "edge",
