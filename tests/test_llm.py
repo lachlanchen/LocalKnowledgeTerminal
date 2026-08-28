@@ -70,6 +70,8 @@ class LlmParsingTests(unittest.TestCase):
         schema = first_payload["response_format"]["schema"]
         self.assertFalse(schema["additionalProperties"])
         self.assertEqual(schema["properties"]["origin_graph"]["maxItems"], 7)
+        self.assertEqual(schema["properties"]["origin_graph"]["minItems"], 3)
+        self.assertEqual(schema["properties"]["title"]["minLength"], 1)
         self.assertEqual(repair_payload["temperature"], 0.0)
         self.assertIn("Repair the previous response", repair_payload["messages"][-1]["content"])
 

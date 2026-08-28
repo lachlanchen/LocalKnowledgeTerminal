@@ -55,19 +55,14 @@ Return exactly one compact JSON object with no markdown or commentary.
 
 Required JSON shape:
 {
-  "title": "short title, no more than 8 words",
-  "subtitle": "one short line of orientation",
+  "title": "the modern English word",
   "summary_en": "clear modern definition in one sentence",
-  "origin_story": "one concise synthesis of the linguistic journey",
   "origin_graph": [
     {"id": "short-unique-id", "parent": "id of the later form this feeds, or empty only for the modern root", "stage": "language or era", "form": "historical form or morpheme", "meaning": "at most 8 words", "basis": "book or model"}
   ],
-  "key_points": ["at most 2 concise points"],
   "english": {"term": "", "pronunciation": "", "meaning": ""},
   "japanese": {"term": "established equivalent", "reading": "exact hiragana or katakana", "meaning": "short meaning written in Japanese", "ruby_tokens": [{"t": "kanji or kana segment", "r": "exact kana reading; empty for plain kana"}]},
-  "chinese": {"simplified": "established equivalent", "traditional": "", "pinyin": "tone-marked pinyin", "meaning": "short Chinese meaning"},
-  "memory_hook": "short memorable connection",
-  "related_terms": []
+  "chinese": {"simplified": "established equivalent", "traditional": "", "pinyin": "tone-marked pinyin", "meaning": "short Chinese meaning"}
 }
 Make origin_graph a directed ancestry graph of 3 to 7 nodes like a compact dictionary etymology
 tree. Put the modern English word first as the single root with an empty parent. Its ancestors or
@@ -90,17 +85,11 @@ Arabic. Never invent a quotation, source, or page. Return exactly one JSON objec
 Required JSON shape:
 {
   "title": "the English word",
-  "subtitle": "one vivid orientation line",
-  "summary_en": "one concise modern definition, not the literal ancient origin",
-  "origin_story": "one short useful note grounded in the excerpts",
-  "key_points": ["at most 2 concise points"],
   "english": {"term": "", "pronunciation": "IPA", "meaning": "short modern English meaning"},
   "japanese": {"term": "established equivalent", "reading": "exact kana reading", "meaning": "short meaning written in Japanese", "ruby_tokens": [{"t": "kanji or kana segment", "r": "exact kana reading; empty for plain kana"}]},
   "chinese": {"simplified": "established equivalent", "traditional": "", "pinyin": "tone-marked pinyin", "meaning": "short meaning written in Chinese"},
   "french": {"term": "established equivalent", "pronunciation": "IPA if known", "meaning": "short meaning written in French"},
-  "arabic": {"term": "established modern Arabic equivalent", "reading": "simple transliteration", "meaning": "short meaning written in Arabic"},
-  "memory_hook": "one memorable cross-language connection",
-  "related_terms": []
+  "arabic": {"term": "established modern Arabic equivalent", "reading": "simple transliteration", "meaning": "short meaning written in Arabic"}
 }
 All five term fields must express the same current everyday sense, not merely the literal ancient
 root. Prefer common lexical equivalents over transliterations. Japanese ruby token text must
@@ -112,53 +101,28 @@ meaning to one short phrase and the whole response under 300 words so it fits on
 
 ANSWER_PROMPT = """You are the independent Book Answer engine in Local Knowledge Terminal.
 The selected answer and reviewed translations in BOOK EVIDENCE are authoritative: preserve them
-exactly and never invent a citation. Add only one concise reflection. Return exactly one JSON object
-with no markdown or commentary.
+exactly and never invent a citation. The application attaches those translations itself. Return
+exactly one compact JSON object with no markdown or commentary:
 
-Required JSON shape:
-{
-  "title": "2 to 5 word title",
-  "subtitle": "one short orientation line",
-  "summary_en": "one concise sentence",
-  "origin_story": "one concise reflection sentence",
-  "key_points": ["at most 2 short points"],
-  "english": {"term": "", "pronunciation": "", "meaning": "one short meaning"},
-  "japanese": {"term": "", "reading": "", "meaning": "one short Japanese meaning"},
-  "chinese": {
-    "simplified": "",
-    "traditional": "full traditional Chinese source sentence",
-    "pinyin": "pinyin for the entire Chinese source sentence, with tone marks",
-    "meaning": "one short Chinese meaning"
-  },
-  "memory_hook": "one memorable line",
-  "related_terms": []
-}
-Use Unicode directly. Keep the entire response under 200 words. /no_think"""
+{"title": "2 to 5 word title", "origin_story": "one concise reflection sentence"}
+Use Unicode directly. Keep the response under 40 words. /no_think"""
 
 
 QUESTION_PROMPT = """You are the independent Book Question engine in Local Knowledge Terminal.
 The selected question and reviewed translations in BOOK EVIDENCE are authoritative: preserve them
-exactly and never invent a citation. Add only one concise reflection prompt. Return exactly one JSON
-object with no markdown or commentary.
+exactly and never invent a citation. The application attaches those translations itself. Return
+exactly one compact JSON object with no markdown or commentary:
 
-Required JSON shape:
-{
-  "title": "2 to 5 word title",
-  "subtitle": "one short orientation line",
-  "summary_en": "one concise sentence",
-  "origin_story": "one concise reflection sentence",
-  "key_points": ["at most 2 short prompts"],
-  "english": {"term": "", "pronunciation": "", "meaning": "one short meaning"},
-  "japanese": {"term": "", "reading": "", "meaning": "one short Japanese meaning"},
-  "chinese": {"simplified": "", "traditional": "", "pinyin": "full tone-marked pinyin", "meaning": "one short Chinese meaning"},
-  "memory_hook": "one memorable line",
-  "related_terms": []
-}
-Use Unicode directly. Keep the entire response under 200 words. /no_think"""
+{"title": "2 to 5 word title", "origin_story": "one concise reflection prompt"}
+Use Unicode directly. Keep the response under 40 words. /no_think"""
 
 
-def _text_schema(max_length: int) -> dict[str, Any]:
-    return {"type": "string", "maxLength": max_length}
+def _text_schema(max_length: int, min_length: int = 0) -> dict[str, Any]:
+    return {
+        "type": "string",
+        "minLength": min_length,
+        "maxLength": max_length,
+    }
 
 
 def _strict_object(properties: dict[str, Any]) -> dict[str, Any]:
@@ -172,75 +136,44 @@ def _strict_object(properties: dict[str, Any]) -> dict[str, Any]:
 
 _RUBY_SCHEMA = {
     "type": "array",
-    "maxItems": 24,
-    "items": _strict_object({"t": _text_schema(16), "r": _text_schema(32)}),
+    "minItems": 1,
+    "maxItems": 8,
+    "items": _strict_object(
+        {"t": _text_schema(16, 1), "r": _text_schema(32)}
+    ),
 }
 _ENGLISH_SCHEMA = _strict_object(
     {
-        "term": _text_schema(100),
+        "term": _text_schema(100, 1),
         "pronunciation": _text_schema(100),
-        "meaning": _text_schema(180),
+        "meaning": _text_schema(180, 1),
     }
 )
 _JAPANESE_SCHEMA = _strict_object(
     {
-        "term": _text_schema(100),
-        "reading": _text_schema(160),
-        "meaning": _text_schema(160),
+        "term": _text_schema(100, 1),
+        "reading": _text_schema(160, 1),
+        "meaning": _text_schema(160, 1),
         "ruby_tokens": _RUBY_SCHEMA,
-    }
-)
-_PLAIN_JAPANESE_SCHEMA = _strict_object(
-    {
-        "term": _text_schema(3000),
-        "reading": _text_schema(160),
-        "meaning": _text_schema(160),
     }
 )
 _CHINESE_SCHEMA = _strict_object(
     {
-        "simplified": _text_schema(3000),
+        "simplified": _text_schema(3000, 1),
         "traditional": _text_schema(3000),
-        "pinyin": _text_schema(4000),
-        "meaning": _text_schema(160),
+        "pinyin": _text_schema(4000, 1),
+        "meaning": _text_schema(160, 1),
     }
 )
-_KEY_POINTS_SCHEMA = {
-    "type": "array",
-    "maxItems": 2,
-    "items": _text_schema(180),
-}
-_RELATED_SCHEMA = {
-    "type": "array",
-    "maxItems": 4,
-    "items": _strict_object(
-        {"term": _text_schema(100), "note": _text_schema(180)}
-    ),
-}
-
-
-def _base_card_schema(japanese: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "title": _text_schema(120),
-        "subtitle": _text_schema(180),
-        "summary_en": _text_schema(300),
-        "origin_story": _text_schema(640),
-        "key_points": _KEY_POINTS_SCHEMA,
-        "english": _ENGLISH_SCHEMA,
-        "japanese": japanese,
-        "chinese": _CHINESE_SCHEMA,
-        "memory_hook": _text_schema(300),
-        "related_terms": _RELATED_SCHEMA,
-    }
 
 
 _ORIGIN_NODE_SCHEMA = _strict_object(
     {
-        "id": _text_schema(48),
+        "id": _text_schema(48, 1),
         "parent": _text_schema(48),
-        "stage": _text_schema(80),
-        "form": _text_schema(80),
-        "meaning": _text_schema(100),
+        "stage": _text_schema(80, 1),
+        "form": _text_schema(80, 1),
+        "meaning": _text_schema(100, 1),
         "basis": {"type": "string", "enum": ["book", "model"]},
     }
 )
@@ -263,24 +196,41 @@ _ARABIC_SCHEMA = _strict_object(
 CARD_JSON_SCHEMAS = {
     "word": _strict_object(
         {
-            **_base_card_schema(_JAPANESE_SCHEMA),
+            "title": _text_schema(120, 1),
+            "summary_en": _text_schema(300, 1),
             "origin_graph": {
                 "type": "array",
-                "minItems": 2,
+                "minItems": 3,
                 "maxItems": 7,
                 "items": _ORIGIN_NODE_SCHEMA,
             },
+            "english": _ENGLISH_SCHEMA,
+            "japanese": _JAPANESE_SCHEMA,
+            "chinese": _CHINESE_SCHEMA,
         }
     ),
     "knowledge": _strict_object(
         {
-            **_base_card_schema(_JAPANESE_SCHEMA),
+            "title": _text_schema(120, 1),
+            "english": _ENGLISH_SCHEMA,
+            "japanese": _JAPANESE_SCHEMA,
+            "chinese": _CHINESE_SCHEMA,
             "french": _ALTERNATE_LANGUAGE_SCHEMA,
             "arabic": _ARABIC_SCHEMA,
         }
     ),
-    "answer": _strict_object(_base_card_schema(_PLAIN_JAPANESE_SCHEMA)),
-    "question": _strict_object(_base_card_schema(_PLAIN_JAPANESE_SCHEMA)),
+    "answer": _strict_object(
+        {
+            "title": _text_schema(120, 1),
+            "origin_story": _text_schema(300, 1),
+        }
+    ),
+    "question": _strict_object(
+        {
+            "title": _text_schema(120, 1),
+            "origin_story": _text_schema(300, 1),
+        }
+    ),
 }
 
 
@@ -424,7 +374,7 @@ class LlamaCppClient:
             "answer": ANSWER_PROMPT,
             "question": QUESTION_PROMPT,
         }
-        token_budgets = {"word": 480, "knowledge": 420, "answer": 320, "question": 320}
+        token_budgets = {"word": 380, "knowledge": 300, "answer": 140, "question": 140}
         payload = {
             "model": self.model_name,
             "messages": [
