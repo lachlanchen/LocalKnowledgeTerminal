@@ -4,8 +4,11 @@ const $ = (selector) => document.querySelector(selector);
 const all = (selector) => [...document.querySelectorAll(selector)];
 let mode = "word";
 let activeCardId = null;
+let activeCard = null;
 let visibleView = "empty";
 let chatHistory = [];
+let chatContextCardId = "";
+let chatContextTitle = "";
 let carouselCards = [];
 let carouselIndex = -1;
 let autoplayEnabled = true;
@@ -89,6 +92,12 @@ function text(selector, value) {
   $(selector).textContent = value || "—";
 }
 
+function optionalText(selector, value) {
+  const node = $(selector);
+  node.textContent = value || "";
+  node.classList.toggle("hidden", !value);
+}
+
 function element(tag, className, value) {
   const node = document.createElement(tag);
   if (className) node.className = className;
@@ -124,9 +133,14 @@ function renderChatMessage(role, content, metrics = null, pending = false) {
 function resetChat() {
   chatHistory = [];
   $("#chat-messages").replaceChildren();
+  $("#lab-context").textContent = chatContextCardId
+    ? `Discussing saved card · ${chatContextTitle}`
+    : "Uncited · saved separately · never mixed with book cards";
   renderChatMessage(
     "assistant",
-    "Enter a prompt below. I will answer locally and report generation speed. Use the four book modes when you need citations.",
+    chatContextCardId
+      ? "Ask about this card. I have its saved text and retrieved source excerpt as context."
+      : "Enter a prompt below. I will answer locally and report generation speed. Use the four book modes when you need citations.",
   );
 }
 
@@ -144,6 +158,7 @@ function locatorLabel(item) {
 function renderCard(card, refreshHistory = true) {
   setMode(card.mode, true);
   activeCardId = card.card_id;
+  activeCard = card;
   const copy = MODE_COPY[card.mode] || MODE_COPY.word;
   const cardView = $("#card-view");
   cardView.className = `card-view mode-${card.mode}`;
@@ -152,20 +167,20 @@ function renderCard(card, refreshHistory = true) {
   const primaryTitle = card.mode === "answer" ? (card.english.term || card.title) : card.title;
   text("#card-title", primaryTitle);
   cardView.classList.toggle("long-title", primaryTitle.length > 80);
-  text("#card-subtitle", card.subtitle);
+  optionalText("#card-subtitle", card.subtitle);
   text("#card-summary", card.summary_en);
   text("#origin-story", card.origin_story);
   text("#english-term", card.english.term || card.title);
-  text("#english-pronunciation", card.english.pronunciation);
-  text("#english-meaning", card.english.meaning);
-  text("#japanese-meaning", card.japanese.meaning);
+  optionalText("#english-pronunciation", card.english.pronunciation);
+  optionalText("#english-meaning", card.english.meaning);
+  optionalText("#japanese-meaning", card.japanese.meaning);
   const showTraditional = card.chinese.traditional
     && card.chinese.traditional !== card.chinese.simplified
     && card.chinese.simplified.length < 20;
   text("#chinese-term", `${card.chinese.simplified}${showTraditional ? `／${card.chinese.traditional}` : ""}`);
   $("#chinese-term").title = card.chinese.traditional || "";
-  text("#chinese-pinyin", card.chinese.pinyin);
-  text("#chinese-meaning", card.chinese.meaning);
+  optionalText("#chinese-pinyin", card.chinese.pinyin);
+  optionalText("#chinese-meaning", card.chinese.meaning);
   text("#memory-hook", card.memory_hook);
 
   const ruby = $("#japanese-ruby");
@@ -210,11 +225,11 @@ function renderCard(card, refreshHistory = true) {
       || "Local library",
   );
   text("#narrative-label", copy.narrative);
-  (card.evidence || []).forEach((item) => {
+  (card.evidence || []).slice(0, 1).forEach((item) => {
     const section = element("section", "evidence");
     section.append(element("h4", "", item.headword));
     section.append(element("span", "page", locatorLabel(item)));
-    const excerpt = item.excerpt?.length > 520 ? `${item.excerpt.slice(0, 517)}…` : item.excerpt;
+    const excerpt = item.excerpt?.length > 320 ? `${item.excerpt.slice(0, 317)}…` : item.excerpt;
     section.append(element("blockquote", "", `“${excerpt}”`));
     if (item.section) section.append(element("span", "section", item.section));
     evidence.append(section);
@@ -260,7 +275,11 @@ async function submitChat(message) {
     const response = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message, history: priorHistory }),
+      body: JSON.stringify({
+        message,
+        history: priorHistory,
+        card_id: chatContextCardId,
+      }),
     });
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || `Request failed (${response.status})`);
@@ -273,6 +292,15 @@ async function submitChat(message) {
   } finally {
     $("#generate-button").disabled = false;
   }
+}
+
+function discussCurrentCard() {
+  if (!activeCardId || !activeCard) return;
+  chatContextCardId = activeCardId;
+  chatContextTitle = activeCard.title;
+  setMode("chat");
+  resetChat();
+  $("#query").focus();
 }
 
 async function loadObservations() {
@@ -356,7 +384,7 @@ async function loadHistory() {
       });
       history.append(button);
     });
-    if (!activeCardId) renderCard(cards[0], false);
+    if (!activeCardId && mode !== "chat") renderCard(cards[0], false);
     updateCarouselChrome();
     scheduleCarousel();
   } catch (_error) {
@@ -400,11 +428,19 @@ async function toggleFullscreen() {
   }
 }
 
-all(".mode").forEach((button) => button.addEventListener("click", () => setMode(button.dataset.mode)));
+all(".mode").forEach((button) => button.addEventListener("click", () => {
+  if (button.dataset.mode === "chat") {
+    chatContextCardId = "";
+    chatContextTitle = "";
+    resetChat();
+  }
+  setMode(button.dataset.mode);
+}));
 all(".examples button").forEach((button) => button.addEventListener("click", () => submitQuery(button.dataset.query, button.dataset.mode || mode)));
 $("#card-form").addEventListener("submit", (event) => { event.preventDefault(); submitQuery($("#query").value); });
 $("#refresh-history").addEventListener("click", loadHistory);
 $("#clear-chat").addEventListener("click", resetChat);
+$("#discuss-card").addEventListener("click", discussCurrentCard);
 $("#previous-card").addEventListener("click", () => navigateCards(-1));
 $("#next-card").addEventListener("click", () => navigateCards(1));
 $("#toggle-autoplay").addEventListener("click", () => {
@@ -419,8 +455,10 @@ document.addEventListener("fullscreenchange", () => {
   }
 });
 
-setMode("word");
-if (new URLSearchParams(location.search).has("display")) document.body.classList.add("display-mode");
+const initialParameters = new URLSearchParams(location.search);
+const initialMode = MODE_COPY[initialParameters.get("mode")] ? initialParameters.get("mode") : "word";
+setMode(initialMode);
+if (initialParameters.has("display")) document.body.classList.add("display-mode");
 loadHealth();
 loadHistory();
 loadObservations();

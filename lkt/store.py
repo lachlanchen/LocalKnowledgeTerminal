@@ -37,10 +37,19 @@ class CardStore:
                     response TEXT NOT NULL,
                     model TEXT NOT NULL,
                     grounded INTEGER NOT NULL,
+                    context_card_id TEXT NOT NULL DEFAULT '',
                     metrics TEXT NOT NULL,
                     created_at TEXT NOT NULL
                 )"""
             )
+            observation_columns = {
+                row[1] for row in connection.execute("PRAGMA table_info(observations)")
+            }
+            if "context_card_id" not in observation_columns:
+                connection.execute(
+                    "ALTER TABLE observations ADD COLUMN "
+                    "context_card_id TEXT NOT NULL DEFAULT ''"
+                )
             connection.execute(
                 "CREATE INDEX IF NOT EXISTS idx_observations_created "
                 "ON observations(created_at DESC)"
@@ -69,12 +78,20 @@ class CardStore:
             ).fetchall()
         return [json.loads(row[0]) for row in rows]
 
+    def get(self, card_id: str) -> dict[str, Any] | None:
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                "SELECT payload FROM cards WHERE card_id = ?", (card_id,)
+            ).fetchone()
+        return json.loads(row[0]) if row else None
+
     def save_observation(
         self,
         prompt: str,
         response: str,
         model: str,
         metrics: dict[str, Any],
+        context_card_id: str = "",
     ) -> dict[str, Any]:
         observation = {
             "observation_id": str(uuid.uuid4()),
@@ -83,6 +100,7 @@ class CardStore:
             "response": response,
             "model": model,
             "grounded": False,
+            "context_card_id": context_card_id,
             "metrics": metrics,
             "created_at": datetime.now(UTC).isoformat(),
         }
@@ -90,8 +108,8 @@ class CardStore:
             connection.execute(
                 """INSERT INTO observations(
                     observation_id, kind, prompt, response, model,
-                    grounded, metrics, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    grounded, context_card_id, metrics, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     observation["observation_id"],
                     observation["kind"],
@@ -99,6 +117,7 @@ class CardStore:
                     observation["response"],
                     observation["model"],
                     0,
+                    observation["context_card_id"],
                     json.dumps(metrics, ensure_ascii=False),
                     observation["created_at"],
                 ),
@@ -111,7 +130,7 @@ class CardStore:
         with closing(self._connect()) as connection:
             rows = connection.execute(
                 """SELECT observation_id, kind, prompt, response, model,
-                          grounded, metrics, created_at
+                          grounded, context_card_id, metrics, created_at
                    FROM observations ORDER BY created_at DESC LIMIT ?""",
                 (limit,),
             ).fetchall()
@@ -123,8 +142,9 @@ class CardStore:
                 "response": row[3],
                 "model": row[4],
                 "grounded": bool(row[5]),
-                "metrics": json.loads(row[6]),
-                "created_at": row[7],
+                "context_card_id": row[6],
+                "metrics": json.loads(row[7]),
+                "created_at": row[8],
             }
             for row in rows
         ]

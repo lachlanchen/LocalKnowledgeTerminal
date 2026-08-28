@@ -32,13 +32,18 @@ class LlmParsingTests(unittest.TestCase):
             ).encode()
         )
         client = LlamaCppClient("http://localhost/v1/chat/completions", "test")
-        with patch("urllib.request.urlopen", return_value=response):
-            result = client.chat([{"role": "user", "content": "Hello"}])
+        with patch("urllib.request.urlopen", return_value=response) as urlopen:
+            result = client.chat(
+                [{"role": "user", "content": "Hello"}], "Title: Current card"
+            )
         self.assertEqual(result["message"], "Visible answer")
         self.assertFalse(result["grounded"])
+        self.assertTrue(result["contextual"])
         self.assertEqual(result["metrics"]["prompt_tokens"], 21)
         self.assertEqual(result["metrics"]["completion_tokens"], 8)
         self.assertEqual(result["metrics"]["tokens_per_second"], 3.25)
+        sent = json.loads(urlopen.call_args.args[0].data)
+        self.assertIn("CURRENT CARD", sent["messages"][0]["content"])
 
 
 if __name__ == "__main__":

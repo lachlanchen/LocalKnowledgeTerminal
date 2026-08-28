@@ -44,6 +44,7 @@ class ServiceTests(unittest.TestCase):
             self.assertEqual(card.evidence[0].pages, (12,))
             self.assertTrue(card.grounded)
             self.assertEqual(store.recent()[0]["card_id"], card.card_id)
+            self.assertEqual(store.get(card.card_id)["title"], "Abacus")
 
     def test_book_answer_keeps_reviewed_text_and_token_level_furigana(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

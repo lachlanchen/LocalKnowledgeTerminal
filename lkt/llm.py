@@ -72,6 +72,32 @@ one exists. Prefer card-sized phrases over paragraphs. Keep the total response
 under 500 words."""
 
 
+CARD_BOOK_PROMPT = """You create exceptionally concise Answer and Question cards.
+The selected source text and reviewed translations in BOOK EVIDENCE are authoritative.
+Do not rewrite them and never invent a citation. Return exactly one JSON object with
+no markdown and no commentary.
+
+Required JSON shape:
+{
+  "title": "2 to 5 word title",
+  "subtitle": "one short orientation line",
+  "summary_en": "one concise sentence",
+  "origin_story": "one concise reflection sentence",
+  "key_points": ["at most 2 short points"],
+  "english": {"term": "", "pronunciation": "", "meaning": "one short meaning"},
+  "japanese": {"term": "", "reading": "", "meaning": "one short Japanese meaning"},
+  "chinese": {
+    "simplified": "",
+    "traditional": "full traditional Chinese source sentence",
+    "pinyin": "pinyin for the entire Chinese source sentence, with tone marks",
+    "meaning": "one short Chinese meaning"
+  },
+  "memory_hook": "one memorable line",
+  "related_terms": []
+}
+Use Unicode directly. Keep the entire response under 220 words. /no_think"""
+
+
 def _extract_json(text: str) -> dict[str, Any]:
     cleaned = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
     if cleaned.startswith("```"):
@@ -130,17 +156,26 @@ class LlamaCppClient:
             raise ModelUnavailable("unexpected response from local model") from exc
         return str(content)
 
-    def chat(self, messages: list[dict[str, str]]) -> dict[str, Any]:
+    def chat(
+        self, messages: list[dict[str, str]], context: str = ""
+    ) -> dict[str, Any]:
+        system_content = (
+            "You are the local Qwen model inside Local Knowledge Terminal. "
+            "Answer clearly and directly in the language used by the user. "
+            "This is raw chat, so never imply that an answer is book-cited."
+        )
+        if context:
+            system_content += (
+                " The user is discussing the saved card below. Use its retrieved "
+                "source excerpts as the only authority for historical or book claims.\n\n"
+                f"CURRENT CARD\n{context}"
+            )
         payload = {
             "model": self.model_name,
             "messages": [
                 {
                     "role": "system",
-                    "content": (
-                        "You are the local Qwen model inside Local Knowledge Terminal. "
-                        "Answer clearly and directly in the language used by the user. "
-                        "This is raw chat, so never imply that an answer is book-cited."
-                    ),
+                    "content": system_content,
                 },
                 *messages[:-1],
                 {
@@ -169,6 +204,7 @@ class LlamaCppClient:
             "message": content,
             "model": self.model_name,
             "grounded": False,
+            "contextual": bool(context),
             "metrics": {
                 "elapsed_seconds": round(elapsed, 2),
                 "prompt_tokens": prompt_tokens,
@@ -196,17 +232,21 @@ class LlamaCppClient:
             f"BOOK EVIDENCE\n{_evidence_context(evidence)}\n\n"
             "/no_think"
         )
+        compact_mode = mode in {"answer", "question"}
         payload = {
             "model": self.model_name,
             "messages": [
-                {"role": "system", "content": SYSTEM_PROMPT},
+                {
+                    "role": "system",
+                    "content": CARD_BOOK_PROMPT if compact_mode else SYSTEM_PROMPT,
+                },
                 {"role": "user", "content": user_prompt},
             ],
             "temperature": 0.7,
             "top_p": 0.8,
             "top_k": 20,
             "presence_penalty": 1.5,
-            "max_tokens": 900,
+            "max_tokens": 520 if compact_mode else 900,
             "stream": False,
         }
         body, _elapsed = self._request(payload)

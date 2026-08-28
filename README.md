@@ -38,12 +38,15 @@ wall time, prompt/output tokens, and generation speed. It is visibly marked as
 raw, uncited model output and is never stored as a grounded book card. Its
 observations are retained in a separate table of the local knowledge ledger.
 Every repeated prompt still runs Qwen again; the ledger is history, not a cache.
+From any card, **Discuss this card** opens Model Lab with that saved card and its
+retrieved excerpt as bounded context.
 
 ## Product display
 
 The browser is an editorial card stage rather than a chat dashboard. It keeps
-large multilingual type, book evidence, and memory cues on one responsive
-surface. Saved cards form an autoplaying carousel with previous/next controls.
+only the main idea, one concise explanation, large multilingual text, one memory
+cue, and one compact source citation on the primary surface. Saved cards form an
+autoplaying carousel with previous/next controls.
 Fullscreen display mode hides all application chrome, and `/?display=1` opens
 the same card document as a kiosk-friendly screen surface. Print CSS and the
 versioned card JSON provide clean boundaries for later e-ink rendering.
@@ -144,6 +147,10 @@ Pinned runtime artifacts:
 | llama.cpp | `v0.3.0` / `c1d0e7a004015f23bc0233470b747b596f29b264` | Commit-pinned source archive |
 | Qwen3-4B-GGUF | `bc640142c66e1fdd12af0bd68f40445458f3869b` | Q4_K_M SHA-256 `7485fe6f…534fdf5` |
 | Model file | `Qwen3-4B-Q4_K_M.gguf` | 2,497,280,256 bytes |
+
+The Pi service exposes one inference slot (`--parallel 1`). Card composition and
+Model Lab requests are therefore handled sequentially, keeping memory use and
+latency predictable instead of making four CPU cores compete across jobs.
 
 On the Pi:
 

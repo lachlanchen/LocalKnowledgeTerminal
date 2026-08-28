@@ -43,6 +43,37 @@ def chat_messages(payload: dict[str, Any]) -> list[dict[str, str]]:
     return messages
 
 
+def card_chat_context(card: dict[str, Any]) -> str:
+    language_lines = []
+    for label, key in (("English", "english"), ("Japanese", "japanese"), ("Chinese", "chinese")):
+        value = card.get(key)
+        if isinstance(value, dict):
+            terms = [str(item).strip() for item in value.values() if isinstance(item, str) and item.strip()]
+            if terms:
+                language_lines.append(f"{label}: {' | '.join(terms[:4])}")
+    evidence_lines = []
+    evidence = card.get("evidence")
+    if isinstance(evidence, list):
+        for item in evidence[:2]:
+            if not isinstance(item, dict):
+                continue
+            pages = ", ".join(str(page) for page in item.get("pages", []))
+            evidence_lines.append(
+                f"Source {item.get('entry_id', '')}"
+                f"{f' page {pages}' if pages else ''}: {str(item.get('excerpt', ''))[:1200]}"
+            )
+    context = "\n".join(
+        [
+            f"Title: {str(card.get('title', ''))[:300]}",
+            f"Summary: {str(card.get('summary_en', ''))[:1200]}",
+            f"Explanation: {str(card.get('origin_story', ''))[:1800]}",
+            *language_lines,
+            *evidence_lines,
+        ]
+    )
+    return context[:8000]
+
+
 def build_service(settings: Settings) -> tuple[CardService, LlamaCppClient]:
     model = LlamaCppClient(
         settings.llm_url, settings.llm_model, settings.request_timeout
@@ -207,15 +238,29 @@ def handler_factory(
                     raise ValueError("request must be a JSON object")
                 if path == "/api/chat":
                     messages = chat_messages(payload)
-                    result = model.chat(messages)
+                    context_card_id = str(payload.get("card_id", "")).strip()[:100]
+                    context_card = (
+                        service.store.get(context_card_id) if context_card_id else None
+                    )
+                    if context_card_id and context_card is None:
+                        raise ValueError("current card was not found")
+                    result = model.chat(
+                        messages,
+                        card_chat_context(context_card) if context_card else "",
+                    )
                     observation = service.store.save_observation(
                         messages[-1]["content"],
                         result["message"],
                         result["model"],
                         result["metrics"],
+                        context_card_id=context_card_id,
                     )
                     result["observation_id"] = observation["observation_id"]
                     result["created_at"] = observation["created_at"]
+                    result["context_card_id"] = context_card_id
+                    result["context_title"] = (
+                        str(context_card.get("title", "")) if context_card else ""
+                    )
                     self._json(result, HTTPStatus.CREATED)
                     return
                 card = service.create(str(payload.get("query", "")), str(payload.get("mode", "word")))

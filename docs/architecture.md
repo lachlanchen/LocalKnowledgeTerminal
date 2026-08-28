@@ -32,6 +32,12 @@ always invokes the model again; saved knowledge is an audit/history layer, not
 an inference cache. This prevents a quality benchmark from masquerading as RAG
 output.
 
+When Model Lab is opened through **Discuss this card**, the server resolves the
+card ID from SQLite and supplies its concise fields plus at most two retrieved
+excerpts as bounded context. The browser cannot invent or alter that context.
+The resulting observation records its `context_card_id` but remains distinct
+from a cited card.
+
 ## Retrieval choice
 
 Word Origins is a structured dictionary with 6,994 validated entries. Exact

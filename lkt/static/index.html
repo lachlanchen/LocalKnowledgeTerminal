@@ -61,7 +61,7 @@
               <p class="kicker">MODEL LAB · RAW LOCAL OUTPUT</p>
               <h1>Qwen3-4B quality &amp; speed</h1>
             </div>
-            <div class="lab-note">Uncited · saved separately · never mixed with book cards</div>
+            <div class="lab-note" id="lab-context">Uncited · saved separately · never mixed with book cards</div>
           </header>
           <div class="chat-messages" id="chat-messages">
             <article class="chat-message assistant">
@@ -112,7 +112,10 @@
               <div><p>BOOK EVIDENCE</p><strong id="evidence-title">Word Origins</strong></div>
             </header>
             <div id="evidence-list"></div>
-            <footer class="grounded-seal"><span>✓</span><div><strong>Grounded</strong><small>Citations come from retrieval, not the model.</small></div></footer>
+            <footer class="evidence-actions">
+              <div class="grounded-seal"><span>✓</span><div><strong>Grounded in the book</strong><small>Citations come from retrieval, not the model.</small></div></div>
+              <button id="discuss-card" type="button">Discuss this card →</button>
+            </footer>
           </aside>
         </article>
       </main>
