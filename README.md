@@ -110,7 +110,9 @@ correction index as a required source and reports its readiness and entry count.
 Autonomous generation pauses during current Raspberry Pi undervoltage,
 throttling, or high temperature and resumes after the condition clears. The web
 client loads the complete selected mode (up to 1,000 accepted cards), keeps the
-newest first, and shuffles every other card once per carousel pass.
+newest first, and shuffles every other card once per carousel pass. The compact
+system status reports accepted versus total autonomous book cards, while
+`/api/health` exposes the same per-mode progress without scheduling model work.
 Word Card, Word Origin, Root, and Affix remain inquiry-driven rather than
 precomputing thousands of slow model views; once a word or linked term is
 selected, their persisted local pipeline runs without human data entry.

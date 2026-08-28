@@ -32,6 +32,13 @@ class WebInputTests(unittest.TestCase):
                 },
             )
 
+    def test_health_marks_a_damaged_correction_index_unready(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            database = Path(temp) / "damaged-freedict.sqlite3"
+            database.write_text("not sqlite", encoding="utf-8")
+            status = correction_source_status(SimpleNamespace(freedict_db=database))
+            self.assertFalse(status["freedict_eng_ara"]["ready"])
+
     def test_bare_terminal_defaults_to_the_answer_carousel(self) -> None:
         root = Path(__file__).resolve().parents[1]
         script = (root / "lkt" / "static" / "app.js").read_text(encoding="utf-8")
@@ -63,6 +70,8 @@ class WebInputTests(unittest.TestCase):
         self.assertIn('response.status === 202', script)
         self.assertIn("Each finished step is saved", script)
         self.assertIn("health.lexicons", script)
+        self.assertIn("health.autonomous_deck", script)
+        self.assertIn("autonomous cards", script)
         self.assertIn('id="loading-kicker"', page)
         source = (root / "lkt" / "web.py").read_text(encoding="utf-8")
         self.assertIn('requested_mode in _ATOMIC_WORD_MODES', source)

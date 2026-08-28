@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import mimetypes
+import sqlite3
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -12,6 +13,7 @@ from urllib.parse import parse_qs, urlparse
 from .card_books import CardBookIndex
 from .config import Settings
 from .corpus import CorpusIndex
+from .deck import AutonomousDeckSeeder
 from .freedict import FreeDictRag
 from .intent import route_intent
 from .llm import LlamaCppClient, ModelUnavailable
@@ -46,9 +48,27 @@ def correction_source_status(settings: Settings) -> dict[str, dict[str, Any]]:
 
     try:
         status = FreeDictRag(settings.freedict_db).status()
-    except (OSError, ValueError):
+    except (OSError, ValueError, sqlite3.Error):
         status = {"ready": False, "database": str(settings.freedict_db)}
     return {"freedict_eng_ara": status}
+
+
+def autonomous_deck_status(
+    service: CardService, knowledge: KnowledgeStore
+) -> dict[str, Any]:
+    """Expose autonomous book coverage without starting an inference job."""
+
+    try:
+        return AutonomousDeckSeeder(service, service.store, knowledge).progress()
+    except (FileNotFoundError, OSError, ValueError, sqlite3.Error):
+        return {
+            "ready": False,
+            "accepted": 0,
+            "total": 0,
+            "remaining": 0,
+            "complete": False,
+            "modes": {},
+        }
 
 
 def renderable_card(card: dict[str, Any]) -> dict[str, Any]:
@@ -367,11 +387,13 @@ def handler_factory(
                     except (FileNotFoundError, OSError):
                         morphology[kind] = {"ready": False, "items": 0}
                 lexicons = correction_source_status(settings)
+                deck = autonomous_deck_status(service, knowledge)
                 sources_ready = (
                     corpus_ready
                     and all(item.get("ready") for item in card_books.values())
                     and all(item.get("ready") for item in morphology.values())
                     and all(item.get("ready") for item in lexicons.values())
+                    and deck.get("ready") is True
                 )
                 self._json(
                     {
@@ -384,6 +406,7 @@ def handler_factory(
                         "card_books": card_books,
                         "morphology": morphology,
                         "lexicons": lexicons,
+                        "autonomous_deck": deck,
                         "knowledge": knowledge.status(),
                         "model": {
                             "ready": model_ready,

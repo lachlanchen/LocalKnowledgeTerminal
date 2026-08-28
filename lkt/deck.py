@@ -71,6 +71,31 @@ class AutonomousDeckSeeder:
                     prepared[mode].add(entry_id)
         return prepared
 
+    def progress(self) -> dict[str, Any]:
+        """Return source-level completion without scheduling model work."""
+
+        prepared = self._prepared_entry_ids()
+        modes: dict[str, dict[str, int | bool]] = {}
+        for mode in self.modes:
+            total = self.service.card_books[mode].count()
+            accepted = min(len(prepared[mode]), total)
+            modes[mode] = {
+                "accepted": accepted,
+                "total": total,
+                "remaining": max(0, total - accepted),
+                "complete": accepted >= total,
+            }
+        accepted_total = sum(int(item["accepted"]) for item in modes.values())
+        source_total = sum(int(item["total"]) for item in modes.values())
+        return {
+            "ready": True,
+            "accepted": accepted_total,
+            "total": source_total,
+            "remaining": max(0, source_total - accepted_total),
+            "complete": accepted_total >= source_total,
+            "modes": modes,
+        }
+
     def run_once(self, seed: str = "") -> DeckSeedResult:
         """Prepare exactly one unseen source record, or report completion."""
 

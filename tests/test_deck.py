@@ -75,6 +75,30 @@ class AutonomousDeckTests(unittest.TestCase):
             self.assertEqual(len(cards.accepted_for_modes(("answer", "question"))), 3)
             self.assertEqual(knowledge.status()["counts"]["content_items"], 9)
             self.assertEqual(knowledge.status()["queued_jobs"], 3)
+            self.assertEqual(
+                seeder.progress(),
+                {
+                    "ready": True,
+                    "accepted": 3,
+                    "total": 3,
+                    "remaining": 0,
+                    "complete": True,
+                    "modes": {
+                        "answer": {
+                            "accepted": 2,
+                            "total": 2,
+                            "remaining": 0,
+                            "complete": True,
+                        },
+                        "question": {
+                            "accepted": 1,
+                            "total": 1,
+                            "remaining": 0,
+                            "complete": True,
+                        },
+                    },
+                },
+            )
 
     def test_existing_accepted_source_is_skipped_across_restarts(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
