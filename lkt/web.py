@@ -12,6 +12,7 @@ from urllib.parse import parse_qs, urlparse
 from .card_books import CardBookIndex
 from .config import Settings
 from .corpus import CorpusIndex
+from .freedict import FreeDictRag
 from .intent import route_intent
 from .llm import LlamaCppClient, ModelUnavailable
 from .knowledge import KnowledgeStore
@@ -38,6 +39,16 @@ _PREPARATION_LABELS = {
 }
 
 _ATOMIC_WORD_MODES = {"knowledge", "word", "root", "affix"}
+
+
+def correction_source_status(settings: Settings) -> dict[str, dict[str, Any]]:
+    """Report retrieval sources that constrain model-generated card atoms."""
+
+    try:
+        status = FreeDictRag(settings.freedict_db).status()
+    except (OSError, ValueError):
+        status = {"ready": False, "database": str(settings.freedict_db)}
+    return {"freedict_eng_ara": status}
 
 
 def renderable_card(card: dict[str, Any]) -> dict[str, Any]:
@@ -355,10 +366,12 @@ def handler_factory(
                         }
                     except (FileNotFoundError, OSError):
                         morphology[kind] = {"ready": False, "items": 0}
+                lexicons = correction_source_status(settings)
                 sources_ready = (
                     corpus_ready
                     and all(item.get("ready") for item in card_books.values())
                     and all(item.get("ready") for item in morphology.values())
+                    and all(item.get("ready") for item in lexicons.values())
                 )
                 self._json(
                     {
@@ -370,6 +383,7 @@ def handler_factory(
                         },
                         "card_books": card_books,
                         "morphology": morphology,
+                        "lexicons": lexicons,
                         "knowledge": knowledge.status(),
                         "model": {
                             "ready": model_ready,

@@ -1135,7 +1135,8 @@ async function loadHealth() {
     container.classList.toggle("ready", ready);
     const bookItems = Object.values(health.card_books || {}).reduce((total, item) => total + (item.items || 0), 0);
     const morphologyItems = Object.values(health.morphology || {}).reduce((total, item) => total + (item.items || 0), 0);
-    const sourceCount = (health.corpus.entries || 0) + bookItems + morphologyItems;
+    const lexiconItems = Object.values(health.lexicons || {}).reduce((total, item) => total + (item.entries || 0), 0);
+    const sourceCount = (health.corpus.entries || 0) + bookItems + morphologyItems + lexiconItems;
     text("#state-label", ready ? `${sourceCount.toLocaleString()} sources · model ready` : "Model or corpus is starting…");
   } catch (_error) {
     text("#state-label", "Terminal unavailable");

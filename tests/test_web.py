@@ -3,12 +3,14 @@ from __future__ import annotations
 import unittest
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 
 from lkt.knowledge import KnowledgeStore
 from lkt.preparation import PreparationPlanner
 from lkt.web import (
     card_chat_context,
     chat_messages,
+    correction_source_status,
     plan_interactive_word,
     renderable_card,
     word_card_preparation_state,
@@ -16,6 +18,20 @@ from lkt.web import (
 
 
 class WebInputTests(unittest.TestCase):
+    def test_health_marks_a_missing_correction_index_unready(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            database = Path(temp) / "missing-freedict.sqlite3"
+            status = correction_source_status(SimpleNamespace(freedict_db=database))
+            self.assertEqual(
+                status,
+                {
+                    "freedict_eng_ara": {
+                        "ready": False,
+                        "database": str(database.resolve()),
+                    }
+                },
+            )
+
     def test_bare_terminal_defaults_to_the_answer_carousel(self) -> None:
         root = Path(__file__).resolve().parents[1]
         script = (root / "lkt" / "static" / "app.js").read_text(encoding="utf-8")
@@ -46,6 +62,7 @@ class WebInputTests(unittest.TestCase):
         self.assertIn(".investigation-term", style)
         self.assertIn('response.status === 202', script)
         self.assertIn("Each finished step is saved", script)
+        self.assertIn("health.lexicons", script)
         self.assertIn('id="loading-kicker"', page)
         source = (root / "lkt" / "web.py").read_text(encoding="utf-8")
         self.assertIn('requested_mode in _ATOMIC_WORD_MODES', source)

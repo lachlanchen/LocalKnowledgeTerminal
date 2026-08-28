@@ -105,7 +105,8 @@ Dictionary candidates and deterministic pronunciation/ruby are likewise local
 retrieval/tool output rather than hand-authored card data. FreeDict supplies an
 exact English-Arabic correction gate when OMW has no Arabic lemma for the chosen
 sense; Qwen must copy one retrieved candidate and the system attaches that
-candidate's evidence ID after validation.
+candidate's evidence ID after validation. `/api/health` treats this compact
+correction index as a required source and reports its readiness and entry count.
 Autonomous generation pauses during current Raspberry Pi undervoltage,
 throttling, or high temperature and resumes after the condition clears. The web
 client loads the complete selected mode (up to 1,000 accepted cards), keeps the
