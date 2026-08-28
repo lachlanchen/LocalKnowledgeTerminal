@@ -8,7 +8,7 @@ stored in Git.
 
 | Layer | Verified revision/state |
 |---|---|
-| LKT source | `8284155fe85398bb9306ce7104aaceaba4325f35` |
+| LKT source | `d5bacb0fe36a66e088cd37481b4a70282ca84b74` |
 | Model | `Qwen3-4B-Q4_K_M.gguf`, 2,497,280,256 bytes |
 | Model SHA-256 | `7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5` |
 | llama.cpp package | pinned `v0.3.0`, source commit `c1d0e7a004015f23bc0233470b747b596f29b264` |
@@ -31,6 +31,11 @@ chat smoke test returned from Qwen3-4B in 5.54 seconds at 3.52 tokens/second.
   Answer #279 (“Unnecessary concession”). The newest answer opens first; the
   remaining answers are shuffled and the full-screen carousel advances every
   30 seconds without repeating a card within that pass.
+- Accepted Question card `4b118a06-4820-466e-a69f-977773a9c62b` is reviewed
+  Book Question #100 (“Technology and Sacrifice”), quality `0.95`. Its long
+  text fits 1280×800 without scrolling as six automatic slides: two English,
+  two Japanese with furigana, and two Chinese with pinyin. Sentence boundaries
+  follow punctuation, and numeric counters such as `50万人` remain intact.
 - The accepted `inspection` Word Card uses one OMW sense plus reviewed atomic
   Japanese, Chinese, French, and Arabic outputs and offline pronunciation.
 - The accepted `inspection` Word Origin card contains six nodes and five edges:
@@ -51,6 +56,7 @@ chat smoke test returned from Qwen3-4B in 5.54 seconds at 3.52 tokens/second.
 
 - Bare/default ambient display: `http://127.0.0.1:8090/?display`
 - Ambient Answer display: `http://127.0.0.1:8090/?mode=answer&display`
+- Question display: `http://127.0.0.1:8090/?mode=question&display`
 - Word Card display: `http://127.0.0.1:8090/?mode=knowledge&display`
 - Word Origin display: `http://127.0.0.1:8090/?mode=word&display`
 - Root display: `http://127.0.0.1:8090/?mode=root&display`
