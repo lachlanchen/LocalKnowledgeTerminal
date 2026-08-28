@@ -13,6 +13,8 @@ from lkt.atomic import (
     _collapse_repeated_arabic_alternative,
     _has_repeated_arabic_content_word,
     _lexically_related,
+    _clean_morpheme_meaning,
+    _morpheme_display_form,
 )
 from lkt.knowledge import KnowledgeStore
 from lkt.models import Evidence
@@ -157,6 +159,14 @@ class AtomicWorkerTests(unittest.TestCase):
                 {"surface": "spect", "kind": "root"},
                 {"surface": "ion", "kind": "suffix"},
             ],
+        )
+
+    def test_morpheme_display_notation_is_deterministic(self) -> None:
+        self.assertEqual(_morpheme_display_form("in", "prefix"), "in-")
+        self.assertEqual(_morpheme_display_form("spect", "root"), "spect")
+        self.assertEqual(_morpheme_display_form("ion", "suffix"), "-ion")
+        self.assertEqual(
+            _clean_morpheme_meaning("to look, to see"), "to look or to see"
         )
 
     def test_morphology_context_rejects_incidental_fts_hits(self) -> None:

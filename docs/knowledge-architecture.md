@@ -143,6 +143,8 @@ An exact root found in the reviewed root dictionary becomes a surface anchor.
 The model fills small reusable properties around that fixed split; it cannot
 merge, shorten, or relabel the cited root. Deep historical alternations remain a
 separate recursive origin task instead of distorting the visible word structure.
+Prefix/suffix hyphen direction and plain-phrase punctuation are deterministic
+display normalizations and are recorded on the accepted atom.
 
 Answer and Question preparation follows the same rule: source text, each
 language, grammar parts, and investigation candidates are separate tasks. A

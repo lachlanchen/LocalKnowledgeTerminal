@@ -164,6 +164,24 @@ def _book_anchored_shape(
     return shape
 
 
+def _morpheme_display_form(surface: str, kind: str) -> str:
+    """Apply one deterministic notation convention to an already matched part."""
+
+    base = re.sub(r"^-+|-+$", "", surface.strip())
+    if kind == "prefix":
+        return f"{base}-"
+    if kind == "suffix":
+        return f"-{base}"
+    return base
+
+
+def _clean_morpheme_meaning(value: Any) -> str:
+    """Keep a model meaning as one short, punctuation-free English phrase."""
+
+    text = re.sub(r"\s*[,;/]\s*", " or ", str(value).strip())
+    return re.sub(r"\s+", " ", text).strip(" .:-")
+
+
 def _collapse_repeated_arabic_alternative(value: str) -> str:
     """Remove only the objectively redundant `word or same-word` construction."""
     return re.sub(
@@ -563,26 +581,28 @@ model knowledge. Never merge, shorten, rename, or reclassify a required part."""
                 raise ValueError("morpheme part is not an object")
             surface = re.sub(r"[^A-Za-z]", "", str(item.get("surface", "")))
             kind = str(item.get("kind", "")).strip().lower()
-            canonical = str(item.get("canonical_form", "")).strip()
+            supplied_canonical = str(item.get("canonical_form", "")).strip()
             language = str(item.get("language", "en")).strip().lower()
-            meaning = re.sub(r"\s+", " ", str(item.get("meaning", ""))).strip()
+            meaning = _clean_morpheme_meaning(item.get("meaning", ""))
             confidence = max(0.0, min(float(item.get("confidence", 0.0)), 1.0))
             if not surface or kind not in {"prefix", "root", "suffix", "free"}:
                 raise ValueError("morpheme surface or kind is invalid")
             if language not in {"en", "la"}:
                 raise ValueError("morpheme language is not en or la")
-            if not canonical or not meaning or len(meaning.split()) > 10:
+            if not supplied_canonical or not meaning or len(meaning.split()) > 10:
                 raise ValueError("morpheme canonical form or meaning is invalid")
             if not re.fullmatch(r"[A-Za-z][A-Za-z -]*", meaning):
                 raise ValueError("morpheme meaning is not a plain English phrase")
-            if kind == "prefix" and not canonical.endswith("-"):
-                raise ValueError("prefix canonical form has no trailing hyphen")
-            if kind == "suffix" and not canonical.startswith("-"):
-                raise ValueError("suffix canonical form has no leading hyphen")
-            if kind in {"root", "free"} and "-" in canonical:
-                raise ValueError("root or free form contains affix notation")
-            if canonical.strip("-").casefold() != surface.casefold():
+            if supplied_canonical.strip("-").casefold() != surface.casefold():
                 raise ValueError("canonical form does not match its surface letters")
+            canonical = _morpheme_display_form(surface, kind)
+            normalizations: list[str] = []
+            if canonical != supplied_canonical:
+                normalizations.append("canonical-affix-notation")
+            if meaning != re.sub(
+                r"\s+", " ", str(item.get("meaning", "")).strip()
+            ):
+                normalizations.append("plain-meaning-phrase")
             selected = [
                 str(evidence_id)
                 for evidence_id in item.get("evidence_ids", [])
@@ -600,6 +620,7 @@ model knowledge. Never merge, shorten, rename, or reclassify a required part."""
                     "confidence": confidence,
                     "context_evidence_ids": list(dict.fromkeys(selected)),
                     "evidence_ids": [],
+                    "normalizations": normalizations,
                 }
             )
         if "".join(part["surface"] for part in cleaned).casefold() != str(
