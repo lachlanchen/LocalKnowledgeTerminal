@@ -12,13 +12,14 @@ from .lexicon import WordnetRag
 from .llm import LlamaCppClient
 from .models import Evidence
 from .morphology import MorphologyIndex
-from .pronunciation import chinese_pinyin
+from .pronunciation import EspeakPronouncer, chinese_pinyin, chinese_ruby_tokens
 
 
 SUPPORTED_ATOMIC_JOBS = (
     "retrieve-evidence",
     "prepare-meaning",
     "prepare-translation",
+    "prepare-pronunciation",
 )
 _PARTS_OF_SPEECH = {
     "noun",
@@ -53,6 +54,10 @@ class AtomicModel(Protocol):
 
 class AtomicRetriever(Protocol):
     def retrieve(self, term: str) -> list[dict[str, Any]]: ...
+
+
+class AtomicPronouncer(Protocol):
+    def pronounce(self, text: str, language: str) -> dict[str, Any]: ...
 
 
 def _book_record(item: Evidence, source_hash: str = "") -> dict[str, Any]:
@@ -192,10 +197,12 @@ class PreparationWorker:
         store: KnowledgeStore,
         retriever: AtomicRetriever,
         model: AtomicModel,
+        pronouncer: AtomicPronouncer | None = None,
     ):
         self.store = store
         self.retriever = retriever
         self.model = model
+        self.pronouncer = pronouncer or EspeakPronouncer()
 
     def run_once(self) -> AtomicRunResult | None:
         job = self.store.claim_next_job(SUPPORTED_ATOMIC_JOBS)
@@ -206,8 +213,10 @@ class PreparationWorker:
                 artifact_id = self._retrieve(job)
             elif job["job_type"] == "prepare-meaning":
                 artifact_id = self._prepare_meaning(job)
-            else:
+            elif job["job_type"] == "prepare-translation":
                 artifact_id = self._prepare_translation(job)
+            else:
+                artifact_id = self._prepare_pronunciation(job)
         except Exception as exc:
             self.store.finish_job(job["job_id"], error=str(exc))
             return AtomicRunResult(job["job_id"], job["job_type"], "retry", "")
@@ -360,6 +369,137 @@ translations, examples, markdown, or claims absent from the evidence."""
             "accepted-meaning",
             accepted,
             language="en",
+            validation_state="accepted",
+            quality_score=confidence,
+        )
+
+    def _prepare_pronunciation(self, job: dict[str, Any]) -> str:
+        language = str(job.get("language", ""))
+        if language not in {"en", *_LANGUAGE_NAMES}:
+            raise ValueError(f"unsupported pronunciation language: {language}")
+        source = self.store.term_record(str(job["subject_entity_id"]))
+        evidence_ids: list[str] = []
+        if language == source["language"]:
+            target_term_id = source["entity_id"]
+            visible_term = str(source["text"])
+            meanings = self.store.artifacts_for_subject(
+                job["subject_key"],
+                stage="accepted-meaning",
+                validation_state="accepted",
+            )
+            if not meanings:
+                raise ValueError("accepted meaning checkpoint is missing")
+            evidence_ids = [str(item) for item in meanings[-1]["payload"]["evidence_ids"]]
+            translation: dict[str, Any] = {}
+        else:
+            translations = [
+                artifact
+                for artifact in self.store.artifacts_for_subject(
+                    job["subject_key"],
+                    stage="accepted-translation",
+                    validation_state="accepted",
+                )
+                if artifact["language"] == language
+            ]
+            if not translations:
+                raise ValueError(f"accepted {language} translation checkpoint is missing")
+            translation = translations[-1]["payload"]
+            target_term_id = str(translation["target_term_id"])
+            visible_term = str(translation["term"])
+            evidence_ids = [str(item) for item in translation.get("evidence_ids", [])]
+
+        method: dict[str, Any]
+        if language == "zh":
+            reading = chinese_pinyin(visible_term, str(translation.get("reading", "")))
+            ruby = chinese_ruby_tokens(visible_term)
+            segments = [
+                {
+                    "grapheme": token["t"],
+                    "phoneme": token["r"],
+                    "color_key": f"p{index % 6}",
+                    "features": {"ruby": True},
+                }
+                for index, token in enumerate(ruby)
+                if token.get("r")
+            ]
+            system, dialect, confidence = "pinyin", "Mandarin", 1.0
+            method = {"engine": "pypinyin", "basis": "accepted translation"}
+        elif language == "ja":
+            reading = str(translation.get("reading", "")).strip()
+            segments = [
+                {
+                    "grapheme": visible_term,
+                    "phoneme": reading,
+                    "color_key": "p0",
+                    "features": {"ruby": True},
+                }
+            ]
+            system, dialect = "kana", "standard"
+            confidence = float(translation.get("confidence", 0.8))
+            method = {"engine": "accepted translation", "basis": "dictionary + model"}
+        else:
+            generated = self.pronouncer.pronounce(visible_term, language)
+            reading = str(generated["reading"])
+            segments = list(generated.get("segments", []))
+            system = str(generated.get("system", "ipa"))
+            dialect = str(generated.get("dialect", ""))
+            confidence = 0.85 if language == "ar" else 0.9
+            method = dict(generated.get("source", {}))
+            engine_evidence = self.store.add_evidence(
+                f"espeak-ng:{method.get('version', 'local')}",
+                f"{dialect}:{visible_term}",
+                source_hash=str(method.get("version", "")),
+                locator="local deterministic IPA",
+                excerpt=reading,
+                payload={**method, "term": visible_term, "reading": reading},
+            )
+            evidence_ids.append(engine_evidence)
+
+        if not reading or not segments:
+            raise ValueError("pronunciation reading or aligned segments are missing")
+        pronunciation_id = self.store.add_pronunciation(
+            target_term_id,
+            language,
+            system,
+            reading,
+            segments,
+            dialect=dialect,
+            status="accepted",
+            quality_score=confidence,
+        )
+        for evidence_id in dict.fromkeys(evidence_ids):
+            self.store.link_evidence(
+                pronunciation_id,
+                evidence_id,
+                claim=f"{visible_term} pronunciation",
+                confidence=confidence,
+            )
+        accepted = {
+            "pronunciation_id": pronunciation_id,
+            "target_term_id": target_term_id,
+            "language": language,
+            "term": visible_term,
+            "system": system,
+            "reading": reading,
+            "dialect": dialect,
+            "segments": segments,
+            "method": method,
+            "confidence": confidence,
+            "evidence_ids": list(dict.fromkeys(evidence_ids)),
+        }
+        self.store.record_revision(
+            pronunciation_id,
+            accepted,
+            model="deterministic",
+            prompt_version=str(job.get("prompt_version", "")),
+            reason=f"atomic {language} pronunciation",
+            accepted=True,
+        )
+        return self.store.save_job_artifact(
+            job["job_id"],
+            "accepted-pronunciation",
+            accepted,
+            language=language,
             validation_state="accepted",
             quality_score=confidence,
         )
@@ -539,4 +679,5 @@ def build_worker(
         store,
         WordEvidenceRetriever(corpus, roots, affixes, lexicon),
         model,
+        EspeakPronouncer(),
     )

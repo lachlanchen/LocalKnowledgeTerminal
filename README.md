@@ -119,7 +119,7 @@ the configured book has no evidence, the app does not generate a card.
 | `lkt/retrieval.py` | Independent Word Origin, Word Card, Answer, and Question RAG policies |
 | `lkt/llm.py` | Small llama.cpp adapter and one strict prompt per experience |
 | `lkt/service.py` | Card composition and normalization |
-| `lkt/pronunciation.py` | Deterministic full-sentence tone-marked pinyin |
+| `lkt/pronunciation.py` | Deterministic pinyin/ruby and versioned offline IPA |
 | `lkt/store.py` | Versioned cards, preparation artifacts, revisions, archive, and chat ledger |
 | `lkt/knowledge.py` | Atomic established knowledge, evidence, jobs, revisions, and inquiry lineage |
 | `lkt/preparation.py` | Dependency-aware divide-and-conquer word/content planning |
@@ -232,9 +232,10 @@ Install the compact optional knowledge runtime and build the graph projection:
 ./scripts/rebuild_graph.sh
 ```
 
-This pins LadybugDB 0.19.1 and Wn 1.1.1 in an isolated environment, then installs
-only the OMW 2.0 English, Japanese, Mandarin Chinese, French, and Arabic
-lexicons. Full Wiktionary dumps are intentionally excluded.
+This installs eSpeak NG for local IPA, pins LadybugDB 0.19.1 and Wn 1.1.1 in an
+isolated environment, then installs only the OMW 2.0 English, Japanese, Mandarin
+Chinese, French, and Arabic lexicons. Full Wiktionary dumps are intentionally
+excluded. IPA extraction uses quiet text mode and does not enable speech output.
 
 On the Pi:
 

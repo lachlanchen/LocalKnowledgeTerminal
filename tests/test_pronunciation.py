@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 
-from lkt.pronunciation import chinese_pinyin, chinese_ruby_tokens
+from lkt.pronunciation import EspeakPronouncer, chinese_pinyin, chinese_ruby_tokens
 
 
 class PronunciationTests(unittest.TestCase):
@@ -23,6 +25,49 @@ class PronunciationTests(unittest.TestCase):
                 {"t": "国", "r": "guó"},
                 {"t": "。"},
             ],
+        )
+
+    @patch("lkt.pronunciation.subprocess.run")
+    def test_espeak_adapter_uses_fixed_voice_and_returns_provenance(self, run) -> None:
+        run.side_effect = [
+            SimpleNamespace(stdout="\u026ansp\u02c8\u025bk\u0283\u0259n\n"),
+            SimpleNamespace(stdout="eSpeak NG text-to-speech: 1.51\n"),
+        ]
+        result = EspeakPronouncer("/usr/bin/espeak-ng").pronounce(
+            "inspection", "en"
+        )
+        self.assertEqual(result["reading"], "\u026ansp\u02c8\u025bk\u0283\u0259n")
+        self.assertEqual(result["dialect"], "en-us")
+        self.assertEqual(result["source"]["engine"], "espeak-ng")
+        self.assertEqual(
+            run.call_args_list[0].args[0],
+            [
+                "/usr/bin/espeak-ng",
+                "-q",
+                "--ipa=3",
+                "-v",
+                "en-us",
+                "inspection",
+            ],
+        )
+
+    @patch("lkt.pronunciation.subprocess.run")
+    def test_arabic_adapter_removes_partial_diacritics_before_phonemizing(
+        self, run
+    ) -> None:
+        run.side_effect = [
+            SimpleNamespace(stdout="mu\u0295\u02c8a\u02d0jan\u02cca\n"),
+            SimpleNamespace(stdout="eSpeak NG text-to-speech: 1.51\n"),
+        ]
+        result = EspeakPronouncer("/usr/bin/espeak-ng").pronounce(
+            "\u0645\u064f\u0639\u0627\u064a\u0646\u0629", "ar"
+        )
+        self.assertEqual(
+            run.call_args_list[0].args[0][-1], "\u0645\u0639\u0627\u064a\u0646\u0629"
+        )
+        self.assertEqual(
+            result["source"]["input_normalization"],
+            "stripped-partial-diacritics",
         )
 
 

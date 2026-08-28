@@ -689,6 +689,7 @@ class KnowledgeStore:
         *,
         dialect: str = "",
         status: str = "accepted",
+        quality_score: float | None = None,
     ) -> str:
         language = _language(language)
         system = system.strip().lower()
@@ -701,7 +702,12 @@ class KnowledgeStore:
         )
         with closing(self._connect()) as connection:
             entity_id = self._upsert_entity(
-                connection, "pronunciation", canonical_key, reading, status=status
+                connection,
+                "pronunciation",
+                canonical_key,
+                reading,
+                status=status,
+                quality_score=quality_score,
             )
             connection.execute(
                 """INSERT INTO pronunciations(

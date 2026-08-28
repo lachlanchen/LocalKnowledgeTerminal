@@ -69,6 +69,19 @@ class FakeAtomicModel:
         }
 
 
+class FakePronouncer:
+    def pronounce(self, text: str, language: str) -> dict[str, Any]:
+        return {
+            "reading": "\u026ansp\u02c8\u025bk\u0283\u0259n",
+            "system": "ipa",
+            "dialect": "en-us",
+            "segments": [
+                {"grapheme": text, "phoneme": "\u026ansp\u02c8\u025bk\u0283\u0259n", "color_key": "p0"}
+            ],
+            "source": {"engine": "fake-espeak", "version": "test", "voice": language},
+        }
+
+
 class AtomicWorkerTests(unittest.TestCase):
     def test_morphology_context_rejects_incidental_fts_hits(self) -> None:
         def item(headword: str, kind: str) -> Evidence:
@@ -230,8 +243,12 @@ class AtomicWorkerTests(unittest.TestCase):
             plan = PreparationPlanner(store, model="test").plan_word(
                 "inspection", display_languages=("en",)
             )
-            worker = PreparationWorker(store, FakeRetriever(), FakeAtomicModel())
-            self.assertEqual(len(worker.run(10)), 2)
+            worker = PreparationWorker(
+                store, FakeRetriever(), FakeAtomicModel(), FakePronouncer()
+            )
+            results = worker.run(10)
+            self.assertEqual(len(results), 3)
+            self.assertEqual(results[-1].job_type, "prepare-pronunciation")
             queued_types = {
                 job["job_type"]
                 for job in store.jobs_for_subject(plan.subject_key)
@@ -239,6 +256,55 @@ class AtomicWorkerTests(unittest.TestCase):
             }
             self.assertIn("split-morphemes", queued_types)
             self.assertIn("compose-word-card", queued_types)
+
+    def test_pronunciation_reuses_accepted_atoms_without_an_llm_call(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")
+            plan = PreparationPlanner(store, model="test").plan_word(
+                "inspection", display_languages=("en", "zh")
+            )
+            worker = PreparationWorker(
+                store, FakeRetriever(), FakeAtomicModel(), FakePronouncer()
+            )
+            worker.run(2)
+            meaning = store.artifacts_for_subject(
+                plan.subject_key,
+                stage="accepted-meaning",
+                validation_state="accepted",
+            )[0]["payload"]
+            target_id = store.upsert_term("zh", "\u68c0\u67e5", status="accepted")
+            translation_job = plan.jobs["translation:zh"]
+            store.save_job_artifact(
+                translation_job,
+                "accepted-translation",
+                {
+                    "translation_id": "translation-zh",
+                    "target_term_id": target_id,
+                    "language": "zh",
+                    "term": "\u68c0\u67e5",
+                    "reading": "ji\u01cen ch\u00e1",
+                    "confidence": 1.0,
+                    "evidence_ids": meaning["evidence_ids"],
+                },
+                language="zh",
+                validation_state="accepted",
+                quality_score=1.0,
+            )
+            store.finish_job(translation_job)
+            results = worker.run(2)
+            self.assertEqual(
+                [result.job_type for result in results],
+                ["prepare-pronunciation", "prepare-pronunciation"],
+            )
+            artifacts = store.artifacts_for_subject(
+                plan.subject_key,
+                stage="accepted-pronunciation",
+                validation_state="accepted",
+            )
+            chinese = next(item for item in artifacts if item["language"] == "zh")
+            self.assertEqual(chinese["payload"]["system"], "pinyin")
+            self.assertEqual(len(chinese["payload"]["segments"]), 2)
+            self.assertEqual(store.status()["counts"]["pronunciations"], 2)
 
 
 if __name__ == "__main__":

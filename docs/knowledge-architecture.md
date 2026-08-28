@@ -93,6 +93,15 @@ is collapsed deterministically and recorded; broader repetition still fails.
 without rerunning the whole word pipeline; its accepted replacement supersedes
 the earlier preparation artifact.
 
+`prepare-pronunciation` does not spend an LLM call. Japanese reuses its accepted
+kana reading; Chinese pinyin and character ruby are derived deterministically;
+and the small offline eSpeak NG engine provides versioned IPA for English,
+French, and Arabic. Partial Arabic vowel marks are removed before phonemization
+because a partly marked word is less reliable than the engine's unmarked lexical
+lookup. The visible Arabic spelling is preserved, and this normalization remains
+in provenance. Initial IPA is stored as one grapheme-aligned segment; finer
+phoneme coloring is a later independently validated refinement.
+
 Answer and Question preparation follows the same rule: source text, each
 language, grammar parts, and investigation candidates are separate tasks. A
 meaningful selected word can start a child investigation while retaining the

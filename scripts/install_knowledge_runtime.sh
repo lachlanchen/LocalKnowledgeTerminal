@@ -11,6 +11,10 @@ WN_DATA_DIR="${LKT_HOME}/data/lexicons/wn"
   exit 1
 }
 
+if ! command -v espeak-ng >/dev/null 2>&1; then
+  DEBIAN_FRONTEND=noninteractive sudo -n apt-get install -y espeak-ng
+fi
+
 python3 -m venv "$VENV_DIR"
 "${VENV_DIR}/bin/python" -m pip install \
   --disable-pip-version-check \

@@ -1,10 +1,15 @@
 from __future__ import annotations
 
 import re
+import shutil
+import subprocess
+import unicodedata
+from typing import Any
 
 
 _CJK_RE = re.compile(r"[\u3400-\u9fff]")
 _SPACE_BEFORE_PUNCTUATION = re.compile(r"\s+([，。！？；：、,.!?;:])")
+_ESPEAK_VOICES = {"en": "en-us", "fr": "fr-fr", "ar": "ar"}
 
 
 def chinese_pinyin(text: str, fallback: str = "") -> str:
@@ -47,3 +52,62 @@ def chinese_ruby_tokens(text: str) -> list[dict[str, str]]:
             token["r"] = reading
         tokens.append(token)
     return tokens
+
+
+class EspeakPronouncer:
+    """Small offline IPA adapter with a fixed language-to-voice policy."""
+
+    def __init__(self, executable: str = ""):
+        self.executable = executable or shutil.which("espeak-ng") or ""
+
+    def pronounce(self, text: str, language: str) -> dict[str, Any]:
+        voice = _ESPEAK_VOICES.get(language, "")
+        if not self.executable or not voice:
+            raise RuntimeError(f"eSpeak NG is unavailable for language {language!r}")
+        spoken_text = text
+        normalization = ""
+        if language == "ar":
+            spoken_text = "".join(
+                character
+                for character in unicodedata.normalize("NFKD", text)
+                if not unicodedata.combining(character)
+            )
+            normalization = "stripped-partial-diacritics"
+        result = subprocess.run(
+            [self.executable, "-q", "--ipa=3", "-v", voice, spoken_text],
+            check=True,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=10,
+        )
+        reading = re.sub(r"\s+", " ", result.stdout).strip()
+        if not reading or len(reading) > 200:
+            raise ValueError("eSpeak NG returned an empty or oversized IPA reading")
+        version = subprocess.run(
+            [self.executable, "--version"],
+            check=True,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=5,
+        ).stdout.splitlines()[0].strip()
+        return {
+            "reading": reading,
+            "system": "ipa",
+            "dialect": voice,
+            "segments": [
+                {
+                    "grapheme": text,
+                    "phoneme": reading,
+                    "color_key": "p0",
+                    "features": {"engine": "espeak-ng", "voice": voice},
+                }
+            ],
+            "source": {
+                "engine": "espeak-ng",
+                "version": version,
+                "voice": voice,
+                **({"input_normalization": normalization} if normalization else {}),
+            },
+        }
