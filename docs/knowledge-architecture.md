@@ -109,6 +109,13 @@ etymology. The publication boundary therefore requires a graph for Word Origin
 (internal mode `word`), Root, and Affix views, but never forces that graph into
 the focused Word Card (internal mode `knowledge`).
 
+`compose-word-card` is deterministic assembly, not another generation pass. It
+requires accepted meaning, grammar, four translations, and five pronunciation
+artifacts; reconstructs stable evidence records; and saves a candidate through
+the ordinary card publication gate. Only after that gate passes does the card
+enter the Word Card carousel. A later accepted composition for the same term
+supersedes the earlier card while preserving its ledger row and atomic inputs.
+
 Answer and Question preparation follows the same rule: source text, each
 language, grammar parts, and investigation candidates are separate tasks. A
 meaningful selected word can start a child investigation while retaining the

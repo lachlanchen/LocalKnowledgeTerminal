@@ -3,16 +3,19 @@ from __future__ import annotations
 import json
 import re
 import unicodedata
+import uuid
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any, Protocol
 
 from .corpus import CorpusIndex
 from .knowledge import KnowledgeStore
 from .lexicon import WordnetRag
 from .llm import LlamaCppClient
-from .models import Evidence
+from .models import Card, Evidence
 from .morphology import MorphologyIndex
 from .pronunciation import EspeakPronouncer, chinese_pinyin, chinese_ruby_tokens
+from .store import CardStore
 
 
 SUPPORTED_ATOMIC_JOBS = (
@@ -21,6 +24,7 @@ SUPPORTED_ATOMIC_JOBS = (
     "prepare-translation",
     "prepare-pronunciation",
     "prepare-grammar-properties",
+    "compose-word-card",
 )
 _PARTS_OF_SPEECH = {
     "noun",
@@ -199,14 +203,19 @@ class PreparationWorker:
         retriever: AtomicRetriever,
         model: AtomicModel,
         pronouncer: AtomicPronouncer | None = None,
+        card_store: CardStore | None = None,
     ):
         self.store = store
         self.retriever = retriever
         self.model = model
         self.pronouncer = pronouncer or EspeakPronouncer()
+        self.card_store = card_store
 
     def run_once(self) -> AtomicRunResult | None:
-        job = self.store.claim_next_job(SUPPORTED_ATOMIC_JOBS)
+        job_types = list(SUPPORTED_ATOMIC_JOBS)
+        if self.card_store is None:
+            job_types.remove("compose-word-card")
+        job = self.store.claim_next_job(job_types)
         if job is None:
             return None
         try:
@@ -218,8 +227,10 @@ class PreparationWorker:
                 artifact_id = self._prepare_translation(job)
             elif job["job_type"] == "prepare-pronunciation":
                 artifact_id = self._prepare_pronunciation(job)
-            else:
+            elif job["job_type"] == "prepare-grammar-properties":
                 artifact_id = self._prepare_grammar_properties(job)
+            else:
+                artifact_id = self._compose_word_card(job)
         except Exception as exc:
             self.store.finish_job(job["job_id"], error=str(exc))
             return AtomicRunResult(job["job_id"], job["job_type"], "retry", "")
@@ -575,6 +586,183 @@ translations, examples, markdown, or claims absent from the evidence."""
             quality_score=confidence,
         )
 
+    def _compose_word_card(self, job: dict[str, Any]) -> str:
+        if self.card_store is None:
+            raise RuntimeError("card store is unavailable")
+        source = self.store.term_record(str(job["subject_entity_id"]))
+        artifacts = self.store.artifacts_for_subject(
+            job["subject_key"], validation_state="accepted"
+        )
+        meanings = [item for item in artifacts if item["stage"] == "accepted-meaning"]
+        grammar = [
+            item for item in artifacts if item["stage"] == "accepted-grammar-properties"
+        ]
+        translations = {
+            item["language"]: item
+            for item in artifacts
+            if item["stage"] == "accepted-translation"
+        }
+        pronunciations = {
+            item["language"]: item
+            for item in artifacts
+            if item["stage"] == "accepted-pronunciation"
+        }
+        required_translations = {"ja", "zh", "fr", "ar"}
+        required_pronunciations = {"en", "ja", "zh", "fr", "ar"}
+        if not meanings or not grammar:
+            raise ValueError("accepted meaning or grammar checkpoint is missing")
+        if not required_translations.issubset(translations):
+            raise ValueError("one or more accepted translations are missing")
+        if not required_pronunciations.issubset(pronunciations):
+            raise ValueError("one or more accepted pronunciations are missing")
+
+        meaning = meanings[-1]
+        grammar_value = grammar[-1]["payload"]
+        translation_values = {
+            language: translations[language]["payload"]
+            for language in required_translations
+        }
+        pronunciation_values = {
+            language: pronunciations[language]["payload"]
+            for language in required_pronunciations
+        }
+        evidence_ids = [str(item) for item in meaning["payload"]["evidence_ids"]]
+        evidence: list[Evidence] = []
+        for record in self.store.evidence_records(evidence_ids):
+            payload = record["payload"]
+            page_values = payload.get("pages", [])
+            pages = tuple(
+                int(page)
+                for page in page_values
+                if isinstance(page, int) or str(page).isdigit()
+            ) if isinstance(page_values, list) else ()
+            evidence.append(
+                Evidence(
+                    entry_id=str(payload.get("entry_id") or record["source_entry_id"]),
+                    headword=str(payload.get("headword") or source["text"]),
+                    section=str(payload.get("section", "")),
+                    date_label=str(payload.get("date_label", "")),
+                    pages=pages,
+                    excerpt=str(record["excerpt"]),
+                    corpus_id=str(record["corpus_id"]),
+                    source_title=str(payload.get("source_title", record["corpus_id"])),
+                    kind=str(payload.get("kind", "evidence")),
+                    locator=str(record["locator"]),
+                    translations=(
+                        dict(payload["translations"])
+                        if isinstance(payload.get("translations"), dict)
+                        else {}
+                    ),
+                )
+            )
+        if not evidence:
+            raise ValueError("accepted meaning evidence could not be reconstructed")
+
+        def ruby(language: str) -> list[dict[str, str]]:
+            return [
+                {"t": str(segment["grapheme"]), "r": str(segment["phoneme"])}
+                for segment in pronunciation_values[language].get("segments", [])
+                if str(segment.get("grapheme", "")) and str(segment.get("phoneme", ""))
+            ]
+
+        quality_values = [
+            float(meaning["quality_score"] or 0),
+            float(grammar[-1]["quality_score"] or 0),
+            *(float(item["quality_score"] or 0) for item in translations.values()),
+            *(float(item["quality_score"] or 0) for item in pronunciations.values()),
+        ]
+        quality = min(quality_values)
+        definition = str(meaning["payload"]["definition"])
+        japanese = translation_values["ja"]
+        chinese = translation_values["zh"]
+        french = translation_values["fr"]
+        arabic = translation_values["ar"]
+        card = Card(
+            card_id=str(uuid.uuid4()),
+            mode="knowledge",
+            query=str(source["text"]),
+            title=str(source["text"]),
+            subtitle=str(grammar_value["part_of_speech"]).upper(),
+            summary_en="",
+            origin_story="",
+            key_points=[],
+            english={
+                "term": str(source["text"]),
+                "pronunciation": str(pronunciation_values["en"]["reading"]),
+                "meaning": definition,
+            },
+            japanese={
+                "term": str(japanese["term"]),
+                "reading": str(japanese["reading"]),
+                "meaning": str(japanese["meaning"]),
+                "ruby_tokens": ruby("ja"),
+            },
+            chinese={
+                "simplified": str(chinese["term"]),
+                "traditional": "",
+                "pinyin": str(pronunciation_values["zh"]["reading"]),
+                "meaning": str(chinese["meaning"]),
+                "ruby_tokens": ruby("zh"),
+            },
+            memory_hook="",
+            related_terms=[],
+            evidence=evidence,
+            model=str(job.get("model", "local atomic pipeline")),
+            created_at=datetime.now(UTC).isoformat(),
+            extensions={
+                "experience": "knowledge",
+                "knowledge_policy": "accepted-atomic-view",
+                "knowledge_subject": job["subject_key"],
+                "knowledge_artifact_ids": [
+                    str(item["artifact_id"])
+                    for item in artifacts
+                    if item["stage"] in {
+                        "accepted-meaning",
+                        "accepted-translation",
+                        "accepted-pronunciation",
+                        "accepted-grammar-properties",
+                    }
+                ],
+                "evidence_ids": evidence_ids,
+                "outputs": ["web"],
+                "future_outputs": ["eink", "audio"],
+            },
+            extra_languages={
+                "french": {
+                    "term": str(french["term"]),
+                    "pronunciation": str(pronunciation_values["fr"]["reading"]),
+                    "meaning": str(french["meaning"]),
+                },
+                "arabic": {
+                    "term": str(arabic["term"]),
+                    "reading": str(pronunciation_values["ar"]["reading"]),
+                    "meaning": str(arabic["meaning"]),
+                },
+            },
+        )
+        self.card_store.save(card)
+        self.card_store.publish(
+            card.card_id,
+            quality_score=quality,
+            review_note="composed only from accepted atomic knowledge",
+        )
+        self.card_store.supersede_others(card.mode, card.query, card.card_id)
+        accepted = {
+            "card_id": card.card_id,
+            "mode": card.mode,
+            "quality": quality,
+            "knowledge_artifact_ids": card.extensions["knowledge_artifact_ids"],
+            "card": card.to_dict(),
+        }
+        return self.store.save_job_artifact(
+            job["job_id"],
+            "accepted-word-card",
+            accepted,
+            language="en",
+            validation_state="accepted",
+            quality_score=quality,
+        )
+
     def _prepare_translation(self, job: dict[str, Any]) -> str:
         language = str(job.get("language", ""))
         if language not in _LANGUAGE_NAMES:
@@ -745,10 +933,12 @@ def build_worker(
     affixes: MorphologyIndex,
     lexicon: WordnetRag,
     model: LlamaCppClient,
+    card_store: CardStore,
 ) -> PreparationWorker:
     return PreparationWorker(
         store,
         WordEvidenceRetriever(corpus, roots, affixes, lexicon),
         model,
         EspeakPronouncer(),
+        card_store,
     )

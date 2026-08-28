@@ -123,6 +123,7 @@ the configured book has no evidence, the app does not generate a card.
 | `lkt/store.py` | Versioned cards, preparation artifacts, revisions, archive, and chat ledger |
 | `lkt/knowledge.py` | Atomic established knowledge, evidence, jobs, revisions, and inquiry lineage |
 | `lkt/preparation.py` | Dependency-aware divide-and-conquer word/content planning |
+| `lkt/atomic.py` | Bounded atomic preparation and deterministic card assembly |
 | `lkt/graph.py` | Rebuildable LadybugDB traversal projection from accepted SQLite atoms |
 | `lkt/lexicon.py` | Compact multilingual WordNet correction evidence |
 | `lkt/web.py` | Dependency-free HTTP API and GUI server |

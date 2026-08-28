@@ -1189,6 +1189,28 @@ class KnowledgeStore:
             )
             connection.commit()
 
+    def evidence_records(self, evidence_ids: Iterable[str]) -> list[dict[str, Any]]:
+        ordered = list(dict.fromkeys(str(item) for item in evidence_ids if str(item)))
+        if not ordered:
+            return []
+        placeholders = ",".join("?" for _ in ordered)
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                f"""SELECT evidence_id, corpus_id, source_entry_id, source_hash,
+                           locator, excerpt, payload
+                    FROM evidence_records WHERE evidence_id IN ({placeholders})""",
+                ordered,
+            ).fetchall()
+        by_id = {str(row["evidence_id"]): row for row in rows}
+        return [
+            {
+                **dict(by_id[evidence_id]),
+                "payload": json.loads(by_id[evidence_id]["payload"]),
+            }
+            for evidence_id in ordered
+            if evidence_id in by_id
+        ]
+
     def enqueue_job(
         self,
         job_type: str,

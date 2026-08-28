@@ -292,6 +292,19 @@ class CardStore:
             ).fetchall()
         return [json.loads(row[0]) for row in rows]
 
+    def supersede_others(self, mode: str, query: str, keep_card_id: str) -> int:
+        """Keep one accepted revision current for a mode/query collection key."""
+        timestamp = datetime.now(UTC).isoformat()
+        with closing(self._connect()) as connection:
+            cursor = connection.execute(
+                """UPDATE cards SET status = 'superseded', updated_at = ?
+                   WHERE mode = ? AND query = ? AND card_id <> ?
+                     AND status = 'active' AND validation_state = 'accepted'""",
+                (timestamp, mode.strip(), query.strip(), keep_card_id),
+            )
+            connection.commit()
+        return int(cursor.rowcount)
+
     def get(self, card_id: str) -> dict[str, Any] | None:
         with closing(self._connect()) as connection:
             row = connection.execute(

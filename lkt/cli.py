@@ -265,6 +265,7 @@ def command_work_atomic(args: argparse.Namespace) -> int:
         LlamaCppClient(
             settings.llm_url, settings.llm_model, settings.request_timeout
         ),
+        CardStore(settings.cards_db),
     )
     print(
         json.dumps(

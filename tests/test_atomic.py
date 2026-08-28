@@ -16,6 +16,7 @@ from lkt.atomic import (
 from lkt.knowledge import KnowledgeStore
 from lkt.models import Evidence
 from lkt.preparation import PreparationPlanner
+from lkt.store import CardStore
 
 
 class FakeRetriever:
@@ -311,6 +312,124 @@ class AtomicWorkerTests(unittest.TestCase):
             self.assertEqual(chinese["payload"]["system"], "pinyin")
             self.assertEqual(len(chinese["payload"]["segments"]), 2)
             self.assertEqual(store.status()["counts"]["pronunciations"], 2)
+
+    def test_word_card_is_composed_only_from_accepted_atomic_artifacts(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            store = KnowledgeStore(root / "knowledge.sqlite3")
+            cards = CardStore(root / "cards.sqlite3")
+            plan = PreparationPlanner(store, model="test-qwen-4b").plan_word(
+                "inspection", display_languages=("en", "ja", "zh", "fr", "ar")
+            )
+            evidence_id = store.add_evidence(
+                "omw-en:2.0",
+                "sense-inspection-1",
+                locator="sense 1",
+                excerpt="A formal or official examination",
+                payload={
+                    "entry_id": "omw-en:2.0:sense-inspection-1",
+                    "headword": "inspection",
+                    "source_title": "Open Multilingual Wordnet 2.0",
+                    "kind": "dictionary-sense",
+                },
+            )
+            store.finish_job(plan.jobs["retrieve-evidence"])
+            meaning_id = "meaning-inspection"
+            meaning = {
+                "meaning_id": meaning_id,
+                "definition": "A formal or official examination.",
+                "part_of_speech": "noun",
+                "confidence": 0.95,
+                "evidence_ids": [evidence_id],
+            }
+            store.save_job_artifact(
+                plan.jobs["meaning:en"],
+                "accepted-meaning",
+                meaning,
+                language="en",
+                validation_state="accepted",
+                quality_score=0.95,
+            )
+            store.finish_job(plan.jobs["meaning:en"])
+            language_values = {
+                "ja": ("\u5be9\u67fb", "\u516c\u5f0f\u306a\u8abf\u67fb", "\u3057\u3093\u3055"),
+                "zh": ("\u68c0\u67e5", "\u6b63\u5f0f\u7684\u68c0\u67e5", "ji\u01cen ch\u00e1"),
+                "fr": ("inspection", "examen officiel ou formel", "\u025b\u0303sp\u025bksj\u02c8\u0254\u0303"),
+                "ar": ("\u0645\u0639\u0627\u064a\u0646\u0629", "\u0641\u062d\u0635 \u0631\u0633\u0645\u064a \u0644\u0634\u064a\u0621 \u0645\u0639\u064a\u0646", "mu\u0295\u02c8a\u02d0jan\u02cca"),
+            }
+            for language, (term, translated_meaning, reading) in language_values.items():
+                translation_job = plan.jobs[f"translation:{language}"]
+                store.save_job_artifact(
+                    translation_job,
+                    "accepted-translation",
+                    {
+                        "translation_id": f"translation-{language}",
+                        "target_term_id": f"term-{language}",
+                        "term": term,
+                        "meaning": translated_meaning,
+                        "reading": reading if language in {"ja", "zh", "ar"} else "",
+                        "confidence": 0.9,
+                        "evidence_ids": [evidence_id],
+                    },
+                    language=language,
+                    validation_state="accepted",
+                    quality_score=0.9,
+                )
+                store.finish_job(translation_job)
+
+            pronunciation_values = {
+                "en": ("inspection", "\u026ansp\u02c8\u025bk\u0283\u0259n"),
+                **{
+                    language: (values[0], values[2])
+                    for language, values in language_values.items()
+                },
+            }
+            for language, (term, reading) in pronunciation_values.items():
+                pronunciation_job = plan.jobs[f"pronunciation:{language}"]
+                segments = (
+                    [
+                        {"grapheme": "\u68c0", "phoneme": "ji\u01cen"},
+                        {"grapheme": "\u67e5", "phoneme": "ch\u00e1"},
+                    ]
+                    if language == "zh"
+                    else [{"grapheme": term, "phoneme": reading}]
+                )
+                store.save_job_artifact(
+                    pronunciation_job,
+                    "accepted-pronunciation",
+                    {
+                        "target_term_id": f"term-{language}",
+                        "language": language,
+                        "term": term,
+                        "reading": reading,
+                        "segments": segments,
+                    },
+                    language=language,
+                    validation_state="accepted",
+                    quality_score=0.9,
+                )
+                store.finish_job(pronunciation_job)
+            store.save_job_artifact(
+                plan.jobs["grammar-properties"],
+                "accepted-grammar-properties",
+                {"part_of_speech": "noun", "confidence": 0.95},
+                language="en",
+                validation_state="accepted",
+                quality_score=0.95,
+            )
+            store.finish_job(plan.jobs["grammar-properties"])
+
+            worker = PreparationWorker(
+                store, FakeRetriever(), FakeAtomicModel(), FakePronouncer(), cards
+            )
+            result = worker.run_once()
+            self.assertIsNotNone(result)
+            self.assertEqual(result.job_type, "compose-word-card")
+            card = cards.recent(1)[0]
+            self.assertEqual(card["mode"], "knowledge")
+            self.assertEqual(card["english"]["meaning"], meaning["definition"])
+            self.assertEqual(card["extra_languages"]["french"]["term"], "inspection")
+            self.assertNotIn("morphology_graph", card["extensions"])
 
 
 if __name__ == "__main__":
