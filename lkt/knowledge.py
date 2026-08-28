@@ -704,6 +704,103 @@ class KnowledgeStore:
             "artifacts_rejected": int(artifact_cursor.rowcount),
         }
 
+    def retire_language_analysis(
+        self, term_id: str, language: str, reason: str
+    ) -> dict[str, int]:
+        """Quarantine one bad translation/pronunciation without touching others."""
+
+        language = _language(language)
+        reason = reason.strip() or "language analysis rejected by validation"
+        subject_key = f"term:{term_id}"
+        artifacts = [
+            artifact
+            for stage in ("accepted-translation", "accepted-pronunciation")
+            for artifact in self.artifacts_for_subject(
+                subject_key, stage=stage, validation_state="accepted"
+            )
+            if artifact["language"] == language
+        ]
+        owned_ids: set[str] = set()
+        target_ids: set[str] = set()
+        for artifact in artifacts:
+            payload = artifact["payload"]
+            for field in ("translation_id", "pronunciation_id"):
+                if str(payload.get(field, "")):
+                    owned_ids.add(str(payload[field]))
+            if str(payload.get("target_term_id", "")):
+                target_ids.add(str(payload["target_term_id"]))
+
+        with closing(self._connect()) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            artifact_cursor = connection.execute(
+                """UPDATE job_artifacts SET validation_state = 'rejected'
+                   WHERE validation_state = 'accepted' AND language = ?
+                     AND stage IN ('accepted-translation', 'accepted-pronunciation')
+                     AND job_id IN (
+                         SELECT job_id FROM preparation_jobs
+                         WHERE subject_entity_id = ?
+                     )""",
+                (language, term_id),
+            )
+            entities_rejected = 0
+            edges_archived = 0
+            if owned_ids:
+                placeholders = ",".join("?" for _ in owned_ids)
+                parameters = tuple(owned_ids)
+                edges_archived += int(
+                    connection.execute(
+                        f"""UPDATE entity_edges SET status = 'archived', updated_at = ?
+                            WHERE status = 'accepted'
+                              AND (source_entity_id IN ({placeholders})
+                                   OR target_entity_id IN ({placeholders}))""",
+                        (_now(), *parameters, *parameters),
+                    ).rowcount
+                )
+                entities_rejected += int(
+                    connection.execute(
+                        f"""UPDATE entities SET status = 'rejected', updated_at = ?
+                            WHERE status = 'accepted' AND entity_id IN ({placeholders})""",
+                        (_now(), *parameters),
+                    ).rowcount
+                )
+            orphan_terms_rejected = 0
+            for target_id in target_ids:
+                remaining_edges = int(
+                    connection.execute(
+                        """SELECT COUNT(*) FROM entity_edges
+                           WHERE status = 'accepted'
+                             AND (source_entity_id = ? OR target_entity_id = ?)""",
+                        (target_id, target_id),
+                    ).fetchone()[0]
+                )
+                if not remaining_edges:
+                    orphan_terms_rejected += int(
+                        connection.execute(
+                            """UPDATE entities SET status = 'rejected', updated_at = ?
+                               WHERE entity_id = ? AND status = 'accepted'""",
+                            (_now(), target_id),
+                        ).rowcount
+                    )
+            connection.commit()
+        self.record_revision(
+            term_id,
+            {
+                "language": language,
+                "retired_entity_ids": sorted(owned_ids),
+                "retired_target_term_ids": sorted(target_ids),
+                "reason": reason,
+            },
+            model="validator",
+            reason=reason,
+            accepted=False,
+        )
+        return {
+            "artifacts_rejected": int(artifact_cursor.rowcount),
+            "entities_rejected": entities_rejected,
+            "edges_archived": edges_archived,
+            "orphan_terms_rejected": orphan_terms_rejected,
+        }
+
     def add_meaning(
         self,
         term_id: str,

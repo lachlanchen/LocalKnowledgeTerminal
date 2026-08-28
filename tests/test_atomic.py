@@ -501,6 +501,43 @@ class AtomicWorkerTests(unittest.TestCase):
                 ["collapsed-repeated-arabic-alternative"],
             )
 
+    def test_mixed_script_arabic_translation_is_rejected(self) -> None:
+        class MixedArabicModel(FakeAtomicModel):
+            def complete_json(
+                self, system: str, prompt: str, *, max_tokens: int = 256
+            ) -> dict[str, Any]:
+                if "TARGET LANGUAGE: Arabic" not in prompt:
+                    return super().complete_json(system, prompt, max_tokens=max_tokens)
+                evidence = re.search(r'"(evidence-[^"]+)"', prompt)
+                assert evidence is not None
+                return {
+                    "value": {
+                        "term": "انBREAKTHROUGH",
+                        "meaning": "إنجاز مهم",
+                        "reading": "breakthrough",
+                        "usage_note": "",
+                        "confidence": 0.9,
+                        "evidence_ids": [evidence.group(1)],
+                    },
+                    "model": self.model_name,
+                }
+
+        with tempfile.TemporaryDirectory() as temp:
+            store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")
+            plan = PreparationPlanner(store, model="test-qwen-4b").plan_word_card(
+                "inspection", display_languages=("en", "ar")
+            )
+            results = PreparationWorker(store, FakeRetriever(), MixedArabicModel()).run(3)
+            self.assertEqual(results[-1].status, "retry")
+            self.assertEqual(
+                store.artifacts_for_subject(
+                    plan.subject_key,
+                    stage="accepted-translation",
+                    validation_state="accepted",
+                ),
+                [],
+            )
+
     def test_small_output_quality_helpers_are_deliberately_restrained(self) -> None:
         self.assertEqual(_clean_usage_note("formal examination sense"), "formal examination sense")
         self.assertEqual(_clean_usage_note("\u516c\u5f0f\u306a\u691c\u67fb\u306e\u610f\u5473"), "")

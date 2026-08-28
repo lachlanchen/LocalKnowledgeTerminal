@@ -7,6 +7,18 @@ import unicodedata
 from typing import Any
 
 
+def is_arabic_script_text(value: str) -> bool:
+    """Accept Arabic-script prose while rejecting mixed alphabetic leakage."""
+
+    letters = [character for character in str(value) if character.isalpha()]
+    return len(letters) >= 2 and all(
+        "\u0600" <= character <= "\u06ff"
+        or "\u0750" <= character <= "\u077f"
+        or "\u08a0" <= character <= "\u08ff"
+        for character in letters
+    )
+
+
 _CJK_RE = re.compile(r"[\u3400-\u9fff]")
 _SPACE_BEFORE_PUNCTUATION = re.compile(r"\s+([，。！？；：、,.!?;:])")
 _ESPEAK_VOICES = {"en": "en-us", "fr": "fr-fr", "ar": "ar"}

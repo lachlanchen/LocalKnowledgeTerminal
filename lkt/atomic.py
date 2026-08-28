@@ -15,7 +15,12 @@ from .lexicon import WordnetRag
 from .llm import LlamaCppClient
 from .models import Card, Evidence
 from .morphology import MorphologyIndex
-from .pronunciation import EspeakPronouncer, chinese_pinyin, chinese_ruby_tokens
+from .pronunciation import (
+    EspeakPronouncer,
+    chinese_pinyin,
+    chinese_ruby_tokens,
+    is_arabic_script_text,
+)
 from .store import CardStore
 
 
@@ -2020,6 +2025,8 @@ evidence_ids: non-empty array containing only supplied evidence IDs
 
 When dictionary candidates are non-empty, term must exactly equal one candidate.
 Use natural, non-redundant wording; never repeat a content word around "or".
+For Arabic, term and meaning must contain Arabic script only. Never copy Latin
+letters or the English source term into either field.
 Do not add alternatives, markdown, etymology, or example sentences."""
         completion = self.model.complete_json(
             "You prepare one sense-aligned translation at a time. Preserve scripts accurately.",
@@ -2054,8 +2061,10 @@ Do not add alternatives, markdown, etymology, or example sentences."""
             raise ValueError("Japanese translation has no Japanese script")
         if language == "zh" and not re.search(r"[\u3400-\u9fff]", translated):
             raise ValueError("Chinese translation has no Han characters")
-        if language == "ar" and not re.search(r"[\u0600-\u06ff]", translated):
-            raise ValueError("Arabic translation has no Arabic script")
+        if language == "ar" and not is_arabic_script_text(translated):
+            raise ValueError("Arabic translation term contains mixed or non-Arabic script")
+        if language == "ar" and not is_arabic_script_text(translated_meaning):
+            raise ValueError("Arabic translation meaning contains mixed or non-Arabic script")
         if language == "ar":
             cleaned_meaning = _collapse_repeated_arabic_alternative(
                 translated_meaning

@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from .models import Card
+from .pronunciation import is_arabic_script_text
 
 
 _VISIBLE_MODES = {"word", "knowledge", "answer", "question", "root", "affix"}
@@ -93,6 +94,17 @@ def card_validation_errors(card: dict[str, Any]) -> list[str]:
             errors.append("Chinese term or meaning is missing")
         elif not _ruby_covers(chinese_term, chinese.get("ruby_tokens")):
             errors.append("Chinese ruby does not cover every Han character")
+        extra_languages = card.get("extra_languages")
+        arabic = (
+            extra_languages.get("arabic")
+            if isinstance(extra_languages, dict)
+            else None
+        )
+        if isinstance(arabic, dict):
+            if not is_arabic_script_text(str(arabic.get("term", ""))):
+                errors.append("Arabic term contains mixed or non-Arabic script")
+            if not is_arabic_script_text(str(arabic.get("meaning", ""))):
+                errors.append("Arabic meaning contains mixed or non-Arabic script")
 
     if mode in {"word", "root", "affix"}:
         extensions = card.get("extensions")

@@ -7,10 +7,43 @@ import json
 from contextlib import closing
 from pathlib import Path
 
-from lkt.store import CardStore
+from lkt.store import CardStore, card_validation_errors
 
 
 class StoreTests(unittest.TestCase):
+    def test_mixed_script_arabic_blocks_card_publication(self) -> None:
+        errors = card_validation_errors(
+            {
+                "card_id": "dirty-arabic",
+                "mode": "knowledge",
+                "query": "breakthrough",
+                "title": "breakthrough",
+                "grounded": True,
+                "english": {"term": "breakthrough", "meaning": "an insight"},
+                "japanese": {
+                    "term": "発見",
+                    "meaning": "重要な発見",
+                    "ruby_tokens": [{"t": "発見", "r": "はっけん"}],
+                },
+                "chinese": {
+                    "simplified": "突破",
+                    "meaning": "重要的进展",
+                    "ruby_tokens": [
+                        {"t": "突", "r": "tū"},
+                        {"t": "破", "r": "pò"},
+                    ],
+                },
+                "extra_languages": {
+                    "arabic": {
+                        "term": "انBREAKTHROUGH",
+                        "meaning": "إنجاز مهم",
+                    }
+                },
+                "evidence": [{"entry_id": "sense-1", "corpus_id": "omw-en:2.0"}],
+            }
+        )
+        self.assertIn("Arabic term contains mixed or non-Arabic script", errors)
+
     def test_word_card_does_not_inherit_the_word_origin_graph_requirement(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             database = Path(temp) / "cards.sqlite3"

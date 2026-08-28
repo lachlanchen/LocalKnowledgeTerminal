@@ -220,6 +220,106 @@ class PreparationPlanner:
             {f"translation:{target_language}": translation},
         )
 
+    def plan_language(
+        self,
+        text: str,
+        target_language: str,
+        *,
+        source_language: str = "en",
+    ) -> PreparationPlan:
+        """Rebuild one translation and its dependent pronunciation only."""
+
+        term_id = self.store.upsert_term(source_language, text, status="draft")
+        subject_key = f"term:{term_id}"
+        meanings = self.store.artifacts_for_subject(
+            subject_key,
+            stage="accepted-meaning",
+            validation_state="accepted",
+        )
+        if not meanings:
+            raise ValueError(f"no accepted meaning is available for {text!r}")
+        translation = self._job(
+            "prepare-translation",
+            subject_key,
+            term_id,
+            language=target_language,
+            priority=50,
+            depends_on=(str(meanings[-1]["job_id"]),),
+        )
+        pronunciation = self._job(
+            "prepare-pronunciation",
+            subject_key,
+            term_id,
+            language=target_language,
+            priority=60,
+            depends_on=(translation,),
+        )
+        return PreparationPlan(
+            term_id,
+            subject_key,
+            {
+                f"translation:{target_language}": translation,
+                f"pronunciation:{target_language}": pronunciation,
+            },
+        )
+
+    def plan_word_card_view(
+        self,
+        text: str,
+        *,
+        language: str = "en",
+        display_languages: Iterable[str] = DISPLAY_LANGUAGES,
+    ) -> PreparationPlan:
+        """Recompose a Word Card from the newest accepted language atoms."""
+
+        term_id = self.store.upsert_term(language, text, status="draft")
+        subject_key = f"term:{term_id}"
+        dependencies: list[str] = []
+        required = [
+            ("accepted-meaning", language),
+            ("accepted-grammar-properties", language),
+        ]
+        required.extend(
+            ("accepted-pronunciation", output_language)
+            for output_language in dict.fromkeys(display_languages)
+        )
+        required.extend(
+            ("accepted-translation", output_language)
+            for output_language in dict.fromkeys(display_languages)
+            if output_language != language
+        )
+        missing: list[str] = []
+        for stage, output_language in required:
+            artifacts = [
+                artifact
+                for artifact in self.store.artifacts_for_subject(
+                    subject_key,
+                    stage=stage,
+                    validation_state="accepted",
+                )
+                if artifact["language"] == output_language
+            ]
+            if not artifacts:
+                missing.append(f"{stage}:{output_language}")
+                continue
+            dependencies.append(str(artifacts[-1]["job_id"]))
+        if missing:
+            raise ValueError(
+                f"accepted Word Card atoms are missing for {text!r}: {', '.join(missing)}"
+            )
+        composition = self._job(
+            "compose-word-card",
+            subject_key,
+            term_id,
+            priority=90,
+            depends_on=dependencies,
+        )
+        return PreparationPlan(
+            term_id,
+            subject_key,
+            {"compose-word-card": composition},
+        )
+
     def plan_evidence(
         self,
         text: str,

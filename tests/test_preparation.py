@@ -108,6 +108,67 @@ class PreparationPlannerTests(unittest.TestCase):
             self.assertEqual(claimed["language"], "ar")
             self.assertEqual(claimed["prompt_version"], "atomic-v2")
 
+    def test_one_language_rebuild_includes_its_pronunciation(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")
+            term_id = store.upsert_term("en", "breakthrough", status="accepted")
+            subject_key = f"term:{term_id}"
+            meaning_job = store.enqueue_job("prepare-meaning", subject_key)
+            store.save_job_artifact(
+                meaning_job,
+                "accepted-meaning",
+                {"meaning_id": "meaning-1", "definition": "a productive insight"},
+                language="en",
+                validation_state="accepted",
+            )
+            store.finish_job(meaning_job)
+            plan = PreparationPlanner(
+                store,
+                model="Qwen3-4B-Q4_K_M",
+                prompt_version="arabic-script-v2",
+            ).plan_language("breakthrough", "ar")
+            self.assertEqual(
+                set(plan.jobs), {"translation:ar", "pronunciation:ar"}
+            )
+            store.finish_job(plan.jobs["translation:ar"])
+            claimed = store.claim_next_job(("prepare-pronunciation",))
+            self.assertEqual(claimed["job_id"], plan.jobs["pronunciation:ar"])
+
+    def test_word_card_view_reuses_only_accepted_atoms(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")
+            term_id = store.upsert_term("en", "breakthrough", status="accepted")
+            subject_key = f"term:{term_id}"
+            for stage, language in (
+                ("accepted-meaning", "en"),
+                ("accepted-grammar-properties", "en"),
+                ("accepted-pronunciation", "en"),
+                ("accepted-translation", "ja"),
+                ("accepted-pronunciation", "ja"),
+            ):
+                job_id = store.enqueue_job(
+                    stage,
+                    subject_key,
+                    language=language,
+                    prompt_version="accepted-v1",
+                )
+                store.save_job_artifact(
+                    job_id,
+                    stage,
+                    {"accepted": True},
+                    language=language,
+                    validation_state="accepted",
+                )
+                store.finish_job(job_id)
+            plan = PreparationPlanner(
+                store,
+                model="Qwen3-4B-Q4_K_M",
+                prompt_version="word-card-view-v2",
+            ).plan_word_card_view(
+                "breakthrough", display_languages=("en", "ja")
+            )
+            self.assertEqual(set(plan.jobs), {"compose-word-card"})
+
     def test_evidence_can_be_refreshed_without_replanning_downstream_work(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")

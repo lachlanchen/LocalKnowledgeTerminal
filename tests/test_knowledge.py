@@ -225,6 +225,69 @@ class KnowledgeStoreTests(unittest.TestCase):
             self.assertEqual(recovered["job_id"], job_id)
             self.assertEqual(recovered["attempts"], 1)
 
+    def test_bad_language_atoms_are_quarantined_without_touching_other_languages(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")
+            source = store.upsert_term("en", "breakthrough")
+            meaning = store.add_meaning(source, "en", "a productive insight")
+            target = store.upsert_term("ar", "انBREAKTHROUGH")
+            translation = store.add_translation(
+                source,
+                "ar",
+                "انBREAKTHROUGH",
+                source_meaning_id=meaning,
+                target_term_id=target,
+            )
+            pronunciation = store.add_pronunciation(
+                target,
+                "ar",
+                "ipa",
+                "breakthrough",
+                [{"grapheme": "انBREAKTHROUGH", "phoneme": "breakthrough"}],
+            )
+            subject_key = f"term:{source}"
+            translation_job = store.enqueue_job(
+                "prepare-translation", subject_key, subject_entity_id=source, language="ar"
+            )
+            store.save_job_artifact(
+                translation_job,
+                "accepted-translation",
+                {
+                    "translation_id": translation,
+                    "target_term_id": target,
+                    "term": "انBREAKTHROUGH",
+                },
+                language="ar",
+                validation_state="accepted",
+            )
+            store.finish_job(translation_job)
+            pronunciation_job = store.enqueue_job(
+                "prepare-pronunciation",
+                subject_key,
+                subject_entity_id=source,
+                language="ar",
+            )
+            store.save_job_artifact(
+                pronunciation_job,
+                "accepted-pronunciation",
+                {
+                    "pronunciation_id": pronunciation,
+                    "target_term_id": target,
+                },
+                language="ar",
+                validation_state="accepted",
+            )
+            store.finish_job(pronunciation_job)
+            result = store.retire_language_analysis(
+                source, "ar", "mixed Arabic and Latin script"
+            )
+            self.assertEqual(result["artifacts_rejected"], 2)
+            self.assertEqual(result["entities_rejected"], 2)
+            self.assertEqual(result["orphan_terms_rejected"], 1)
+            labels = {node["label"] for node in store.graph_snapshot()["nodes"]}
+            self.assertNotIn("انBREAKTHROUGH", labels)
+            self.assertIn("breakthrough", labels)
+
     def test_artifact_validation_is_migrated_and_new_acceptance_supersedes_old(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             database = Path(temp) / "knowledge.sqlite3"

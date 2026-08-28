@@ -256,6 +256,50 @@ def command_plan_translation(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_plan_language(args: argparse.Namespace) -> int:
+    settings = _settings()
+    planner = _planner(settings, args)
+    plan = planner.plan_language(
+        args.query,
+        args.target_language,
+        source_language=args.source_language,
+    )
+    print(
+        json.dumps(
+            {
+                "subject_entity_id": plan.subject_entity_id,
+                "subject_key": plan.subject_key,
+                "jobs": planner.store.jobs_for_subject(plan.subject_key),
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+    return 0
+
+
+def command_plan_word_card_view(args: argparse.Namespace) -> int:
+    settings = _settings()
+    planner = _planner(settings, args)
+    plan = planner.plan_word_card_view(
+        args.query,
+        language=args.language,
+        display_languages=args.display_languages,
+    )
+    print(
+        json.dumps(
+            {
+                "subject_entity_id": plan.subject_entity_id,
+                "subject_key": plan.subject_key,
+                "jobs": planner.store.jobs_for_subject(plan.subject_key),
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+    return 0
+
+
 def command_plan_evidence(args: argparse.Namespace) -> int:
     settings = _settings()
     planner = _planner(settings, args)
@@ -335,6 +379,20 @@ def command_retire_morphemes(args: argparse.Namespace) -> int:
     print(
         json.dumps(
             store.retire_morpheme_analysis(term_id, args.reason),
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+    return 0
+
+
+def command_retire_language(args: argparse.Namespace) -> int:
+    settings = _settings()
+    store = KnowledgeStore(settings.knowledge_db)
+    term_id = store.upsert_term(args.source_language, args.query, status="draft")
+    print(
+        json.dumps(
+            store.retire_language_analysis(term_id, args.target_language, args.reason),
             ensure_ascii=False,
             indent=2,
         )
@@ -582,6 +640,32 @@ def parser() -> argparse.ArgumentParser:
     plan_translation.add_argument("--source-fingerprint", default="")
     plan_translation.set_defaults(handler=command_plan_translation)
 
+    plan_language = commands.add_parser(
+        "plan-language",
+        help="rebuild one translation and its dependent pronunciation",
+    )
+    plan_language.add_argument("query")
+    plan_language.add_argument(
+        "target_language", choices=("ja", "zh", "fr", "ar")
+    )
+    plan_language.add_argument("--source-language", default="en")
+    plan_language.add_argument("--prompt-version", default="language-v2")
+    plan_language.add_argument("--source-fingerprint", default="")
+    plan_language.set_defaults(handler=command_plan_language)
+
+    plan_word_card_view = commands.add_parser(
+        "plan-word-card-view",
+        help="recompose a Word Card from the newest accepted language atoms",
+    )
+    plan_word_card_view.add_argument("query")
+    plan_word_card_view.add_argument("--language", default="en")
+    plan_word_card_view.add_argument(
+        "--display-languages", nargs="+", default=DISPLAY_LANGUAGES
+    )
+    plan_word_card_view.add_argument("--prompt-version", default="word-card-view-v2")
+    plan_word_card_view.add_argument("--source-fingerprint", default="")
+    plan_word_card_view.set_defaults(handler=command_plan_word_card_view)
+
     plan_evidence = commands.add_parser(
         "plan-evidence",
         help="refresh retrieval after a source or lexical-filter revision",
@@ -630,6 +714,18 @@ def parser() -> argparse.ArgumentParser:
     retire_morphemes.add_argument("--language", default="en")
     retire_morphemes.add_argument("--reason", required=True)
     retire_morphemes.set_defaults(handler=command_retire_morphemes)
+
+    retire_language = commands.add_parser(
+        "retire-language",
+        help="quarantine one rejected translation and pronunciation pair",
+    )
+    retire_language.add_argument("query")
+    retire_language.add_argument(
+        "target_language", choices=("ja", "zh", "fr", "ar")
+    )
+    retire_language.add_argument("--source-language", default="en")
+    retire_language.add_argument("--reason", required=True)
+    retire_language.set_defaults(handler=command_retire_language)
 
     plan_content = commands.add_parser(
         "plan-content",

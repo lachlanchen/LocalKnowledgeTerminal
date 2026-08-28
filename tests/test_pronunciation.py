@@ -4,10 +4,20 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from lkt.pronunciation import EspeakPronouncer, chinese_pinyin, chinese_ruby_tokens
+from lkt.pronunciation import (
+    EspeakPronouncer,
+    chinese_pinyin,
+    chinese_ruby_tokens,
+    is_arabic_script_text,
+)
 
 
 class PronunciationTests(unittest.TestCase):
+    def test_arabic_script_gate_rejects_latin_leakage(self) -> None:
+        self.assertTrue(is_arabic_script_text("اختراق مهم"))
+        self.assertFalse(is_arabic_script_text("انBREAKTHROUGH"))
+        self.assertFalse(is_arabic_script_text("breakthrough"))
+
     def test_full_sentence_pinyin_keeps_tones_and_punctuation(self) -> None:
         self.assertEqual(
             chinese_pinyin("这不是能犹豫的事儿。"),
