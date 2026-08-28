@@ -145,6 +145,73 @@ class KnowledgeStoreTests(unittest.TestCase):
             self.assertIsNone(store.claim_next_job())
             self.assertEqual(store.status()["counts"]["preparation_jobs"], 1)
 
+    def test_artifact_validation_is_migrated_and_new_acceptance_supersedes_old(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            database = Path(temp) / "knowledge.sqlite3"
+            connection = sqlite3.connect(database)
+            connection.execute(
+                """CREATE TABLE job_artifacts (
+                       artifact_id TEXT PRIMARY KEY,
+                       job_id TEXT NOT NULL,
+                       stage TEXT NOT NULL,
+                       language TEXT NOT NULL DEFAULT '',
+                       payload TEXT NOT NULL,
+                       reusable INTEGER NOT NULL DEFAULT 1,
+                       created_at TEXT NOT NULL
+                   )"""
+            )
+            connection.execute(
+                """INSERT INTO job_artifacts(
+                       artifact_id, job_id, stage, language, payload, created_at
+                   ) VALUES ('legacy-accepted', 'missing-job', 'accepted-meaning',
+                             'en', '{}', '2026-01-01T00:00:00Z')"""
+            )
+            connection.commit()
+            connection.close()
+
+            store = KnowledgeStore(database)
+            connection = sqlite3.connect(database)
+            self.assertEqual(
+                connection.execute(
+                    "SELECT validation_state FROM job_artifacts WHERE artifact_id = ?",
+                    ("legacy-accepted",),
+                ).fetchone()[0],
+                "accepted",
+            )
+            connection.close()
+
+            first = store.enqueue_job(
+                "prepare-translation", "term:inspection", language="fr", prompt_version="v1"
+            )
+            second = store.enqueue_job(
+                "prepare-translation", "term:inspection", language="fr", prompt_version="v2"
+            )
+            store.save_job_artifact(
+                first,
+                "accepted-translation",
+                {"term": "inspection"},
+                language="fr",
+                validation_state="accepted",
+                quality_score=0.8,
+            )
+            store.save_job_artifact(
+                second,
+                "accepted-translation",
+                {"term": "inspection"},
+                language="fr",
+                validation_state="accepted",
+                quality_score=0.95,
+            )
+            artifacts = store.artifacts_for_subject(
+                "term:inspection", stage="accepted-translation"
+            )
+            self.assertEqual(
+                [artifact["validation_state"] for artifact in artifacts],
+                ["superseded", "accepted"],
+            )
+            self.assertEqual(artifacts[-1]["quality_score"], 0.95)
+            self.assertEqual(store.status()["schema_version"], "2")
+
     def test_inquiry_history_keeps_parent_child_lineage(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             database = Path(temp) / "knowledge.sqlite3"

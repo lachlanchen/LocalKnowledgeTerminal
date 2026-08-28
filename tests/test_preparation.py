@@ -59,6 +59,33 @@ class PreparationPlannerTests(unittest.TestCase):
             connection.close()
             self.assertEqual(status, "accepted")
 
+    def test_one_translation_can_be_replanned_without_the_full_pipeline(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")
+            term_id = store.upsert_term("en", "inspection", status="accepted")
+            subject_key = f"term:{term_id}"
+            meaning_job = store.enqueue_job(
+                "prepare-meaning", subject_key, subject_entity_id=term_id
+            )
+            store.save_job_artifact(
+                meaning_job,
+                "accepted-meaning",
+                {"meaning_id": "meaning-1", "definition": "an official examination"},
+                language="en",
+                validation_state="accepted",
+                quality_score=0.9,
+            )
+            store.finish_job(meaning_job)
+            planner = PreparationPlanner(
+                store, model="Qwen3-4B-Q4_K_M", prompt_version="atomic-v2"
+            )
+            plan = planner.plan_translation("inspection", "ar")
+            self.assertEqual(set(plan.jobs), {"translation:ar"})
+            claimed = store.claim_next_job(("prepare-translation",))
+            self.assertIsNotNone(claimed)
+            self.assertEqual(claimed["language"], "ar")
+            self.assertEqual(claimed["prompt_version"], "atomic-v2")
+
     def test_answer_plan_prepares_languages_and_investigation_terms_separately(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")

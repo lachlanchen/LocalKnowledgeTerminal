@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import unicodedata
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -39,6 +40,7 @@ _LANGUAGE_NAMES = {
     "fr": "French",
     "ar": "Arabic",
 }
+_ARABIC_CONNECTORS = {"أو", "او", "و"}
 
 
 class AtomicModel(Protocol):
@@ -74,6 +76,38 @@ def _lexically_related(term: str, item: Evidence) -> bool:
     return len(headword) >= 4 and (
         word.startswith(headword) or headword.startswith(word)
     )
+
+
+def _clean_usage_note(value: Any, target_language: str = "") -> str:
+    """Keep only optional, concise English metadata; never leak duplicate prose."""
+    note = re.sub(r"\s+", " ", str(value or "")).strip()
+    words = re.findall(r"[A-Za-z]+(?:['-][A-Za-z]+)*", note)
+    if not note or len(words) > 14:
+        return ""
+    if not re.fullmatch(r"[\x20-\x7e]+", note) or not words:
+        return ""
+    if target_language == "fr" and {
+        word.casefold() for word in words
+    } & {"avec", "des", "dans", "et", "la", "le", "les", "pour", "sens", "une"}:
+        return ""
+    return note[:180]
+
+
+def _has_repeated_arabic_content_word(value: str) -> bool:
+    plain = "".join(
+        character
+        for character in unicodedata.normalize("NFKD", value)
+        if not unicodedata.combining(character)
+    )
+    words = re.findall(r"[\u0621-\u064a]+", plain)
+    previous = ""
+    for word in words:
+        if word in _ARABIC_CONNECTORS:
+            continue
+        if previous == word:
+            return True
+        previous = word
+    return False
 
 
 class WordEvidenceRetriever:
@@ -202,7 +236,10 @@ class PreparationWorker:
             )
             saved.append({**record, "knowledge_evidence_id": evidence_id})
         return self.store.save_job_artifact(
-            job["job_id"], "retrieved-evidence", {"term": term["text"], "records": saved}
+            job["job_id"],
+            "retrieved-evidence",
+            {"term": term["text"], "records": saved},
+            validation_state="candidate",
         )
 
     @staticmethod
@@ -310,7 +347,12 @@ translations, examples, markdown, or claims absent from the evidence."""
             accepted=True,
         )
         return self.store.save_job_artifact(
-            job["job_id"], "accepted-meaning", accepted, language="en"
+            job["job_id"],
+            "accepted-meaning",
+            accepted,
+            language="en",
+            validation_state="accepted",
+            quality_score=confidence,
         )
 
     def _prepare_translation(self, job: dict[str, Any]) -> str:
@@ -322,7 +364,9 @@ translations, examples, markdown, or claims absent from the evidence."""
             job["subject_key"], stage="retrieved-evidence"
         )
         meaning_artifacts = self.store.artifacts_for_subject(
-            job["subject_key"], stage="accepted-meaning"
+            job["subject_key"],
+            stage="accepted-meaning",
+            validation_state="accepted",
         )
         if not evidence_artifacts or not meaning_artifacts:
             raise ValueError("translation prerequisites are missing")
@@ -356,6 +400,7 @@ confidence: number from 0 to 1
 evidence_ids: non-empty array containing only supplied evidence IDs
 
 When dictionary candidates are non-empty, term must exactly equal one candidate.
+Use natural, non-redundant wording; never repeat a content word around "or".
 Do not add alternatives, markdown, etymology, or example sentences."""
         completion = self.model.complete_json(
             "You prepare one sense-aligned translation at a time. Preserve scripts accurately.",
@@ -370,6 +415,7 @@ Do not add alternatives, markdown, etymology, or example sentences."""
             r"\s+", " ", str(value.get("meaning", ""))
         ).strip()
         reading = re.sub(r"\s+", " ", str(value.get("reading", ""))).strip()
+        usage_note = _clean_usage_note(value.get("usage_note", ""), language)
         if not translated or len(translated) > 160:
             raise ValueError("translation term is empty or too long")
         if not translated_meaning or len(translated_meaning) > 320:
@@ -390,8 +436,12 @@ Do not add alternatives, markdown, etymology, or example sentences."""
             raise ValueError("Chinese translation has no Han characters")
         if language == "ar" and not re.search(r"[\u0600-\u06ff]", translated):
             raise ValueError("Arabic translation has no Arabic script")
+        if language == "ar" and _has_repeated_arabic_content_word(translated_meaning):
+            raise ValueError("Arabic translation meaning repeats a content word")
         if language == "zh":
             reading = chinese_pinyin(translated, reading)
+        elif language == "fr":
+            reading = ""
         if language in {"ja", "zh", "ar"} and not reading:
             raise ValueError("translation reading is missing")
         selected = [
@@ -413,7 +463,7 @@ Do not add alternatives, markdown, etymology, or example sentences."""
             language,
             translated,
             transliteration=reading,
-            usage_note=str(value.get("usage_note", "")).strip()[:180],
+            usage_note=usage_note,
             source_meaning_id=str(meaning["meaning_id"]),
             target_term_id=target_id,
             status="accepted",
@@ -423,7 +473,7 @@ Do not add alternatives, markdown, etymology, or example sentences."""
             self.store.link_evidence(
                 translation_id,
                 evidence_id,
-                claim=f"{term['text']} → {translated}",
+                claim=f"{term['text']} to {translated}",
                 confidence=confidence,
             )
         accepted = {
@@ -434,7 +484,7 @@ Do not add alternatives, markdown, etymology, or example sentences."""
             "term": translated,
             "meaning": translated_meaning,
             "reading": reading,
-            "usage_note": str(value.get("usage_note", "")).strip()[:180],
+            "usage_note": usage_note,
             "confidence": confidence,
             "evidence_ids": selected,
             "dictionary_candidates": candidates[:10],
@@ -450,7 +500,12 @@ Do not add alternatives, markdown, etymology, or example sentences."""
             accepted=True,
         )
         return self.store.save_job_artifact(
-            job["job_id"], "accepted-translation", accepted, language=language
+            job["job_id"],
+            "accepted-translation",
+            accepted,
+            language=language,
+            validation_state="accepted",
+            quality_score=confidence,
         )
 
 

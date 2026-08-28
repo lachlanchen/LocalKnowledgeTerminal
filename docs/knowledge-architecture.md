@@ -44,7 +44,10 @@ from current atomic knowledge and current source evidence.
   locators, excerpts, claims, and confidence to the exact supported atom.
 - `entity_revisions` retains model/prompt version and review lineage.
 - `preparation_jobs`, `job_dependencies`, and `job_artifacts` implement
-  resumable sequential work with immediate checkpoints.
+  resumable sequential work with immediate checkpoints. Artifacts explicitly
+  distinguish raw candidates, accepted facts, rejected output, superseded
+  revisions, and migrated legacy material; accepted artifacts also retain a
+  bounded quality score.
 - `inquiry_threads` and `inquiry_events` preserve parent/child investigation
   history, selected words, source/result entities, and compact summaries.
 
@@ -83,6 +86,11 @@ language and one accepted sense, constrains the result to an OMW candidate when
 one exists, validates the target script, requires readings for Japanese,
 Chinese, and Arabic, derives Chinese pinyin locally, and stores a target term,
 translation atom, evidence links, revision, and checkpoint separately.
+French readings are normalized away, optional usage notes pass a restrained
+English-only gate, and redundant Arabic wording is retried rather than accepted.
+`plan-translation` can revisit one weak language atom with a new prompt version
+without rerunning the whole word pipeline; its accepted replacement supersedes
+the earlier preparation artifact.
 
 Answer and Question preparation follows the same rule: source text, each
 language, grammar parts, and investigation candidates are separate tasks. A

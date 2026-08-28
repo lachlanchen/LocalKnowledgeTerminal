@@ -160,6 +160,9 @@ python -m lkt.cli ingest-morphology affix "C:\path\to\affix-dictionary\output\js
 python -m lkt.cli search abacus
 python -m lkt.cli search technology --corpus question
 python -m lkt.cli knowledge-status
+python -m lkt.cli plan-word inspection --display-languages en ja zh fr ar
+python -m lkt.cli plan-translation inspection ar --prompt-version atomic-v2
+python -m lkt.cli work-atomic --limit 1
 ```
 
 With a llama.cpp server listening on port 8081:

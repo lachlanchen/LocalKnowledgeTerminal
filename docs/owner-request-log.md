@@ -380,3 +380,9 @@ source was live dictation and may contain recognition errors:
 - Prefer progressive disclosure, generous space, and deliberate detail over
   aggressive generation, greedy enrichment, crowded layouts, or too many facts
   on one slide.
+- Keep the existing automatic header/footer hiding. The owner explicitly likes
+  this behavior because it makes the terminal feel easy and gives the current
+  card the full screen.
+- Continue refining quietly from this foundation: keep the interface attractive
+  and easy inside, without adding visible controls or detail merely because the
+  underlying system can produce them.

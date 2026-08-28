@@ -6,7 +6,12 @@ import unittest
 from pathlib import Path
 from typing import Any
 
-from lkt.atomic import PreparationWorker, _lexically_related
+from lkt.atomic import (
+    PreparationWorker,
+    _clean_usage_note,
+    _has_repeated_arabic_content_word,
+    _lexically_related,
+)
 from lkt.knowledge import KnowledgeStore
 from lkt.models import Evidence
 from lkt.preparation import PreparationPlanner
@@ -104,6 +109,8 @@ class AtomicWorkerTests(unittest.TestCase):
             )
             self.assertEqual(len(meaning), 1)
             self.assertEqual(meaning[0]["payload"]["part_of_speech"], "noun")
+            self.assertEqual(meaning[0]["validation_state"], "accepted")
+            self.assertEqual(meaning[0]["quality_score"], 0.92)
             self.assertEqual(store.status()["counts"]["meanings"], 1)
 
     def test_translation_is_a_separate_sense_aligned_job(self) -> None:
@@ -121,7 +128,89 @@ class AtomicWorkerTests(unittest.TestCase):
             self.assertEqual(artifacts[0]["language"], "ja")
             self.assertEqual(artifacts[0]["payload"]["term"], "\u691c\u67fb")
             self.assertEqual(artifacts[0]["payload"]["reading"], "\u3051\u3093\u3055")
+            self.assertEqual(artifacts[0]["validation_state"], "accepted")
             self.assertEqual(store.status()["counts"]["translations"], 1)
+
+    def test_translation_output_is_normalized_before_acceptance(self) -> None:
+        class FrenchModel(FakeAtomicModel):
+            def complete_json(
+                self, system: str, prompt: str, *, max_tokens: int = 256
+            ) -> dict[str, Any]:
+                if "TARGET LANGUAGE: French" not in prompt:
+                    return super().complete_json(system, prompt, max_tokens=max_tokens)
+                evidence = re.search(r'"(evidence-[^"]+)"', prompt)
+                assert evidence is not None
+                return {
+                    "value": {
+                        "term": "inspection",
+                        "meaning": "examen officiel ou formel",
+                        "reading": "inspektion",
+                        "usage_note": "sens standard et officiel",
+                        "confidence": 0.9,
+                        "evidence_ids": [evidence.group(1)],
+                    },
+                    "model": self.model_name,
+                }
+
+        with tempfile.TemporaryDirectory() as temp:
+            store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")
+            plan = PreparationPlanner(store, model="test-qwen-4b").plan_word(
+                "inspection", display_languages=("en", "fr")
+            )
+            PreparationWorker(store, FakeRetriever(), FrenchModel()).run(3)
+            artifact = store.artifacts_for_subject(
+                plan.subject_key,
+                stage="accepted-translation",
+                validation_state="accepted",
+            )[0]
+            self.assertEqual(artifact["payload"]["reading"], "")
+            self.assertEqual(artifact["payload"]["usage_note"], "")
+
+    def test_redundant_arabic_meaning_is_retried_not_accepted(self) -> None:
+        class RepetitiveArabicModel(FakeAtomicModel):
+            def complete_json(
+                self, system: str, prompt: str, *, max_tokens: int = 256
+            ) -> dict[str, Any]:
+                if "TARGET LANGUAGE: Arabic" not in prompt:
+                    return super().complete_json(system, prompt, max_tokens=max_tokens)
+                evidence = re.search(r'"(evidence-[^"]+)"', prompt)
+                assert evidence is not None
+                return {
+                    "value": {
+                        "term": "\u0645\u0639\u0627\u064a\u0646\u0629",
+                        "meaning": "\u0641\u062d\u0635 \u0631\u0633\u0645\u064a \u0623\u0648 \u0631\u0633\u0645\u064a \u0644\u0634\u064a\u0621 \u0645\u0639\u064a\u0646",
+                        "reading": "mu'ayana",
+                        "usage_note": "official inspection",
+                        "confidence": 0.9,
+                        "evidence_ids": [evidence.group(1)],
+                    },
+                    "model": self.model_name,
+                }
+
+        with tempfile.TemporaryDirectory() as temp:
+            store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")
+            plan = PreparationPlanner(store, model="test-qwen-4b").plan_word(
+                "inspection", display_languages=("en", "ar")
+            )
+            results = PreparationWorker(store, FakeRetriever(), RepetitiveArabicModel()).run(3)
+            self.assertEqual(results[-1].status, "retry")
+            self.assertEqual(
+                store.artifacts_for_subject(
+                    plan.subject_key,
+                    stage="accepted-translation",
+                    validation_state="accepted",
+                ),
+                [],
+            )
+
+    def test_small_output_quality_helpers_are_deliberately_restrained(self) -> None:
+        self.assertEqual(_clean_usage_note("formal examination sense"), "formal examination sense")
+        self.assertEqual(_clean_usage_note("\u516c\u5f0f\u306a\u691c\u67fb\u306e\u610f\u5473"), "")
+        self.assertTrue(
+            _has_repeated_arabic_content_word(
+                "\u0641\u062d\u0635 \u0631\u0633\u0645\u064a \u0623\u0648 \u0631\u0633\u0645\u064a \u0644\u0634\u064a\u0621 \u0645\u0639\u064a\u0646"
+            )
+        )
 
     def test_worker_does_not_claim_later_unsupported_jobs(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

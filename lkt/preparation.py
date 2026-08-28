@@ -150,6 +150,37 @@ class PreparationPlanner:
         jobs["compose-origin-card"] = origin_card
         return PreparationPlan(term_id, subject_key, jobs)
 
+    def plan_translation(
+        self,
+        text: str,
+        target_language: str,
+        *,
+        source_language: str = "en",
+    ) -> PreparationPlan:
+        """Revisit one language atom without duplicating the complete word plan."""
+        term_id = self.store.upsert_term(source_language, text, status="draft")
+        subject_key = f"term:{term_id}"
+        meanings = self.store.artifacts_for_subject(
+            subject_key,
+            stage="accepted-meaning",
+            validation_state="accepted",
+        )
+        if not meanings:
+            raise ValueError(f"no accepted meaning is available for {text!r}")
+        translation = self._job(
+            "prepare-translation",
+            subject_key,
+            term_id,
+            language=target_language,
+            priority=50,
+            depends_on=(str(meanings[-1]["job_id"]),),
+        )
+        return PreparationPlan(
+            term_id,
+            subject_key,
+            {f"translation:{target_language}": translation},
+        )
+
     def plan_content(
         self,
         kind: str,

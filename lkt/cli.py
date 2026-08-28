@@ -208,6 +208,28 @@ def command_plan_word(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_plan_translation(args: argparse.Namespace) -> int:
+    settings = _settings()
+    planner = _planner(settings, args)
+    plan = planner.plan_translation(
+        args.query,
+        args.target_language,
+        source_language=args.source_language,
+    )
+    print(
+        json.dumps(
+            {
+                "subject_entity_id": plan.subject_entity_id,
+                "subject_key": plan.subject_key,
+                "jobs": planner.store.jobs_for_subject(plan.subject_key),
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+    return 0
+
+
 def command_plan_content(args: argparse.Namespace) -> int:
     settings = _settings()
     planner = _planner(settings, args)
@@ -362,6 +384,19 @@ def parser() -> argparse.ArgumentParser:
     plan_word.add_argument("--prompt-version", default="atomic-v1")
     plan_word.add_argument("--source-fingerprint", default="")
     plan_word.set_defaults(handler=command_plan_word)
+
+    plan_translation = commands.add_parser(
+        "plan-translation",
+        help="revisit one language atom without rebuilding the complete word plan",
+    )
+    plan_translation.add_argument("query")
+    plan_translation.add_argument(
+        "target_language", choices=("ja", "zh", "fr", "ar")
+    )
+    plan_translation.add_argument("--source-language", default="en")
+    plan_translation.add_argument("--prompt-version", default="atomic-v2")
+    plan_translation.add_argument("--source-fingerprint", default="")
+    plan_translation.set_defaults(handler=command_plan_translation)
 
     plan_content = commands.add_parser(
         "plan-content",

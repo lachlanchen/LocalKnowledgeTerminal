@@ -347,6 +347,13 @@ class KnowledgeStore:
                     language TEXT NOT NULL DEFAULT '',
                     payload TEXT NOT NULL,
                     reusable INTEGER NOT NULL DEFAULT 1,
+                    validation_state TEXT NOT NULL DEFAULT 'candidate'
+                        CHECK(validation_state IN (
+                            'candidate', 'accepted', 'rejected', 'superseded', 'legacy'
+                        )),
+                    quality_score REAL
+                        CHECK(quality_score IS NULL OR
+                              (quality_score >= 0 AND quality_score <= 1)),
                     created_at TEXT NOT NULL
                 );
                 CREATE INDEX IF NOT EXISTS idx_job_artifacts
@@ -383,9 +390,33 @@ class KnowledgeStore:
                     ON inquiry_events(thread_id, created_at);
                 """
             )
+            artifact_columns = {
+                str(row["name"])
+                for row in connection.execute("PRAGMA table_info(job_artifacts)")
+            }
+            if "validation_state" not in artifact_columns:
+                connection.execute(
+                    """ALTER TABLE job_artifacts ADD COLUMN validation_state TEXT
+                       NOT NULL DEFAULT 'candidate'
+                       CHECK(validation_state IN (
+                           'candidate', 'accepted', 'rejected', 'superseded', 'legacy'
+                       ))"""
+                )
+                connection.execute(
+                    """UPDATE job_artifacts SET validation_state = CASE
+                           WHEN stage LIKE 'accepted-%' THEN 'accepted'
+                           WHEN stage = 'retrieved-evidence' THEN 'candidate'
+                           ELSE 'legacy' END"""
+                )
+            if "quality_score" not in artifact_columns:
+                connection.execute(
+                    """ALTER TABLE job_artifacts ADD COLUMN quality_score REAL
+                       CHECK(quality_score IS NULL OR
+                             (quality_score >= 0 AND quality_score <= 1))"""
+                )
             connection.execute(
                 "INSERT OR REPLACE INTO schema_meta(key, value) VALUES (?, ?)",
-                ("schema_version", "1"),
+                ("schema_version", "2"),
             )
             connection.commit()
 
@@ -1269,21 +1300,29 @@ class KnowledgeStore:
         return result
 
     def artifacts_for_subject(
-        self, subject_key: str, *, stage: str = ""
+        self,
+        subject_key: str,
+        *,
+        stage: str = "",
+        validation_state: str = "",
     ) -> list[dict[str, Any]]:
         parameters: list[Any] = [subject_key]
-        stage_clause = ""
+        filters = ""
         if stage:
-            stage_clause = " AND artifact.stage = ?"
+            filters += " AND artifact.stage = ?"
             parameters.append(stage)
+        if validation_state:
+            filters += " AND artifact.validation_state = ?"
+            parameters.append(validation_state)
         with closing(self._connect()) as connection:
             rows = connection.execute(
                 """SELECT artifact.artifact_id, artifact.job_id, job.job_type,
                           artifact.stage, artifact.language, artifact.payload,
-                          artifact.reusable, artifact.created_at
+                          artifact.reusable, artifact.validation_state,
+                          artifact.quality_score, artifact.created_at
                    FROM job_artifacts AS artifact
                    JOIN preparation_jobs AS job ON job.job_id = artifact.job_id
-                   WHERE job.subject_key = ?""" + stage_clause + """
+                   WHERE job.subject_key = ?""" + filters + """
                    ORDER BY artifact.created_at""",
                 parameters,
             ).fetchall()
@@ -1327,14 +1366,40 @@ class KnowledgeStore:
         *,
         language: str = "",
         reusable: bool = True,
+        validation_state: str = "candidate",
+        quality_score: float | None = None,
     ) -> str:
         language = _language(language) if language else ""
+        validation_state = validation_state.strip().lower()
+        if validation_state not in {
+            "candidate",
+            "accepted",
+            "rejected",
+            "superseded",
+            "legacy",
+        }:
+            raise ValueError(f"invalid artifact validation state: {validation_state!r}")
+        if quality_score is not None:
+            quality_score = max(0.0, min(float(quality_score), 1.0))
         artifact_id = str(uuid.uuid4())
         with closing(self._connect()) as connection:
+            if validation_state == "accepted":
+                connection.execute(
+                    """UPDATE job_artifacts SET validation_state = 'superseded'
+                       WHERE validation_state = 'accepted' AND stage = ? AND language = ?
+                         AND job_id IN (
+                             SELECT earlier.job_id FROM preparation_jobs AS earlier
+                             JOIN preparation_jobs AS current
+                               ON current.subject_key = earlier.subject_key
+                             WHERE current.job_id = ?
+                         )""",
+                    (stage.strip(), language, job_id),
+                )
             connection.execute(
                 """INSERT INTO job_artifacts(
-                       artifact_id, job_id, stage, language, payload, reusable, created_at
-                   ) VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                       artifact_id, job_id, stage, language, payload, reusable,
+                       validation_state, quality_score, created_at
+                   ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     artifact_id,
                     job_id,
@@ -1342,6 +1407,8 @@ class KnowledgeStore:
                     language,
                     json.dumps(payload, ensure_ascii=False),
                     int(reusable),
+                    validation_state,
+                    quality_score,
                     _now(),
                 ),
             )
@@ -1432,7 +1499,7 @@ class KnowledgeStore:
         return {
             "ready": True,
             "database": str(self.database),
-            "schema_version": "1",
+            "schema_version": "2",
             "counts": counts,
             "queued_jobs": queued,
         }
