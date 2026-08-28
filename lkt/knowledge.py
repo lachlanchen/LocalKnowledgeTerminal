@@ -1209,12 +1209,21 @@ class KnowledgeStore:
             ).fetchone()
         return str(row["job_id"])
 
-    def claim_next_job(self) -> dict[str, Any] | None:
+    def claim_next_job(
+        self, job_types: Iterable[str] | None = None
+    ) -> dict[str, Any] | None:
+        allowed = tuple(dict.fromkeys(str(item).strip() for item in (job_types or ())))
+        type_clause = ""
+        parameters: tuple[Any, ...] = ()
+        if allowed:
+            type_clause = " AND job.job_type IN (" + ",".join("?" for _ in allowed) + ")"
+            parameters = allowed
         with closing(self._connect()) as connection:
             connection.execute("BEGIN IMMEDIATE")
             row = connection.execute(
                 """SELECT job.* FROM preparation_jobs AS job
                    WHERE job.status = 'queued' AND job.attempts < job.max_attempts
+                     """ + type_clause + """
                      AND NOT EXISTS (
                          SELECT 1 FROM job_dependencies AS dependency
                          JOIN preparation_jobs AS prerequisite
@@ -1222,7 +1231,8 @@ class KnowledgeStore:
                          WHERE dependency.job_id = job.job_id
                            AND prerequisite.status <> 'complete'
                      )
-                   ORDER BY priority, created_at LIMIT 1"""
+                   ORDER BY priority, created_at LIMIT 1""",
+                parameters,
             ).fetchone()
             if row is None:
                 connection.commit()
@@ -1240,6 +1250,51 @@ class KnowledgeStore:
                 "SELECT * FROM preparation_jobs WHERE job_id = ?", (row["job_id"],)
             ).fetchone()
         return dict(claimed) if claimed else None
+
+    def term_record(self, entity_id: str) -> dict[str, Any]:
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                """SELECT term.entity_id, term.language, term.text, term.normalized,
+                          term.kind, entity.status, entity.quality_score,
+                          entity.payload
+                   FROM terms AS term JOIN entities AS entity
+                     ON entity.entity_id = term.entity_id
+                   WHERE term.entity_id = ?""",
+                (entity_id,),
+            ).fetchone()
+        if row is None:
+            raise KeyError(entity_id)
+        result = dict(row)
+        result["payload"] = json.loads(result["payload"])
+        return result
+
+    def artifacts_for_subject(
+        self, subject_key: str, *, stage: str = ""
+    ) -> list[dict[str, Any]]:
+        parameters: list[Any] = [subject_key]
+        stage_clause = ""
+        if stage:
+            stage_clause = " AND artifact.stage = ?"
+            parameters.append(stage)
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """SELECT artifact.artifact_id, artifact.job_id, job.job_type,
+                          artifact.stage, artifact.language, artifact.payload,
+                          artifact.reusable, artifact.created_at
+                   FROM job_artifacts AS artifact
+                   JOIN preparation_jobs AS job ON job.job_id = artifact.job_id
+                   WHERE job.subject_key = ?""" + stage_clause + """
+                   ORDER BY artifact.created_at""",
+                parameters,
+            ).fetchall()
+        return [
+            {
+                **dict(row),
+                "payload": json.loads(row["payload"]),
+                "reusable": bool(row["reusable"]),
+            }
+            for row in rows
+        ]
 
     def add_job_dependency(self, job_id: str, depends_on_job_id: str) -> None:
         if job_id == depends_on_job_id:

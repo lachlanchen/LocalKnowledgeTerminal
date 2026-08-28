@@ -71,6 +71,13 @@ historical parent is retrieved, normalized, cited, validated, checkpointed, and
 deduplicated before another parent is queued. Shared roots and forms converge on
 canonical IDs. Cycles are rejected before publication.
 
+The first executable slice is deliberately narrow: `retrieve-evidence` combines
+the private Word Origins/Root/Affix indexes with compact OMW senses, then
+`prepare-meaning` asks the active local model for one short English sense. The
+worker accepts only supplied evidence IDs, bounded clean text, a controlled part
+of speech, and confidence at or above the acceptance threshold. Other queued
+job types remain untouched until their own validators are implemented.
+
 Answer and Question preparation follows the same rule: source text, each
 language, grammar parts, and investigation candidates are separate tasks. A
 meaningful selected word can start a child investigation while retaining the

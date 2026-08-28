@@ -385,6 +385,50 @@ class LlamaCppClient:
             },
         }
 
+    def complete_json(
+        self,
+        system: str,
+        prompt: str,
+        *,
+        max_tokens: int = 256,
+    ) -> dict[str, Any]:
+        """Run one bounded, low-temperature atomic preparation task."""
+
+        payload = {
+            "model": self.model_name,
+            "messages": [
+                {"role": "system", "content": system.strip()},
+                {"role": "user", "content": f"{prompt.strip()}\n\n/no_think"},
+            ],
+            "temperature": 0.1,
+            "top_p": 0.8,
+            "top_k": 20,
+            "max_tokens": max(64, min(int(max_tokens), 512)),
+            "stream": False,
+        }
+        body, elapsed = self._request(payload)
+        content = re.sub(
+            r"<think>.*?</think>", "", self._content(body), flags=re.DOTALL
+        ).strip()
+        value = _extract_json(content)
+        usage = body.get("usage") if isinstance(body.get("usage"), dict) else {}
+        timings = body.get("timings") if isinstance(body.get("timings"), dict) else {}
+        completion_tokens = int(
+            usage.get("completion_tokens") or timings.get("predicted_n") or 0
+        )
+        return {
+            "value": value,
+            "raw": content,
+            "model": self.model_name,
+            "metrics": {
+                "elapsed_seconds": round(elapsed, 2),
+                "completion_tokens": completion_tokens,
+                "tokens_per_second": round(
+                    float(timings.get("predicted_per_second") or 0), 2
+                ),
+            },
+        }
+
     def generate(self, query: str, mode: str, evidence: list[Evidence]) -> dict[str, Any]:
         instructions = {
             "word": "Create a WORD ORIGIN card grounded in the retrieved dictionary entry",

@@ -5,6 +5,7 @@ import json
 import sys
 from pathlib import Path
 
+from .atomic import build_worker
 from .card_books import CardBookIndex, build_card_book_index
 from .config import Settings
 from .corpus import CorpusIndex, build_index
@@ -231,6 +232,28 @@ def command_plan_content(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_work_atomic(args: argparse.Namespace) -> int:
+    settings = _settings()
+    worker = build_worker(
+        KnowledgeStore(settings.knowledge_db),
+        CorpusIndex(settings.corpus_db),
+        MorphologyIndex(settings.roots_db),
+        MorphologyIndex(settings.affixes_db),
+        WordnetRag(settings.data_dir / "lexicons" / "wn"),
+        LlamaCppClient(
+            settings.llm_url, settings.llm_model, settings.request_timeout
+        ),
+    )
+    print(
+        json.dumps(
+            [result.__dict__ for result in worker.run(args.limit)],
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+    return 0
+
+
 def command_serve(_args: argparse.Namespace) -> int:
     from .web import run
 
@@ -347,6 +370,13 @@ def parser() -> argparse.ArgumentParser:
     plan_content.add_argument("--prompt-version", default="atomic-v1")
     plan_content.add_argument("--source-fingerprint", default="")
     plan_content.set_defaults(handler=command_plan_content)
+
+    work_atomic = commands.add_parser(
+        "work-atomic",
+        help="run bounded evidence/meaning jobs and checkpoint accepted results",
+    )
+    work_atomic.add_argument("--limit", type=int, default=1)
+    work_atomic.set_defaults(handler=command_work_atomic)
 
     serve = commands.add_parser("serve", help="run the GUI and JSON API")
     serve.set_defaults(handler=command_serve)

@@ -21,5 +21,7 @@ of source-specific conditionals.
 The normalized knowledge schema and dependency-aware planner are implemented.
 Phoneme segmentation, Arabic grapheme segmentation, sentence grammar, linked
 word investigation, recursive origin expansion, and batch corpus preparation
-are represented as separate sequential jobs. The next milestone executes those
-jobs and promotes validated artifacts into reconstructable cards.
+are represented as separate sequential jobs. The bounded worker now executes
+and checkpoints the first two jobs—combined book/dictionary retrieval and one
+validated English meaning—without claiming later unsupported work. Each
+remaining task gets its own handler and validator before promotion.
