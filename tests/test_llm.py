@@ -66,7 +66,10 @@ class LlmParsingTests(unittest.TestCase):
         self.assertEqual(request.call_count, 2)
         first_payload = request.call_args_list[0].args[0]
         repair_payload = request.call_args_list[1].args[0]
-        self.assertEqual(first_payload["response_format"], {"type": "json_object"})
+        self.assertEqual(first_payload["response_format"]["type"], "json_object")
+        schema = first_payload["response_format"]["schema"]
+        self.assertFalse(schema["additionalProperties"])
+        self.assertEqual(schema["properties"]["origin_graph"]["maxItems"], 7)
         self.assertEqual(repair_payload["temperature"], 0.0)
         self.assertIn("Repair the previous response", repair_payload["messages"][-1]["content"])
 

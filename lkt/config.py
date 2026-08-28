@@ -51,7 +51,7 @@ class Settings:
             llm_model=os.environ.get("LKT_LLM_MODEL", "Qwen3-4B-Q4_K_M"),
             host=os.environ.get("LKT_HOST", "0.0.0.0"),
             port=int(os.environ.get("LKT_PORT", "8090")),
-            request_timeout=int(os.environ.get("LKT_REQUEST_TIMEOUT", "240")),
+            request_timeout=int(os.environ.get("LKT_REQUEST_TIMEOUT", "360")),
             max_evidence=int(os.environ.get("LKT_MAX_EVIDENCE", "4")),
         )
 

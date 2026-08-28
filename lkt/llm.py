@@ -64,7 +64,7 @@ Required JSON shape:
   ],
   "key_points": ["at most 2 concise points"],
   "english": {"term": "", "pronunciation": "", "meaning": ""},
-  "japanese": {"term": "established equivalent", "reading": "exact hiragana or katakana", "meaning": "short meaning written in Japanese", "ruby_tokens": [{"t": "kanji or kana segment", "r": "exact kana reading; omit for plain kana"}]},
+  "japanese": {"term": "established equivalent", "reading": "exact hiragana or katakana", "meaning": "short meaning written in Japanese", "ruby_tokens": [{"t": "kanji or kana segment", "r": "exact kana reading; empty for plain kana"}]},
   "chinese": {"simplified": "established equivalent", "traditional": "", "pinyin": "tone-marked pinyin", "meaning": "short Chinese meaning"},
   "memory_hook": "short memorable connection",
   "related_terms": []
@@ -95,7 +95,7 @@ Required JSON shape:
   "origin_story": "one short useful note grounded in the excerpts",
   "key_points": ["at most 2 concise points"],
   "english": {"term": "", "pronunciation": "IPA", "meaning": "short modern English meaning"},
-  "japanese": {"term": "established equivalent", "reading": "exact kana reading", "meaning": "short meaning written in Japanese", "ruby_tokens": [{"t": "kanji or kana segment", "r": "exact kana reading; omit for plain kana"}]},
+  "japanese": {"term": "established equivalent", "reading": "exact kana reading", "meaning": "short meaning written in Japanese", "ruby_tokens": [{"t": "kanji or kana segment", "r": "exact kana reading; empty for plain kana"}]},
   "chinese": {"simplified": "established equivalent", "traditional": "", "pinyin": "tone-marked pinyin", "meaning": "short meaning written in Chinese"},
   "french": {"term": "established equivalent", "pronunciation": "IPA if known", "meaning": "short meaning written in French"},
   "arabic": {"term": "established modern Arabic equivalent", "reading": "simple transliteration", "meaning": "short meaning written in Arabic"},
@@ -105,7 +105,7 @@ Required JSON shape:
 All five term fields must express the same current everyday sense, not merely the literal ancient
 root. Prefer common lexical equivalents over transliterations. Japanese ruby token text must
 concatenate exactly to japanese.term. If you are not confident in a French or Arabic equivalent,
-return an empty object for that language instead of guessing. Before returning, verify each reading
+return its object with empty strings instead of guessing. Before returning, verify each reading
 against its term and keep every meaning in its requested language. Use Unicode directly. Keep every
 meaning to one short phrase and the whole response under 300 words so it fits one screen. /no_think"""
 
@@ -155,6 +155,133 @@ Required JSON shape:
   "related_terms": []
 }
 Use Unicode directly. Keep the entire response under 200 words. /no_think"""
+
+
+def _text_schema(max_length: int) -> dict[str, Any]:
+    return {"type": "string", "maxLength": max_length}
+
+
+def _strict_object(properties: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": properties,
+        "required": list(properties),
+        "additionalProperties": False,
+    }
+
+
+_RUBY_SCHEMA = {
+    "type": "array",
+    "maxItems": 24,
+    "items": _strict_object({"t": _text_schema(16), "r": _text_schema(32)}),
+}
+_ENGLISH_SCHEMA = _strict_object(
+    {
+        "term": _text_schema(100),
+        "pronunciation": _text_schema(100),
+        "meaning": _text_schema(180),
+    }
+)
+_JAPANESE_SCHEMA = _strict_object(
+    {
+        "term": _text_schema(100),
+        "reading": _text_schema(160),
+        "meaning": _text_schema(160),
+        "ruby_tokens": _RUBY_SCHEMA,
+    }
+)
+_PLAIN_JAPANESE_SCHEMA = _strict_object(
+    {
+        "term": _text_schema(3000),
+        "reading": _text_schema(160),
+        "meaning": _text_schema(160),
+    }
+)
+_CHINESE_SCHEMA = _strict_object(
+    {
+        "simplified": _text_schema(3000),
+        "traditional": _text_schema(3000),
+        "pinyin": _text_schema(4000),
+        "meaning": _text_schema(160),
+    }
+)
+_KEY_POINTS_SCHEMA = {
+    "type": "array",
+    "maxItems": 2,
+    "items": _text_schema(180),
+}
+_RELATED_SCHEMA = {
+    "type": "array",
+    "maxItems": 4,
+    "items": _strict_object(
+        {"term": _text_schema(100), "note": _text_schema(180)}
+    ),
+}
+
+
+def _base_card_schema(japanese: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "title": _text_schema(120),
+        "subtitle": _text_schema(180),
+        "summary_en": _text_schema(300),
+        "origin_story": _text_schema(640),
+        "key_points": _KEY_POINTS_SCHEMA,
+        "english": _ENGLISH_SCHEMA,
+        "japanese": japanese,
+        "chinese": _CHINESE_SCHEMA,
+        "memory_hook": _text_schema(300),
+        "related_terms": _RELATED_SCHEMA,
+    }
+
+
+_ORIGIN_NODE_SCHEMA = _strict_object(
+    {
+        "id": _text_schema(48),
+        "parent": _text_schema(48),
+        "stage": _text_schema(80),
+        "form": _text_schema(80),
+        "meaning": _text_schema(100),
+        "basis": {"type": "string", "enum": ["book", "model"]},
+    }
+)
+_ALTERNATE_LANGUAGE_SCHEMA = _strict_object(
+    {
+        "term": _text_schema(100),
+        "pronunciation": _text_schema(100),
+        "meaning": _text_schema(160),
+    }
+)
+_ARABIC_SCHEMA = _strict_object(
+    {
+        "term": _text_schema(100),
+        "reading": _text_schema(160),
+        "meaning": _text_schema(160),
+    }
+)
+
+
+CARD_JSON_SCHEMAS = {
+    "word": _strict_object(
+        {
+            **_base_card_schema(_JAPANESE_SCHEMA),
+            "origin_graph": {
+                "type": "array",
+                "minItems": 2,
+                "maxItems": 7,
+                "items": _ORIGIN_NODE_SCHEMA,
+            },
+        }
+    ),
+    "knowledge": _strict_object(
+        {
+            **_base_card_schema(_JAPANESE_SCHEMA),
+            "french": _ALTERNATE_LANGUAGE_SCHEMA,
+            "arabic": _ARABIC_SCHEMA,
+        }
+    ),
+    "answer": _strict_object(_base_card_schema(_PLAIN_JAPANESE_SCHEMA)),
+    "question": _strict_object(_base_card_schema(_PLAIN_JAPANESE_SCHEMA)),
+}
 
 
 def _extract_json(text: str) -> dict[str, Any]:
@@ -297,7 +424,7 @@ class LlamaCppClient:
             "answer": ANSWER_PROMPT,
             "question": QUESTION_PROMPT,
         }
-        token_budgets = {"word": 820, "knowledge": 760, "answer": 520, "question": 520}
+        token_budgets = {"word": 480, "knowledge": 420, "answer": 320, "question": 320}
         payload = {
             "model": self.model_name,
             "messages": [
@@ -313,7 +440,10 @@ class LlamaCppClient:
             "presence_penalty": 1.5,
             "max_tokens": token_budgets[mode],
             "stream": False,
-            "response_format": {"type": "json_object"},
+            "response_format": {
+                "type": "json_object",
+                "schema": CARD_JSON_SCHEMAS[mode],
+            },
         }
         for attempt in range(2):
             body, _elapsed = self._request(payload)
