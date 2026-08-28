@@ -19,6 +19,8 @@ class WebInputTests(unittest.TestCase):
         self.assertIn("}, 30000);", script)
         self.assertIn('fetch("/api/intent"', script)
         self.assertIn('ambientRouting = !initialParameters.has("mode")', script)
+        self.assertIn('{ selector: ".dimmed", style: { opacity: 0 } }', script)
+        self.assertIn("focusNodes.union(focusEdges)", script)
 
     def test_old_cards_receive_chinese_ruby_without_database_migration(self) -> None:
         card = {"chinese": {"simplified": "中国", "pinyin": "zhōng guó"}}

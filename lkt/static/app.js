@@ -581,7 +581,7 @@ function graphStyles(compact = false) {
     { selector: "node.root", style: { "background-color": "#f2eaff", "border-color": "#8b3dff" } },
     { selector: "node.suffix", style: { "background-color": "#fff7d6", "border-color": "#e29a00" } },
     { selector: "node.center", style: { width: 184, height: 106, shape: "ellipse", "background-color": "#ffcf3d", "border-color": "#17213d", "border-width": 4, "font-size": 17, "text-max-width": 158 } },
-    { selector: ".dimmed", style: { opacity: .14 } },
+    { selector: ".dimmed", style: { opacity: 0 } },
     { selector: "node.focus-node", style: { "border-width": 5 } },
     {
       selector: "edge",
@@ -604,17 +604,18 @@ function showGraphFocus(requestedIndex) {
   originCy.elements().removeClass("dimmed focus-node");
   overviewCy?.nodes().removeClass("focus-node");
   const focusNodes = originCy.nodes().filter((node) => ids.has(node.id()));
+  const focusEdges = originCy.edges().filter((edge) => (
+    ids.has(edge.source().id()) && ids.has(edge.target().id())
+  ));
   if (focus.kind !== "overview") {
     originCy.nodes().not(focusNodes).addClass("dimmed");
-    originCy.edges()
-      .filter((edge) => !ids.has(edge.source().id()) || !ids.has(edge.target().id()))
-      .addClass("dimmed");
+    originCy.edges().not(focusEdges).addClass("dimmed");
     focusNodes.addClass("focus-node");
     overviewCy?.nodes().filter((node) => ids.has(node.id())).addClass("focus-node");
   }
   const target = focus.kind === "overview"
     ? originCy.elements()
-    : focusNodes.union(focusNodes.connectedEdges());
+    : focusNodes.union(focusEdges);
   originCy.animate({
     fit: { eles: target, padding: focus.kind === "overview" ? 28 : 70 },
     duration: 350,
