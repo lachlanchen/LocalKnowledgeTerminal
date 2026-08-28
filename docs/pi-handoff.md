@@ -8,7 +8,7 @@ stored in Git.
 
 | Layer | Verified revision/state |
 |---|---|
-| LKT source | `f9490e5006130aa37e402dc97a1fac2bf006aefe` |
+| LKT source | `88036d4147d2bfc2471fcbb35e222e301650250e` |
 | Model | `Qwen3-4B-Q4_K_M.gguf`, 2,497,280,256 bytes |
 | Model SHA-256 | `7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5` |
 | llama.cpp package | pinned `v0.3.0`, source commit `c1d0e7a004015f23bc0233470b747b596f29b264` |
@@ -18,6 +18,11 @@ stored in Git.
 
 `lkt-web` and `lkt-llm` were both active. `/api/health` returned `ready`, with
 the model reported as local and ready.
+
+The live intent endpoint routed Word Card, Chat, Word Origin, Root, and Affix
+inputs in about 1 ms. Repeated `inspection` and Answer #012 requests returned
+their existing accepted card IDs in about 1 ms without inference. A real local
+chat smoke test returned from Qwen3-4B in 5.54 seconds at 3.52 tokens/second.
 
 ## Real-data smoke results
 
