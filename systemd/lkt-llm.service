@@ -9,13 +9,18 @@ User=lachlan
 Group=lachlan
 WorkingDirectory=/home/lachlan/LocalKnowledgeTerminal
 Environment=OPENBLAS_NUM_THREADS=4
+Environment=LKT_MODEL_PATH=/home/lachlan/LocalKnowledgeTerminal/models/Qwen3-4B-Q4_K_M.gguf
+Environment=LKT_MODEL_CONTEXT=4096
+Environment=LKT_BATCH_SIZE=256
+Environment=LKT_UBATCH_SIZE=64
+EnvironmentFile=-/etc/lkt-model.env
 ExecStart=/home/lachlan/LocalKnowledgeTerminal/runtime/llama.cpp-0.3.0/build/bin/llama-server \
-  --model /home/lachlan/LocalKnowledgeTerminal/models/Qwen3-4B-Q4_K_M.gguf \
-  --ctx-size 4096 \
+  --model ${LKT_MODEL_PATH} \
+  --ctx-size ${LKT_MODEL_CONTEXT} \
   --threads 4 \
   --threads-batch 4 \
-  --batch-size 256 \
-  --ubatch-size 64 \
+  --batch-size ${LKT_BATCH_SIZE} \
+  --ubatch-size ${LKT_UBATCH_SIZE} \
   --parallel 1 \
   --host 127.0.0.1 \
   --port 8081 \

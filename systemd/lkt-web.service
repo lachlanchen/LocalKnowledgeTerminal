@@ -8,6 +8,7 @@ Type=simple
 User=lachlan
 Group=lachlan
 EnvironmentFile=/etc/lkt.env
+EnvironmentFile=-/etc/lkt-model.env
 Environment=PYTHONUNBUFFERED=1
 Environment=PYTHONPATH=/home/lachlan/LocalKnowledgeTerminal/source
 WorkingDirectory=/home/lachlan/LocalKnowledgeTerminal/source

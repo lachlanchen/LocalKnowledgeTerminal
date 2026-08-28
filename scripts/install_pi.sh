@@ -43,6 +43,17 @@ LKT_PORT=8090
 EOF
 chmod 0644 /etc/lkt.env
 
+if [ ! -f /etc/lkt-model.env ]; then
+  cat >/etc/lkt-model.env <<EOF
+LKT_LLM_MODEL=Qwen3-4B-Q4_K_M
+LKT_MODEL_PATH=${MODEL_PATH}
+LKT_MODEL_CONTEXT=4096
+LKT_BATCH_SIZE=256
+LKT_UBATCH_SIZE=64
+EOF
+  chmod 0644 /etc/lkt-model.env
+fi
+
 runuser -u "$LKT_USER" -- env \
   PYTHONPATH="$SOURCE_DIR" \
   LKT_SOURCE="$SOURCE_DIR" \

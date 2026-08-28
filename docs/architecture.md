@@ -21,6 +21,12 @@ The browser does not call llama.cpp directly. The e-ink adapter will not call
 retrieval or the model. This keeps slow generation, source fidelity, display
 refresh, and speech synthesis independently testable.
 
+The model service loads exactly one GGUF. `/etc/lkt-model.env` selects its path,
+context, batch size, and public model label. The 4B profile is the default; the
+optional 8B profile reduces context/batch memory and has an automatic 4B health
+fallback. The web and model services read the same label file so saved cards
+record the model that actually produced them.
+
 The browser exposes two carousel levels over the acquired-knowledge ledger. The
 outer carousel is filtered by mode, so autoplay never changes an Origin into a
 Question. Answer and Question also have an inner language carousel. It renders

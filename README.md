@@ -167,6 +167,23 @@ The Pi service exposes one inference slot (`--parallel 1`). Card composition and
 Model Lab requests are therefore handled sequentially, keeping memory use and
 latency predictable instead of making four CPU cores compete across jobs.
 
+Qwen3-4B remains the responsive default. The optional official Qwen3-8B
+Q4_K_M download and model switch are explicit and reversible:
+
+```bash
+tmux new-session -d -s lkt-8b-download \
+  './scripts/download_qwen3_8b.sh > ../logs/qwen3-8b-download.log 2>&1'
+sudo ./scripts/select_model.sh status
+sudo ./scripts/select_model.sh 8b
+sudo ./scripts/select_model.sh 4b
+```
+
+Only one model is loaded at a time. The 8B profile uses a 3,072-token context
+and smaller batch to protect the 8 GB memory boundary. If its server does not
+become healthy, `select_model.sh 8b` restores the 4B profile automatically.
+The downloader resumes a partial transfer, verifies the official SHA-256, and
+only then atomically exposes the final GGUF.
+
 On the Pi:
 
 ```bash
