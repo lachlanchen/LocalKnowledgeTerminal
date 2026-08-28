@@ -152,15 +152,29 @@ function optionalText(selector, value) {
 function renderRubyElement(container, tokens, term, fallbackReading = "") {
   container.replaceChildren();
   if (Array.isArray(tokens) && tokens.length) {
-    tokens.forEach((token) => {
+    const appendToken = (target, token) => {
       if (!token.r) {
-        container.append(document.createTextNode(token.t || ""));
+        target.append(document.createTextNode(token.t || ""));
         return;
       }
       const ruby = document.createElement("ruby");
       ruby.append(document.createTextNode(token.t || ""), element("rt", "", token.r));
-      container.append(ruby);
-    });
+      target.append(ruby);
+    };
+    for (let index = 0; index < tokens.length; index += 1) {
+      const token = tokens[index];
+      if (/^\d+$/.test(String(token.t || "")) && /^[万億年月日人個本枚台歳％%]/.test(String(tokens[index + 1]?.t || ""))) {
+        const cluster = element("span", "ruby-cluster");
+        appendToken(cluster, token);
+        while (index + 1 < tokens.length && /^[万億年月日人個本枚台歳％%]+$/.test(String(tokens[index + 1]?.t || ""))) {
+          index += 1;
+          appendToken(cluster, tokens[index]);
+        }
+        container.append(cluster);
+      } else {
+        appendToken(container, token);
+      }
+    }
     return;
   }
   const ruby = document.createElement("ruby");

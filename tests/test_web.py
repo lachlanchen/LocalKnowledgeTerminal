@@ -10,6 +10,7 @@ class WebInputTests(unittest.TestCase):
     def test_bare_terminal_defaults_to_the_answer_carousel(self) -> None:
         root = Path(__file__).resolve().parents[1]
         script = (root / "lkt" / "static" / "app.js").read_text(encoding="utf-8")
+        style = (root / "lkt" / "static" / "app.css").read_text(encoding="utf-8")
         page = (root / "lkt" / "static" / "index.html").read_text(encoding="utf-8")
         self.assertIn('let mode = "answer";', script)
         self.assertIn('initialParameters.get("mode") : "answer"', script)
@@ -24,6 +25,8 @@ class WebInputTests(unittest.TestCase):
         self.assertIn('for (const marker of [". ", "? ", "! ", "; ", ", "])', script)
         self.assertIn("carry.unshift(numericToken)", script)
         self.assertIn("[。！？?!、，；;]", script)
+        self.assertIn('element("span", "ruby-cluster")', script)
+        self.assertIn(".ruby-cluster { display: inline-block; white-space: nowrap; }", style)
 
     def test_old_cards_receive_chinese_ruby_without_database_migration(self) -> None:
         card = {"chinese": {"simplified": "中国", "pinyin": "zhōng guó"}}

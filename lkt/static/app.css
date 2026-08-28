@@ -835,6 +835,7 @@ body.display-mode .card-view { border-radius: 0; }
 .sentence-stage.language-japanese,
 .sentence-stage.language-chinese { line-height: 2.05; }
 .sentence-stage ruby { margin-inline: .06em; ruby-align: center; }
+.ruby-cluster { display: inline-block; white-space: nowrap; }
 .sentence-stage rt {
   color: var(--mode-accent);
   font: 800 .39em/1.15 var(--sans);
