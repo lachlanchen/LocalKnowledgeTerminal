@@ -5,7 +5,12 @@ import json
 import unittest
 from unittest.mock import patch
 
-from lkt.llm import LlamaCppClient, WORD_ORIGIN_PROMPT, _extract_json
+from lkt.llm import (
+    LlamaCppClient,
+    WORD_ORIGIN_PROMPT,
+    _extract_json,
+    _validate_card_draft,
+)
 from lkt.models import Evidence
 
 
@@ -24,6 +29,13 @@ class LlmParsingTests(unittest.TestCase):
     def test_rejects_non_json(self) -> None:
         with self.assertRaises(ValueError):
             _extract_json("not structured")
+
+    def test_rejects_a_blank_structured_card(self) -> None:
+        with self.assertRaisesRegex(ValueError, "summary_en"):
+            _validate_card_draft(
+                {"title": "sycophant", "summary_en": "", "origin_graph": []},
+                "word",
+            )
 
     def test_raw_chat_strips_thinking_and_reports_runtime_metrics(self) -> None:
         response = io.BytesIO(
@@ -54,7 +66,23 @@ class LlmParsingTests(unittest.TestCase):
     def test_card_generation_constrains_json_and_repairs_once(self) -> None:
         client = LlamaCppClient("http://localhost/v1/chat/completions", "test")
         invalid = {"choices": [{"message": {"content": "not json"}}]}
-        valid = {"choices": [{"message": {"content": '{"title":"Abacus"}'}}]}
+        valid_content = {
+            "title": "Abacus",
+            "summary_en": "A counting frame.",
+            "origin_graph": [
+                {"id": "modern", "parent": "", "stage": "English", "form": "abacus", "meaning": "counting frame", "basis": "book"},
+                {"id": "latin", "parent": "modern", "stage": "Latin", "form": "abacus", "meaning": "counting board", "basis": "book"},
+                {"id": "greek", "parent": "latin", "stage": "Greek", "form": "abax", "meaning": "board", "basis": "book"},
+            ],
+            "english": {"term": "abacus", "pronunciation": "", "meaning": "counting frame"},
+            "japanese": {"term": "soroban", "reading": "soroban", "meaning": "counting tool", "ruby_tokens": [{"t": "soroban", "r": ""}]},
+            "chinese": {"simplified": "suanpan", "traditional": "", "pinyin": "suan pan", "meaning": "counting tool"},
+        }
+        valid = {
+            "choices": [
+                {"message": {"content": json.dumps(valid_content)}}
+            ]
+        }
         evidence = [Evidence("entry-1", "abacus", "Greek", "", (1,), "source")]
         with patch.object(
             client,

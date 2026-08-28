@@ -51,7 +51,8 @@ Create a visually structured etymology from BOOK EVIDENCE plus your own reliable
 knowledge. The book is the anchor. Never invent a quotation, record, or page. A graph node whose
 claim is directly supported by the supplied excerpt must use basis "book"; a useful established
 detail added from your own knowledge must use basis "model". Prefer accuracy over extra detail.
-Return exactly one compact JSON object with no markdown or commentary.
+Return exactly one compact JSON object with no markdown or commentary. Fill every required field
+with real content; never return a blank template or placeholder.
 
 Required JSON shape:
 {
@@ -81,6 +82,8 @@ WORD_CARD_PROMPT = """You are the independent multilingual Word Card engine in L
 Terminal. Use the Word Origins excerpts as retrieved reference, then make one compact memory card.
 The core learning object is the established equivalent in English, Japanese, Chinese, French, and
 Arabic. Never invent a quotation, source, or page. Return exactly one JSON object with no markdown.
+Fill every required English, Japanese, and Chinese field with real content; never return a blank
+template or placeholder.
 
 Required JSON shape:
 {
@@ -250,6 +253,62 @@ def _extract_json(text: str) -> dict[str, Any]:
     raise ValueError("model response did not contain a JSON object")
 
 
+def _nonempty_path(value: dict[str, Any], *path: str) -> bool:
+    current: Any = value
+    for key in path:
+        if not isinstance(current, dict):
+            return False
+        current = current.get(key)
+    return isinstance(current, str) and bool(current.strip())
+
+
+def _validate_card_draft(value: dict[str, Any], mode: str) -> None:
+    required_paths = {
+        "word": (
+            ("title",),
+            ("summary_en",),
+            ("english", "term"),
+            ("english", "meaning"),
+            ("japanese", "term"),
+            ("japanese", "reading"),
+            ("japanese", "meaning"),
+            ("chinese", "simplified"),
+            ("chinese", "pinyin"),
+            ("chinese", "meaning"),
+        ),
+        "knowledge": (
+            ("title",),
+            ("english", "term"),
+            ("english", "meaning"),
+            ("japanese", "term"),
+            ("japanese", "reading"),
+            ("japanese", "meaning"),
+            ("chinese", "simplified"),
+            ("chinese", "pinyin"),
+            ("chinese", "meaning"),
+        ),
+        "answer": (("title",), ("origin_story",)),
+        "question": (("title",), ("origin_story",)),
+    }
+    missing = [
+        ".".join(path)
+        for path in required_paths[mode]
+        if not _nonempty_path(value, *path)
+    ]
+    if mode == "word":
+        graph = value.get("origin_graph")
+        if not isinstance(graph, list) or len(graph) < 3:
+            missing.append("origin_graph[3+]")
+        elif any(
+            not isinstance(node, dict)
+            or any(not str(node.get(key, "")).strip() for key in ("id", "stage", "form", "meaning"))
+            for node in graph
+        ):
+            missing.append("origin_graph.complete_nodes")
+    if missing:
+        raise ValueError(f"model returned incomplete card fields: {', '.join(missing)}")
+
+
 class LlamaCppClient:
     def __init__(self, url: str, model_name: str, timeout: int = 240):
         self.url = url
@@ -399,7 +458,9 @@ class LlamaCppClient:
             body, _elapsed = self._request(payload)
             content = self._content(body)
             try:
-                return _extract_json(str(content))
+                draft = _extract_json(str(content))
+                _validate_card_draft(draft, mode)
+                return draft
             except ValueError as exc:
                 if attempt:
                     raise ModelUnavailable(
@@ -415,8 +476,9 @@ class LlamaCppClient:
                         {
                             "role": "user",
                             "content": (
-                                "Repair the previous response. Return exactly one valid JSON "
-                                "object matching the required shape, with no markdown. /no_think"
+                                "Repair the previous response. Fill every required field with real, "
+                                "non-empty content and return exactly one valid JSON object matching "
+                                "the required shape, with no markdown. /no_think"
                             ),
                         },
                     ],
