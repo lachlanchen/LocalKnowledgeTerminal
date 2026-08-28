@@ -61,14 +61,14 @@ class Card:
     key_points: list[str]
     english: dict[str, str]
     japanese: dict[str, Any]
-    chinese: dict[str, str]
+    chinese: dict[str, Any]
     memory_hook: str
     related_terms: list[dict[str, str]]
     evidence: list[Evidence]
     model: str
     created_at: str
     grounded: bool = True
-    schema_version: str = "1.1"
+    schema_version: str = "1.2"
     extensions: dict[str, Any] = field(default_factory=dict)
     origin_graph: list[dict[str, str]] = field(default_factory=list)
     extra_languages: dict[str, dict[str, str]] = field(default_factory=dict)

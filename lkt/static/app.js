@@ -15,6 +15,11 @@ let autoplayEnabled = true;
 let autoplayTimer = null;
 let alternateTimer = null;
 let alternateIndex = 0;
+let originCy = null;
+let allSavedCards = [];
+let sentenceSlides = [];
+let sentenceSlideIndex = 0;
+let sentenceSlideTimer = null;
 
 const ALTERNATE_LANGUAGES = {
   french: { label: "FRANÇAIS · PRONONCIATION", className: "french" },
@@ -34,13 +39,13 @@ const MODE_COPY = {
   },
   knowledge: {
     card: "WORD CARD",
-    label: "Ask from Word Origins",
-    placeholder: "Try “How did counting tools evolve?”",
-    examples: ["counting tools", "language change", "memory"],
-    kicker: "WORD CARD · BOOK-GROUNDED NOTE",
-    title: "Connect several entries into one memorable idea.",
-    description: "The local model can explain, but retrieved book passages remain the evidence.",
-    narrative: "BOOK-GROUNDED NOTE",
+    label: "Enter an English word",
+    placeholder: "Try “wanderlust”",
+    examples: ["wanderlust", "serendipity", "ephemeral"],
+    kicker: "WORD CARD · FIVE LANGUAGES",
+    title: "Learn one word clearly across languages.",
+    description: "Large English and IPA lead into Japanese, Chinese, and a rotating French or Arabic equivalent.",
+    narrative: "WORD NOTE",
   },
   answer: {
     card: "BOOK ANSWER",
@@ -103,6 +108,151 @@ function optionalText(selector, value) {
   const node = $(selector);
   node.textContent = value || "";
   node.classList.toggle("hidden", !value);
+}
+
+function renderRubyElement(container, tokens, term, fallbackReading = "") {
+  container.replaceChildren();
+  if (Array.isArray(tokens) && tokens.length) {
+    tokens.forEach((token) => {
+      if (!token.r) {
+        container.append(document.createTextNode(token.t || ""));
+        return;
+      }
+      const ruby = document.createElement("ruby");
+      ruby.append(document.createTextNode(token.t || ""), element("rt", "", token.r));
+      container.append(ruby);
+    });
+    return;
+  }
+  const ruby = document.createElement("ruby");
+  ruby.append(document.createTextNode(term || "—"));
+  if (fallbackReading) ruby.append(element("rt", "", fallbackReading));
+  container.append(ruby);
+}
+
+function renderRuby(selector, tokens, term, fallbackReading = "") {
+  renderRubyElement($(selector), tokens, term, fallbackReading);
+}
+
+function splitText(text, maxCharacters) {
+  const remainingParts = [];
+  let remaining = String(text || "").trim();
+  while (remaining.length > maxCharacters) {
+    const floor = Math.floor(maxCharacters * 0.58);
+    const windowText = remaining.slice(0, maxCharacters + 1);
+    let boundary = -1;
+    for (const marker of [". ", "? ", "! ", "; ", ", ", " "]) {
+      boundary = Math.max(boundary, windowText.lastIndexOf(marker));
+    }
+    if (boundary < floor) boundary = maxCharacters;
+    else boundary += 1;
+    remainingParts.push(remaining.slice(0, boundary).trim());
+    remaining = remaining.slice(boundary).trim();
+  }
+  if (remaining) remainingParts.push(remaining);
+  return remainingParts.length ? remainingParts : ["—"];
+}
+
+function splitRubyTokens(tokens, maxCharacters) {
+  if (!Array.isArray(tokens) || !tokens.length) return [];
+  const chunks = [];
+  let chunk = [];
+  let length = 0;
+  tokens.forEach((token) => {
+    const tokenLength = String(token.t || "").length;
+    if (chunk.length && length + tokenLength > maxCharacters) {
+      chunks.push(chunk);
+      chunk = [];
+      length = 0;
+    }
+    chunk.push(token);
+    length += tokenLength;
+    if (/[。！？?!]$/.test(String(token.t || "")) && length >= maxCharacters * 0.55) {
+      chunks.push(chunk);
+      chunk = [];
+      length = 0;
+    }
+  });
+  if (chunk.length) chunks.push(chunk);
+  return chunks;
+}
+
+function buildSentenceSlides(card) {
+  const slides = [];
+  splitText(card.english.term || card.title, 165).forEach((term) => {
+    slides.push({ language: "english", label: "ENGLISH", term, tokens: [] });
+  });
+  const japaneseTokens = Array.isArray(card.japanese.ruby_tokens) ? card.japanese.ruby_tokens : [];
+  const japaneseChunks = splitRubyTokens(japaneseTokens, 64);
+  if (japaneseChunks.length) {
+    japaneseChunks.forEach((tokens) => slides.push({ language: "japanese", label: "日本語 · FURIGANA", term: "", tokens }));
+  } else {
+    splitText(card.japanese.term, 64).forEach((term) => {
+      slides.push({ language: "japanese", label: "日本語 · FURIGANA", term, tokens: [], reading: card.japanese.reading });
+    });
+  }
+  const chineseTokens = Array.isArray(card.chinese.ruby_tokens) ? card.chinese.ruby_tokens : [];
+  const chineseChunks = splitRubyTokens(chineseTokens, 48);
+  if (chineseChunks.length) {
+    chineseChunks.forEach((tokens) => slides.push({ language: "chinese", label: "中文 · PINYIN", term: "", tokens }));
+  } else {
+    splitText(card.chinese.simplified, 48).forEach((term) => {
+      slides.push({ language: "chinese", label: "中文 · PINYIN", term, tokens: [], reading: card.chinese.pinyin });
+    });
+  }
+  return slides;
+}
+
+function fitSentenceSlide() {
+  const stage = $("#sentence-stage");
+  stage.style.removeProperty("--sentence-size");
+  let size = Number.parseFloat(getComputedStyle(stage).fontSize);
+  while (stage.scrollHeight > stage.clientHeight && size > 24) {
+    size -= 2;
+    stage.style.setProperty("--sentence-size", `${size}px`);
+  }
+}
+
+function showSentenceSlide(requestedIndex) {
+  if (!sentenceSlides.length) return;
+  sentenceSlideIndex = (requestedIndex + sentenceSlides.length) % sentenceSlides.length;
+  const slide = sentenceSlides[sentenceSlideIndex];
+  const stage = $("#sentence-stage");
+  stage.className = `sentence-stage language-${slide.language}`;
+  text("#sentence-language", slide.label);
+  const content = element("p", "sentence-text");
+  stage.replaceChildren(content);
+  if (slide.language === "english") {
+    content.textContent = slide.term;
+  } else {
+    renderRubyElement(content, slide.tokens, slide.term, slide.reading || "");
+  }
+  text("#sentence-position", `${sentenceSlideIndex + 1} / ${sentenceSlides.length}`);
+  all("#sentence-dots button").forEach((button, index) => button.classList.toggle("active", index === sentenceSlideIndex));
+  window.requestAnimationFrame(fitSentenceSlide);
+}
+
+function renderSentenceCarousel(card) {
+  window.clearInterval(sentenceSlideTimer);
+  const carousel = $("#sentence-carousel");
+  const enabled = ["answer", "question"].includes(card.mode);
+  carousel.classList.toggle("hidden", !enabled);
+  sentenceSlides = enabled ? buildSentenceSlides(card) : [];
+  sentenceSlideIndex = 0;
+  if (!enabled) return;
+  text("#sentence-kind", MODE_COPY[card.mode].card);
+  const dots = $("#sentence-dots");
+  dots.replaceChildren(...sentenceSlides.map((_slide, index) => {
+    const button = element("button");
+    button.type = "button";
+    button.title = `Slide ${index + 1}`;
+    button.addEventListener("click", () => showSentenceSlide(index));
+    return button;
+  }));
+  showSentenceSlide(0);
+  if (sentenceSlides.length > 1) {
+    sentenceSlideTimer = window.setInterval(() => showSentenceSlide(sentenceSlideIndex + 1), 9000);
+  }
 }
 
 function element(tag, className, value) {
@@ -191,19 +341,132 @@ function locatorLabel(item) {
 
 function renderOriginGraph(card) {
   const graph = $("#origin-graph");
-  const path = $("#origin-path");
-  path.replaceChildren();
-  const nodes = Array.isArray(card.origin_graph) ? card.origin_graph.slice(0, 5) : [];
+  const canvas = $("#origin-canvas");
+  if (originCy) {
+    originCy.destroy();
+    originCy = null;
+  }
+  canvas.replaceChildren();
+  const nodes = Array.isArray(card.origin_graph) ? card.origin_graph.slice(0, 7) : [];
   graph.classList.toggle("hidden", card.mode !== "word" || nodes.length < 2);
   if (card.mode !== "word" || nodes.length < 2) return;
-  nodes.forEach((item, index) => {
-    const node = element("article", `origin-node basis-${item.basis === "book" ? "book" : "model"}`);
-    node.append(element("span", "origin-stage", item.stage || `Stage ${index + 1}`));
-    node.append(element("strong", "origin-form", item.form || "—"));
-    if (item.meaning) node.append(element("p", "origin-meaning", item.meaning));
-    path.append(node);
+
+  const normalized = nodes.map((item, index) => ({
+    ...item,
+    id: item.id || `origin-${index}`,
+    parent: Object.hasOwn(item, "parent")
+      ? item.parent
+      : (index < nodes.length - 1 ? (nodes[index + 1].id || `origin-${index + 1}`) : ""),
+  }));
+  const ids = new Set(normalized.map((item) => item.id));
+  const root = normalized.find((item) => !item.parent || !ids.has(item.parent)) || normalized.at(-1);
+  normalized.forEach((item) => {
+    if (item !== root && (!item.parent || !ids.has(item.parent))) item.parent = root.id;
   });
-  path.style.setProperty("--graph-count", nodes.length);
+
+  if (typeof window.cytoscape !== "function") {
+    canvas.append(element("p", "graph-error", "Graph renderer unavailable."));
+    return;
+  }
+  const graphNodes = normalized.map((item) => ({
+    data: {
+      id: item.id,
+      label: [
+        item.form || "—",
+        item.id === root.id
+          ? [card.japanese?.term, card.chinese?.simplified].filter(Boolean).join(" · ")
+          : "",
+        item.meaning,
+      ].filter(Boolean).join("\n"),
+      basis: item.basis === "book" ? "book" : "model",
+      root: item.id === root.id ? "yes" : "no",
+    },
+    classes: `${item.basis === "book" ? "book" : "model"}${item.id === root.id ? " root" : ""}`,
+  }));
+  const graphEdges = normalized
+    .filter((item) => item.parent && ids.has(item.parent))
+    .map((item, index) => ({
+      data: {
+        id: `edge-${index}-${item.parent}-${item.id}`,
+        source: item.id,
+        target: item.parent,
+        stage: item.stage || "earlier form",
+      },
+    }));
+  originCy = window.cytoscape({
+    container: canvas,
+    elements: [...graphNodes, ...graphEdges],
+    minZoom: 0.65,
+    maxZoom: 1.8,
+    wheelSensitivity: 0.18,
+    boxSelectionEnabled: false,
+    autoungrabify: true,
+    style: [
+      {
+        selector: "node",
+        style: {
+          width: 148,
+          height: 72,
+          shape: "round-rectangle",
+          "background-color": "#eaf2ff",
+          "border-width": 3,
+          "border-color": "#1769ff",
+          label: "data(label)",
+          color: "#17213d",
+          "font-family": "Inter, Segoe UI, Noto Sans CJK SC, sans-serif",
+          "font-size": 15,
+          "font-weight": 700,
+          "text-wrap": "wrap",
+          "text-max-width": 128,
+          "text-valign": "center",
+          "text-halign": "center",
+        },
+      },
+      { selector: "node.book", style: { "background-color": "#fff0e8", "border-color": "#ff5d45" } },
+      {
+        selector: "node.root",
+        style: {
+          width: 176,
+          height: 104,
+          shape: "ellipse",
+          "background-color": "#ffcf3d",
+          "border-color": "#17213d",
+          "border-width": 4,
+          "font-size": 17,
+          "text-max-width": 154,
+        },
+      },
+      {
+        selector: "edge",
+        style: {
+          width: 3,
+          "curve-style": "bezier",
+          "line-color": "#6e7d9c",
+          "target-arrow-color": "#6e7d9c",
+          "target-arrow-shape": "triangle",
+          label: "data(stage)",
+          color: "#13725f",
+          "font-size": 10,
+          "font-weight": 800,
+          "text-background-color": "#ffffff",
+          "text-background-opacity": 0.9,
+          "text-background-padding": 3,
+          "text-rotation": "autorotate",
+        },
+      },
+    ],
+  });
+  originCy.layout({
+    name: "breadthfirst",
+    roots: originCy.$id(root.id),
+    directed: false,
+    circle: false,
+    spacingFactor: 1.18,
+    padding: 24,
+    animate: false,
+    transform: (_node, position) => ({ x: -position.y, y: position.x }),
+  }).run();
+  originCy.fit(originCy.elements(), 22);
 }
 
 function showAlternate(card, requestedIndex = alternateIndex) {
@@ -247,22 +510,31 @@ function renderCard(card, refreshHistory = true) {
   cardView.className = `card-view mode-${card.mode}`;
   text("#card-mode", copy.card);
   text("#card-model", `${card.model} · LOCAL`);
-  const primaryTitle = card.mode === "answer" ? (card.english.term || card.title) : card.title;
+  const primaryTitle = ["answer", "question"].includes(card.mode)
+    ? (card.english.term || card.title)
+    : card.title;
   text("#card-title", primaryTitle);
   cardView.classList.toggle("long-title", primaryTitle.length > 80);
+  cardView.classList.toggle("very-long-title", primaryTitle.length > 150);
+  const translationLength = (card.japanese.term || "").length + (card.chinese.simplified || "").length;
+  cardView.classList.toggle("dense-translations", translationLength > 130);
   optionalText("#card-subtitle", card.subtitle);
   text("#card-summary", card.summary_en);
   text("#origin-story", card.origin_story);
   text("#english-term", card.english.term || card.title);
   optionalText("#english-pronunciation", card.english.pronunciation);
   optionalText("#english-meaning", card.english.meaning);
+  text("#word-card-term", card.english.term || card.title);
+  optionalText("#word-card-phonetic", card.english.pronunciation);
+  text("#word-card-definition", card.english.meaning || card.summary_en);
   optionalText("#japanese-meaning", card.japanese.meaning);
   const showTraditional = card.chinese.traditional
     && card.chinese.traditional !== card.chinese.simplified
     && card.chinese.simplified.length < 20;
-  text("#chinese-term", `${card.chinese.simplified}${showTraditional ? `／${card.chinese.traditional}` : ""}`);
-  $("#chinese-term").title = card.chinese.traditional || "";
-  optionalText("#chinese-pinyin", card.chinese.pinyin);
+  const chineseTokens = Array.isArray(card.chinese.ruby_tokens) ? card.chinese.ruby_tokens : [];
+  renderRuby("#chinese-term", chineseTokens, card.chinese.simplified, card.chinese.pinyin);
+  $("#chinese-term").title = showTraditional ? card.chinese.traditional : "";
+  optionalText("#chinese-pinyin", chineseTokens.length ? "" : card.chinese.pinyin);
   optionalText("#chinese-meaning", card.chinese.meaning);
   text("#memory-hook", card.memory_hook);
   text(
@@ -271,26 +543,10 @@ function renderCard(card, refreshHistory = true) {
   );
   renderOriginGraph(card);
   startAlternateLoop(card);
+  renderSentenceCarousel(card);
 
-  const ruby = $("#japanese-ruby");
-  ruby.replaceChildren();
   const tokens = Array.isArray(card.japanese.ruby_tokens) ? card.japanese.ruby_tokens : [];
-  if (tokens.length) {
-    tokens.forEach((token) => {
-      if (!token.r) {
-        ruby.append(document.createTextNode(token.t || ""));
-        return;
-      }
-      const node = document.createElement("ruby");
-      node.append(document.createTextNode(token.t || ""), element("rt", "", token.r));
-      ruby.append(node);
-    });
-  } else {
-    const rubyNode = document.createElement("ruby");
-    rubyNode.append(document.createTextNode(card.japanese.term || "—"));
-    if (card.japanese.reading) rubyNode.append(element("rt", "", card.japanese.reading));
-    ruby.append(rubyNode);
-  }
+  renderRuby("#japanese-ruby", tokens, card.japanese.term, card.japanese.reading);
 
   const points = $("#key-points");
   points.replaceChildren(...(card.key_points || []).map((item) => element("li", "", item)));
@@ -452,37 +708,44 @@ async function loadHealth() {
 }
 
 async function loadHistory() {
-  const history = $("#history");
   try {
     const response = await fetch("/api/cards?limit=30");
     const cards = await response.json();
-    carouselCards = cards;
-    history.replaceChildren();
-    if (!cards.length) {
-      carouselIndex = -1;
-      history.append(element("p", "quiet", "No cards yet."));
-      updateCarouselChrome();
-      return;
-    }
-    carouselIndex = Math.max(0, cards.findIndex((card) => card.card_id === activeCardId));
-    cards.forEach((card, index) => {
-      const button = element("button");
-      button.title = `${card.title} · ${MODE_COPY[card.mode]?.card || card.mode}`;
-      button.classList.toggle("active", index === carouselIndex);
-      button.addEventListener("click", () => {
-        carouselIndex = index;
-        renderCard(card, false);
-      });
-      history.append(button);
-    });
-    if (!activeCardId && mode !== "chat") {
-      renderCard(cards.find((card) => card.mode === mode) || cards[0], false);
-    }
+    if (!response.ok || !Array.isArray(cards)) throw new Error("Card history unavailable");
+    allSavedCards = cards;
+    const shouldOpenLatest = mode !== "chat" && (!activeCard || activeCard.mode !== mode);
+    rebuildModeCarousel(shouldOpenLatest);
+  } catch (_error) {
+    $("#history").replaceChildren(element("p", "quiet", "History unavailable."));
+  }
+}
+
+function rebuildModeCarousel(openLatest = false) {
+  const history = $("#history");
+  carouselCards = mode === "chat" ? [] : allSavedCards.filter((card) => card.mode === mode);
+  history.replaceChildren();
+  if (!carouselCards.length) {
+    carouselIndex = -1;
+    history.append(element("p", "quiet", mode === "chat" ? "Model Lab has its own ledger." : `No ${MODE_COPY[mode].card.toLowerCase()} cards yet.`));
     updateCarouselChrome();
     scheduleCarousel();
-  } catch (_error) {
-    history.replaceChildren(element("p", "quiet", "History unavailable."));
+    return;
   }
+  const found = carouselCards.findIndex((card) => card.card_id === activeCardId);
+  carouselIndex = openLatest || found < 0 ? 0 : found;
+  carouselCards.forEach((card, index) => {
+    const button = element("button");
+    button.title = card.title;
+    button.classList.toggle("active", index === carouselIndex);
+    button.addEventListener("click", () => {
+      carouselIndex = index;
+      renderCard(card, false);
+    });
+    history.append(button);
+  });
+  if (openLatest || found < 0) renderCard(carouselCards[carouselIndex], false);
+  updateCarouselChrome();
+  scheduleCarousel();
 }
 
 function updateCarouselChrome() {
@@ -528,11 +791,11 @@ all(".mode").forEach((button) => button.addEventListener("click", () => {
     chatContextTitle = "";
     resetChat();
     setMode(nextMode);
+    rebuildModeCarousel();
     return;
   }
-  const saved = carouselCards.find((card) => card.mode === nextMode);
-  if (saved) renderCard(saved, false);
-  else setMode(nextMode);
+  setMode(nextMode);
+  rebuildModeCarousel(true);
 }));
 all(".examples button").forEach((button) => button.addEventListener("click", () => submitQuery(button.dataset.query, button.dataset.mode || mode)));
 $("#card-form").addEventListener("submit", (event) => { event.preventDefault(); submitQuery($("#query").value); });
@@ -541,6 +804,8 @@ $("#clear-chat").addEventListener("click", resetChat);
 $("#discuss-card").addEventListener("click", discussCurrentCard);
 $("#previous-card").addEventListener("click", () => navigateCards(-1));
 $("#next-card").addEventListener("click", () => navigateCards(1));
+$("#previous-sentence-slide").addEventListener("click", () => showSentenceSlide(sentenceSlideIndex - 1));
+$("#next-sentence-slide").addEventListener("click", () => showSentenceSlide(sentenceSlideIndex + 1));
 $("#toggle-autoplay").addEventListener("click", () => {
   autoplayEnabled = !autoplayEnabled;
   updateCarouselChrome();

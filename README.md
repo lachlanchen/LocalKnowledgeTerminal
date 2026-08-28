@@ -18,9 +18,10 @@ and the browser GUI operate without a cloud API.
 
 ## Four independent experiences, one card contract
 
-- **Word Origin** uses its own one-entry retriever and prompt to make a bounded
-  provenance graph. Book-supported nodes and model-supplied linguistic context
-  are visibly distinguished.
+- **Word Origin** uses its own one-entry retriever and prompt to make a bounded,
+  interactive directed ancestry graph. Branching morphemes are preserved;
+  book-supported nodes and model-supplied linguistic context are visibly
+  distinguished.
 - **Word Card** retrieves several relevant Word Origins entries and composes a
   compact multilingual memory view. English, Japanese, and Chinese remain fixed
   while French and Arabic rotate in a fourth panel.
@@ -47,12 +48,14 @@ retrieved excerpt as bounded context.
 
 ## Product display
 
-The browser is an editorial card stage rather than a chat dashboard. Every card
-is a no-scroll, one-screen composition with a large core idea, large language
-text, and one compact source citation. Word Origin reserves its center for a
-non-overlapping chronological graph; Word Card reserves it for fixed EN/JA/ZH
-and a rotating FR/AR panel. Saved cards form an autoplaying carousel with
-previous/next controls.
+The browser is an editorial card stage rather than a chat dashboard. Every
+visible slide is a no-scroll, one-screen composition with a large core idea and
+one compact source citation. Word Origin reserves its center for a Cytoscape.js
+directed graph. Word Card uses large English/IPA above fixed Japanese/Chinese
+and a rotating French/Arabic panel. Answer and Question use an inner language
+carousel—English, Japanese ruby, Chinese pinyin ruby—and split unusually long
+sentences into additional readable slides. Saved cards form independent,
+mode-local outer carousels with previous/next controls.
 Fullscreen display mode hides all application chrome, and `/?display=1` opens
 the same card document as a kiosk-friendly screen surface. Print CSS and the
 versioned card JSON provide clean boundaries for later e-ink rendering.
@@ -105,6 +108,7 @@ the configured book has no evidence, the app does not generate a card.
 | `scripts/` | Reproducible Pi runtime, install, update, and smoke-test tools |
 | `systemd/` | Hardened model and application services |
 | `docs/lineage.md` | Exact legacy-project and corpus provenance |
+| `docs/product-brief.md` | Durable owner requirements and acceptance criteria |
 | `docs/mode-roadmap.md` | Extension plan for future suffix, affix, and root books |
 
 ## Local development

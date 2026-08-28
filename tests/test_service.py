@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from lkt.models import Evidence
-from lkt.service import CardService
+from lkt.service import CardService, _origin_graph
 from lkt.store import CardStore
 
 from test_card_books import make_card_book, record
@@ -40,6 +40,21 @@ class FakeModel:
 
 
 class ServiceTests(unittest.TestCase):
+    def test_origin_graph_preserves_branching_parent_links(self) -> None:
+        evidence = [
+            Evidence("entry-1", "sycophant", "Greek", "", (1,), "Greek roots")
+        ]
+        graph = _origin_graph(
+            [
+                {"id": "modern", "parent": "", "stage": "English", "form": "sycophant", "basis": "book"},
+                {"id": "fig", "parent": "modern", "stage": "Greek", "form": "sŷkon", "basis": "book"},
+                {"id": "show", "parent": "modern", "stage": "Greek", "form": "phaínein", "basis": "model"},
+            ],
+            evidence,
+            "sycophant",
+        )
+        self.assertEqual([node["parent"] for node in graph], ["", "modern", "modern"])
+
     def test_builds_multilingual_grounded_card_and_history(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -48,6 +63,7 @@ class ServiceTests(unittest.TestCase):
             card = service.create("abacus", "word")
             self.assertEqual(card.japanese["reading"], "そろばん")
             self.assertEqual(card.chinese["pinyin"], "suàn pán")
+            self.assertEqual(card.chinese["ruby_tokens"][0], {"t": "算", "r": "suàn"})
             self.assertEqual(card.evidence[0].pages, (12,))
             self.assertEqual(card.origin_graph[0]["form"], "abax")
             self.assertEqual(card.origin_graph[1]["basis"], "model")

@@ -13,12 +13,22 @@ from .card_books import CardBookIndex
 from .config import Settings
 from .corpus import CorpusIndex
 from .llm import LlamaCppClient, ModelUnavailable
+from .pronunciation import chinese_ruby_tokens
 from .service import CardService, NoEvidence
 from .store import CardStore
 
 
 LOG = logging.getLogger("lkt.web")
 STATIC_DIR = Path(__file__).resolve().parent / "static"
+
+
+def renderable_card(card: dict[str, Any]) -> dict[str, Any]:
+    """Add deterministic presentation aids to old cards without rewriting history."""
+
+    chinese = card.get("chinese")
+    if isinstance(chinese, dict) and not chinese.get("ruby_tokens"):
+        chinese["ruby_tokens"] = chinese_ruby_tokens(str(chinese.get("simplified", "")))
+    return card
 
 
 def chat_messages(payload: dict[str, Any]) -> list[dict[str, str]]:
@@ -119,11 +129,18 @@ def handler_factory(
             self.wfile.write(body)
 
         def _asset(self, name: str) -> None:
-            allowed = {"index.html", "app.css", "app.js"}
-            if name not in allowed:
+            allowed = {
+                "index.html": STATIC_DIR / "index.html",
+                "app.css": STATIC_DIR / "app.css",
+                "app.js": STATIC_DIR / "app.js",
+                "cytoscape-3.34.0.min.js": (
+                    STATIC_DIR / "vendor" / "cytoscape-3.34.0.min.js"
+                ),
+            }
+            path = allowed.get(name)
+            if path is None:
                 self._json({"error": "not found"}, HTTPStatus.NOT_FOUND)
                 return
-            path = STATIC_DIR / name
             if not path.is_file():
                 self._json({"error": "asset missing"}, HTTPStatus.NOT_FOUND)
                 return
@@ -144,6 +161,9 @@ def handler_factory(
                 return
             if parsed.path == "/assets/app.js":
                 self._asset("app.js")
+                return
+            if parsed.path == "/assets/vendor/cytoscape-3.34.0.min.js":
+                self._asset("cytoscape-3.34.0.min.js")
                 return
             if parsed.path == "/api/health":
                 model_ready = model.health()
@@ -212,7 +232,9 @@ def handler_factory(
                     parsed_limit = int(limit)
                 except ValueError:
                     parsed_limit = 12
-                self._json(service.store.recent(parsed_limit))
+                self._json(
+                    [renderable_card(card) for card in service.store.recent(parsed_limit)]
+                )
                 return
             if parsed.path == "/api/observations":
                 limit = parse_qs(parsed.query).get("limit", ["12"])[0]

@@ -9,7 +9,7 @@ from .card_books import CardBookIndex
 from .corpus import CorpusIndex
 from .llm import CardModel
 from .models import Card, Evidence
-from .pronunciation import chinese_pinyin
+from .pronunciation import chinese_pinyin, chinese_ruby_tokens
 from .retrieval import RagEngine, build_rag_engines
 from .store import CardStore
 
@@ -66,16 +66,34 @@ def _origin_graph(
     value: Any, evidence: list[Evidence], title: str
 ) -> list[dict[str, str]]:
     result: list[dict[str, str]] = []
+    used_ids: set[str] = set()
+    has_explicit_relationships = False
     if isinstance(value, list):
-        for item in value[:5]:
+        for index, item in enumerate(value[:7]):
             if not isinstance(item, dict):
                 continue
             form = _short_text(item.get("form"), limit=80)
             if not form:
                 continue
             basis = _short_text(item.get("basis"), "model", 12).lower()
+            node_id = re.sub(
+                r"[^a-z0-9-]+",
+                "-",
+                _short_text(item.get("id"), f"origin-{index + 1}", 48).lower(),
+            ).strip("-") or f"origin-{index + 1}"
+            if node_id in used_ids:
+                node_id = f"{node_id}-{index + 1}"
+            used_ids.add(node_id)
+            parent = re.sub(
+                r"[^a-z0-9-]+",
+                "-",
+                _short_text(item.get("parent"), limit=48).lower(),
+            ).strip("-")
+            has_explicit_relationships = has_explicit_relationships or "parent" in item
             result.append(
                 {
+                    "id": node_id,
+                    "parent": parent,
                     "stage": _short_text(item.get("stage"), "Earlier form", 80),
                     "form": form,
                     "meaning": _short_text(item.get("meaning"), limit=180),
@@ -83,19 +101,33 @@ def _origin_graph(
                 }
             )
     if len(result) >= 2:
+        known_ids = {item["id"] for item in result}
+        if not has_explicit_relationships:
+            for index, item in enumerate(result):
+                item["parent"] = result[index + 1]["id"] if index + 1 < len(result) else ""
+        else:
+            roots = [item for item in result if not item["parent"] or item["parent"] not in known_ids]
+            root = roots[0] if roots else result[0]
+            root["parent"] = ""
+            for item in roots[1:]:
+                item["parent"] = root["id"]
         return result
     anchor = evidence[0]
     return [
         {
-            "stage": anchor.date_label or anchor.section or "Book record",
-            "form": anchor.headword,
-            "meaning": _short_text(anchor.excerpt, limit=140),
-            "basis": "book",
-        },
-        {
+            "id": "modern-word",
+            "parent": "",
             "stage": "Modern English",
             "form": title,
             "meaning": "Present form",
+            "basis": "book",
+        },
+        {
+            "id": "book-origin",
+            "parent": "modern-word",
+            "stage": anchor.date_label or anchor.section or "Book record",
+            "form": anchor.headword,
+            "meaning": _short_text(anchor.excerpt, limit=140),
             "basis": "book",
         },
     ]
@@ -161,6 +193,7 @@ class CardService:
         chinese["pinyin"] = chinese_pinyin(
             chinese["simplified"], chinese.get("pinyin", "")
         )
+        chinese["ruby_tokens"] = chinese_ruby_tokens(chinese["simplified"])
         extra_languages: dict[str, dict[str, str]] = {}
         if mode == "knowledge":
             extra_languages = {

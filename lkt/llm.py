@@ -60,7 +60,7 @@ Required JSON shape:
   "summary_en": "clear modern definition in one sentence",
   "origin_story": "one concise synthesis of the linguistic journey",
   "origin_graph": [
-    {"stage": "language or era", "form": "historical form", "meaning": "at most 8 words", "basis": "book or model"}
+    {"id": "short-unique-id", "parent": "id of the later form this feeds, or empty only for the modern root", "stage": "language or era", "form": "historical form or morpheme", "meaning": "at most 8 words", "basis": "book or model"}
   ],
   "key_points": ["at most 2 concise points"],
   "english": {"term": "", "pronunciation": "", "meaning": ""},
@@ -69,9 +69,12 @@ Required JSON shape:
   "memory_hook": "short memorable connection",
   "related_terms": []
 }
-Make origin_graph a chronological path of 3 to 5 non-overlapping stages, earliest first and
-Modern English last. Use Unicode directly and established Japanese/Chinese equivalents instead
-of phonetic imitations. Everything must fit one screen. Keep the response under 360 words. /no_think"""
+Make origin_graph a directed ancestry graph of 3 to 7 nodes like a compact dictionary etymology
+tree. Put the modern English word first as the single root with an empty parent. Its ancestors or
+component morphemes point to the later descendant using parent, so two roots/components may branch
+into one word. Do not force a linear timeline when the word has multiple components. Use Unicode
+directly and established Japanese/Chinese equivalents instead of phonetic imitations. Everything
+must fit one screen. Keep the response under 360 words. /no_think"""
 
 
 WORD_CARD_PROMPT = """You are the independent multilingual Word Card engine in Local Knowledge

@@ -2,10 +2,18 @@ from __future__ import annotations
 
 import unittest
 
-from lkt.web import card_chat_context, chat_messages
+from lkt.web import card_chat_context, chat_messages, renderable_card
 
 
 class WebInputTests(unittest.TestCase):
+    def test_old_cards_receive_chinese_ruby_without_database_migration(self) -> None:
+        card = {"chinese": {"simplified": "中国", "pinyin": "zhōng guó"}}
+        rendered = renderable_card(card)
+        self.assertEqual(
+            rendered["chinese"]["ruby_tokens"][1],
+            {"t": "国", "r": "guó"},
+        )
+
     def test_chat_messages_keep_only_bounded_user_and_assistant_history(self) -> None:
         messages = chat_messages(
             {

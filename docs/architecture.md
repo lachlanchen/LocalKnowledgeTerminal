@@ -21,15 +21,20 @@ The browser does not call llama.cpp directly. The e-ink adapter will not call
 retrieval or the model. This keeps slow generation, source fidelity, display
 refresh, and speech synthesis independently testable.
 
-The browser treats saved cards as a carousel over the acquired-knowledge
-ledger. Its fullscreen `display` mode removes navigation/composer chrome but
-renders the same card JSON, so screen, print, and future e-ink output share
-content semantics without sharing device code.
+The browser exposes two carousel levels over the acquired-knowledge ledger. The
+outer carousel is filtered by mode, so autoplay never changes an Origin into a
+Question. Answer and Question also have an inner language carousel. It renders
+English, Japanese ruby, and Chinese pinyin ruby independently and splits long
+source sentences at bounded text/token boundaries. Fullscreen `display` mode
+removes navigation/composer chrome but renders the same card JSON.
 
-Cards are composed to fit a single screen without internal scrolling. Word
-Origin renders its stored `origin_graph` as a chronological CSS grid, avoiding
-force-layout overlap and image-generation dependencies. Word Card keeps EN/JA/ZH
-stable and rotates the stored FR/AR alternative in one fixed fourth slot.
+Word Origin renders its stored `origin_graph` with a pinned, locally vendored
+Cytoscape.js build. The model returns a modern root plus ancestor/component
+nodes whose parent links form a directed ancestry tree; a breadth-first layout
+keeps the graph deterministic, interactive, and non-overlapping. Word Card
+keeps Japanese/Chinese fixed and rotates stored French/Arabic forms in the third
+panel beneath the English/IPA hero. The renderer never asks the model for data
+while changing a slide.
 
 Raw Chat is a deliberate diagnostic side path: the web service forwards bounded
 conversation history to the same local model and returns timing/token metrics.
@@ -61,16 +66,17 @@ against this lexical baseline.
 Model output is normalized text, never executable markup. Japanese ruby is
 constructed by the browser from separate term/reading fields or reviewed
 token-level furigana. Answer and Question translations are copied from corpus
-records after inference, so the model cannot rewrite them. Chinese pinyin is
-recomputed locally from the final normalized Chinese string so incomplete model
-transliteration never reaches a new stored card. Citation pages,
+records after inference, so the model cannot rewrite them. Chinese pinyin and
+character-level ruby tokens are recomputed locally from the final normalized
+Chinese string so incomplete model transliteration never reaches a card. Citation pages,
 locators, and excerpts are never accepted from model output. The GUI ships no
 CDN scripts, fonts, analytics, or cloud calls.
 
 ## Extension contract
 
-`Card.schema_version` is `1.1`; this adds `origin_graph` and `extra_languages`
-while old `1.0` payloads remain renderable. E-ink should render a card to an image at
-a device-specific resolution/color profile and audio should synthesize selected
-language fields. Both adapters should fail explicitly until configured rather
-than silently degrade the core card.
+`Card.schema_version` is `1.2`. It stores directed `origin_graph` node IDs and
+parent links, `extra_languages`, and deterministic Chinese `ruby_tokens`. Old
+payloads remain renderable: the web boundary adds ruby tokens in memory without
+rewriting historical rows. E-ink should render a card to an image at a
+device-specific resolution/color profile and audio should synthesize selected
+language fields. Both adapters should fail explicitly until configured.

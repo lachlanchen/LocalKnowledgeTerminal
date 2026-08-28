@@ -75,6 +75,24 @@
 
         <article class="card-view hidden" id="card-view">
           <main class="card-main">
+            <section class="word-card-hero" id="word-card-hero" aria-label="English word">
+              <div class="word-card-label">ENGLISH · WORD + SOUND</div>
+              <h1 id="word-card-term"></h1>
+              <div class="word-card-phonetic" id="word-card-phonetic"></div>
+              <p id="word-card-definition"></p>
+            </section>
+
+            <section class="sentence-carousel" id="sentence-carousel" aria-label="Multilingual sentence slides">
+              <header><span id="sentence-kind">BOOK QUESTION</span><strong id="sentence-language">ENGLISH</strong></header>
+              <div class="sentence-stage" id="sentence-stage"></div>
+              <footer>
+                <button id="previous-sentence-slide" type="button" aria-label="Previous language slide">←</button>
+                <div class="sentence-dots" id="sentence-dots"></div>
+                <button id="next-sentence-slide" type="button" aria-label="Next language slide">→</button>
+                <span id="sentence-position">1 / 3</span>
+              </footer>
+            </section>
+
             <header class="card-header">
               <div class="card-meta"><span id="card-mode">WORD ORIGIN</span><span id="card-model"></span></div>
               <h1 id="card-title"></h1>
@@ -84,8 +102,8 @@
             <p class="summary" id="card-summary"></p>
 
             <section class="origin-graph hidden" id="origin-graph" aria-label="Etymology path">
-              <header><span>LINGUISTIC PATH</span><p><b></b>Book anchor <i></i>Model context</p></header>
-              <div class="origin-path" id="origin-path"></div>
+              <header><span>ETYMOLOGY GRAPH</span><p><b></b>Book anchor <i></i>Model context</p></header>
+              <div class="origin-canvas" id="origin-canvas" role="img" aria-label="Interactive directed ancestry graph"></div>
             </section>
 
             <section class="narrative-section">
@@ -158,6 +176,7 @@
         </section>
       </footer>
     </div>
+    <script src="/assets/vendor/cytoscape-3.34.0.min.js" defer></script>
     <script src="/assets/app.js" defer></script>
   </body>
 </html>

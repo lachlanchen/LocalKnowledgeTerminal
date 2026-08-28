@@ -21,4 +21,4 @@ include-package-data = true
 include = ["lkt*"]
 
 [tool.setuptools.package-data]
-lkt = ["static/*"]
+lkt = ["static/*", "static/vendor/*"]
