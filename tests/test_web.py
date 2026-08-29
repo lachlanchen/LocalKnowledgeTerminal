@@ -77,6 +77,7 @@ class WebInputTests(unittest.TestCase):
         self.assertIn("-webkit-text-stroke: 1px rgba(255, 255, 255, .98)", style)
         self.assertIn("meaningFontSize: isCenter ? 15 : 13.5", script)
         self.assertIn("placeRows(components, -140", script)
+        self.assertIn("-webkit-line-clamp: 3", style)
         self.assertIn('id="graph-node-badges"', page)
         self.assertIn("renderGraphFocusAnnotations(focus)", script)
         self.assertIn('for (const marker of [". ", "? ", "! ", "; ", ", "])', script)

@@ -1161,7 +1161,7 @@ body.display-mode .card-view { border-radius: 0; }
   color: #263653;
   font: 650 var(--graph-meaning-size, 13.5px)/1.18 var(--sans);
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 3;
   overflow-wrap: anywhere;
 }
 .graph-overview {
