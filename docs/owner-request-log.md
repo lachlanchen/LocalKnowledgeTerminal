@@ -529,3 +529,7 @@ source was live dictation and may contain recognition errors:
   next random card.
 - Add representative Word Card and Word Origin screenshots to the README after
   the live layout is verified. Keep only intentional product screenshots in Git.
+- The first deployed content-fit pass still clustered Root and Affix in a narrow
+  center column. A technically valid fit is not sufficient: distribute semantic
+  rows from the actual canvas width, keep comfortable collision gaps, and make
+  the graph and its boxes visibly occupy the available stage.

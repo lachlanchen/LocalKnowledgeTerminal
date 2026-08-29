@@ -20,6 +20,7 @@ let alternateTimer = null;
 let alternateIndex = 0;
 let originCy = null;
 let overviewCy = null;
+let originGraphData = null;
 let graphFocusAreas = [];
 let graphFocusIndex = 0;
 let graphNodeBadgeFrame = null;
@@ -1022,11 +1023,15 @@ function fitGraphView({ wholeGraph = false, animate = false } = {}) {
 
 function scheduleGraphViewportFit(delay = 90) {
   window.clearTimeout(graphViewportFitTimer);
-  graphViewportFitTimer = window.setTimeout(() => fitGraphView(), delay);
+  graphViewportFitTimer = window.setTimeout(() => {
+    layoutGraphForCanvas();
+    fitGraphView();
+  }, delay);
 }
 
 function resetGraphAutofit() {
   if (!originCy || !graphFocusAreas.length) return;
+  layoutGraphForCanvas();
   const overviewIndex = Math.max(0, graphFocusAreas.findIndex((area) => area.kind === "overview"));
   showGraphFocus(overviewIndex, false);
   fitGraphView({ wholeGraph: true, animate: true });
@@ -1060,7 +1065,7 @@ function showGraphFocus(requestedIndex, animate = true) {
   scheduleGraphNodeBadges();
 }
 
-function semanticGraphPositions(data) {
+function semanticGraphPositions(data, canvasWidth = 1280) {
   const positions = new Map([[data.center_id, { x: 0, y: 0 }]]);
   const components = data.nodes.filter((node) => ["prefix", "root", "suffix"].includes(node.type));
   const histories = data.nodes.filter((node) => node.type === "historical");
@@ -1068,9 +1073,10 @@ function semanticGraphPositions(data) {
     node.id !== data.center_id
     && !["prefix", "root", "suffix", "historical"].includes(node.type)
   ));
-  const placeRows = (
-    nodes, firstY, direction, perRow = 5, gapX = 170, rowGap = 100,
-  ) => {
+  const perRow = Math.max(3, Math.min(4, Math.floor(canvasWidth / 300)));
+  const gapX = Math.max(260, Math.min(440, canvasWidth * .32));
+  const rowGap = 125;
+  const placeRows = (nodes, firstY, direction) => {
     for (let start = 0, row = 0; start < nodes.length; start += perRow, row += 1) {
       const group = nodes.slice(start, start + perRow);
       group.forEach((node, column) => {
@@ -1081,13 +1087,25 @@ function semanticGraphPositions(data) {
       });
     }
   };
-  placeRows(components, -140, -1, 5, 205, 130);
-  placeRows(histories, -300, -1, 5, 195, 130);
-  placeRows(related, 165, 1, 5, 195, 130);
+  placeRows(components, -140, -1);
+  const componentRows = components.length ? Math.ceil(components.length / perRow) : 0;
+  placeRows(histories, componentRows ? -265 - (componentRows - 1) * rowGap : -140, -1);
+  placeRows(related, 140, 1);
   data.nodes.forEach((node, index) => {
     if (!positions.has(node.id)) positions.set(node.id, { x: index * 170, y: 145 });
   });
   return positions;
+}
+
+function layoutGraphForCanvas() {
+  if (!originCy || !originGraphData) return;
+  const positions = semanticGraphPositions(originGraphData, $("#origin-canvas").clientWidth);
+  originCy.nodes().positions((node) => positions.get(node.id()));
+  repelGraphNodes(originCy, originGraphData.center_id);
+  if (overviewCy) {
+    overviewCy.nodes().positions((node) => originCy.$id(node.id()).position());
+    overviewCy.fit(overviewCy.elements(), 9);
+  }
 }
 
 function repelGraphNodes(cy, centerId, iterations = 160) {
@@ -1104,7 +1122,7 @@ function repelGraphNodes(cy, centerId, iterations = 160) {
         const dx = rightPosition.x - leftPosition.x;
         const dy = rightPosition.y - leftPosition.y;
         const requiredX = (left.data("nodeWidth") + right.data("nodeWidth")) / 2 + 42;
-        const requiredY = (left.data("nodeHeight") + right.data("nodeHeight")) / 2 + 36;
+        const requiredY = (left.data("nodeHeight") + right.data("nodeHeight")) / 2 + 18;
         const overlapX = requiredX - Math.abs(dx);
         const overlapY = requiredY - Math.abs(dy);
         if (overlapX <= 0 || overlapY <= 0) continue;
@@ -1139,6 +1157,7 @@ function renderOriginGraph(card) {
   window.clearInterval(graphFocusTimer);
   originCy = null;
   overviewCy = null;
+  originGraphData = null;
   clearGraphNodeBadges();
   canvas.replaceChildren();
   overview.replaceChildren();
@@ -1147,12 +1166,13 @@ function renderOriginGraph(card) {
     && Array.isArray(data?.nodes) && data.nodes.length > 1;
   graph.classList.toggle("hidden", !enabled);
   if (!enabled) return;
+  originGraphData = data;
   text("#graph-kind", card.mode === "word" ? "WORD ORIGIN GRAPH" : `${card.mode.toUpperCase()} GRAPH`);
   if (typeof window.cytoscape !== "function") {
     canvas.append(element("p", "graph-error", "Graph renderer unavailable."));
     return;
   }
-  const semanticPositions = semanticGraphPositions(data);
+  const semanticPositions = semanticGraphPositions(data, canvas.clientWidth);
   const graphNodes = data.nodes.map((node) => {
     const isCenter = node.id === data.center_id;
     const metrics = graphNodeMetrics(node, isCenter);

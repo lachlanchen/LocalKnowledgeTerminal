@@ -41,6 +41,7 @@ class AtomicWatchTests(unittest.TestCase):
             idle_seconds=2,
             job_delay=1,
             emit=lambda result: emitted.append(result.job_id),
+            preparation_blocker=lambda: "",
         )
         self.assertEqual(status, 0)
         self.assertEqual(emitted, ["job-1"])
@@ -98,6 +99,7 @@ class AtomicWatchTests(unittest.TestCase):
             emit=lambda result: emitted.append(result.job_id),
             idle_action=lambda: SimpleNamespace(job_id="deck-card-1"),
             idle_action_interval=120,
+            preparation_blocker=lambda: "",
         )
         self.assertEqual(status, 0)
         self.assertEqual(emitted, ["deck-card-1"])
