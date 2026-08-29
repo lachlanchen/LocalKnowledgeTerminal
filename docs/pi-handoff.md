@@ -8,15 +8,15 @@ indexes, and captured screens are not stored in Git.
 
 | Layer | Verified revision/state |
 |---|---|
-| Pi checkout | `2fc32cd` (`Give ruby annotations more separation`) |
-| Browser behavior | `2fc32cd` (`Give ruby annotations more separation`) |
+| Pi checkout | `37d4520` (`Use spare node space for explanations`) |
+| Browser behavior | `37d4520` (`Use spare node space for explanations`) |
 | Model | `Qwen3-4B-Q4_K_M.gguf`, 2,497,280,256 bytes |
 | Model SHA-256 | `7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5` |
 | llama.cpp package | pinned `v0.3.0`, source commit `c1d0e7a004015f23bc0233470b747b596f29b264` |
 | llama-server self-report | `0.3.0-dev`, GNU 12.2.0, Linux aarch64 |
 | Kernel | Raspberry Pi aarch64 `6.6.51+rpt-rpi-2712` |
 | Inference profile | one slot, 3,072-token context, batch 128, micro-batch 64 |
-| Background policy | one low-priority atomic job at a time; alternate book/lexical seeding only at queue idle |
+| Background policy | one low-priority atomic job at a time; memory gate before every queued job; alternate book/lexical seeding only at queue idle |
 
 `lkt-web`, `lkt-llm`, and `lkt-worker` were active. The live Python and browser
 code matched the runtime revision above, and the Pi worktree was clean.
@@ -24,8 +24,9 @@ code matched the runtime revision above, and the Pi worktree was clean.
 
 The model service is bounded by systemd at `MemoryHigh=5 GiB`,
 `MemoryMax=6 GiB`, `MemorySwapMax=128 MiB`, and `OOMPolicy=stop`. At final audit
-the Pi had 2.6 GiB available memory, was 56 C, and reported `0x50000`: historical
-throttling only, with no current undervoltage or throttling condition.
+the Pi had about 4.3 GiB available memory. A deliberately observed pathological
+background inference reached the hard ceiling and was restarted without a Pi
+reboot; web data and network state were unaffected.
 
 ## Required local sources
 
@@ -110,9 +111,22 @@ generation.
   English *on life* and the historical pronunciation relationship between
   *life* and *alive*. Prompt revision `autonomous-lexical-v1` queued exactly 16
   missing-only jobs; no card text or database atom was entered by hand.
-- Existing accepted content was retained. At audit, 161 independent missing
-  enrichment jobs remained queued, including the bounded `alive` plan; no
+- Existing accepted content was retained. At final audit, 114 independent
+  missing enrichment jobs remained queued and were draining one at a time; no
   existing accepted deck was regenerated.
+- Book-language synchronization is now a bulk, missing-only database pass. On
+  the live 58-card deck it reused all 174 accepted EN/JA/ZH content atoms,
+  found one card with missing enrichment, queued two jobs, and completed in one
+  second. It did not reacquire book records or rewrite accepted knowledge.
+- Terminal dependency failure now propagates through queued descendants, so no
+  job can remain permanently queued behind a failed prerequisite. The live
+  audit found zero such blocked jobs. Atomic grammar review accepts an exact
+  source-preserving model segmentation even when Qwen omits wrapper metadata,
+  while rewrites and partial coverage remain rejected.
+- The worker now runs the same 1.5 GiB available-memory check before every
+  queued inference, not only before seeding new deck items. After deployment,
+  three consecutive grammar jobs completed as independent accepted artifacts;
+  available memory remained about 4.3 GiB and all services stayed active.
 
 The LadybugDB traversal projection was rebuilt atomically after the smoke card.
 It contains 286 accepted nodes and 243 accepted edges, fingerprint
@@ -144,6 +158,21 @@ Japanese slide 3 of 8 and Chinese slide 6 of 8 both had zero document or stage
 overflow; their complete text remained inside the sentence stage. The temporary
 capture was removed and the one Chromium target was restored to the bare
 `?display` route.
+
+Revision `37d4520` gives graph nodes a deliberate two-row hierarchy. Root,
+prefix, suffix, word, and historical type badges occupy the top-left corner;
+source-language badges occupy the top-right and use distinct colors for EN,
+Latin, Greek, French, Proto-Indo-European, Germanic, Japanese, Chinese, and
+Arabic. The focal term is black with a one-pixel white outline and centered
+above a large wrapped explanation instead of being joined to it by a middle
+dot. Standard terms render at 21.96 px and the center at 26.84 px in the live
+fit; explanations render at 16.47-18.3 px and may use three lines. The accepted
+`predecessor` Origin (eight nodes) keeps a measured 40 px boundary gap between
+its morphology row and center word. Live 1920x1080 Origin, Root (five nodes),
+and Affix (two nodes) audits reported zero document or graph overflow, zero
+pairwise node overlap, and every node inside the graph. The Root word-node
+definition was fully visible without ellipsis. Temporary captures were
+inspected and removed.
 
 Deployed revision `f1299e8` adds a true cross-mode ambient journey without
 merging the six collections. A live Chromium protocol audit on the Pi traversed
@@ -194,10 +223,10 @@ not imported by the core service.
 
 ## Validation performed
 
-- Windows development checkout at `2fc32cd`: 119 unit tests passed in 73.069
+- Windows development checkout at `37d4520`: 126 unit tests passed in 81.216
   seconds; `compileall` and JavaScript syntax checks passed.
-- Pi checkout after fast-forward to `2fc32cd`: 119 full-suite tests passed in
-  49.749 seconds; `compileall` passed. Earlier launcher validation at `6712508`
+- Pi checkout after fast-forward to `37d4520`: 126 full-suite tests passed in
+  48.532 seconds; `compileall` passed. Earlier launcher validation at `6712508`
   also passed `bash -n` and `desktop-file-validate`.
   The runtime image does not install Node.js; JavaScript syntax was therefore
   checked in the Windows development gate before deployment.
