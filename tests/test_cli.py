@@ -22,8 +22,10 @@ class _StopAfterWaits:
 class _Worker:
     def __init__(self, results: list[object | None]):
         self.results = list(results)
+        self.calls = 0
 
     def run_once(self) -> object | None:
+        self.calls += 1
         return self.results.pop(0) if self.results else None
 
 
@@ -99,6 +101,19 @@ class AtomicWatchTests(unittest.TestCase):
         )
         self.assertEqual(status, 0)
         self.assertEqual(emitted, ["deck-card-1"])
+
+    def test_watch_does_not_drain_queue_during_memory_pressure(self) -> None:
+        worker = _Worker([SimpleNamespace(job_id="job-1", status="complete")])
+        status = run_atomic_watch(
+            worker,
+            _StopAfterWaits(1),
+            idle_seconds=2,
+            job_delay=1,
+            emit=lambda _result: self.fail("blocked work must not be emitted"),
+            preparation_blocker=lambda: "only 80 MiB memory is available",
+        )
+        self.assertEqual(status, 0)
+        self.assertEqual(worker.calls, 0)
 
 
 if __name__ == "__main__":

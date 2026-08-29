@@ -547,11 +547,19 @@ def run_atomic_watch(
     emit: Callable[[Any], None],
     idle_action: Callable[[], Any] | None = None,
     idle_action_interval: float = 120.0,
+    preparation_blocker: Callable[[], str] = background_preparation_blocker,
 ) -> int:
-    """Run one persisted task at a time, then do bounded idle work."""
+    """Run one persisted task at a time while preserving device headroom."""
 
     next_idle_action = monotonic()
     while not stop_event.is_set():
+        # Guard draining the existing queue as well as adding new deck work.
+        # A model request can temporarily consume most of a small Pi; checking
+        # before every job keeps that request from becoming an endless chain
+        # that starves the browser, VNC, and SSH.
+        if preparation_blocker():
+            stop_event.wait(idle_seconds)
+            continue
         result = worker.run_once()
         if result is None:
             if idle_action is not None and monotonic() >= next_idle_action:
