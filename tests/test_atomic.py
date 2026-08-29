@@ -21,6 +21,7 @@ from lkt.atomic import (
     _clean_morpheme_meaning,
     _align_grammar_parts,
     _morpheme_display_form,
+    _normalise_grammar_role,
     _plain_letter_key,
 )
 from lkt.knowledge import KnowledgeStore
@@ -426,6 +427,18 @@ class AtomicWorkerTests(unittest.TestCase):
                 "conjunction",
                 "Would you do anything about it? If so, what?",
             )
+        )
+        self.assertEqual(
+            _normalise_grammar_role("subject", "verb", "you are crossing"),
+            "predicate",
+        )
+        self.assertEqual(
+            _normalise_grammar_role(
+                "connector",
+                "interjection",
+                "Would you do anything about it? If so, what?",
+            ),
+            "clause",
         )
 
     def test_artifact_quality_uses_payload_confidence_only_when_metadata_is_missing(

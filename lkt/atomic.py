@@ -252,6 +252,28 @@ def _grammar_role_matches(role: str, part_of_speech: str, surface: str) -> bool:
     return True
 
 
+def _normalise_grammar_role(role: str, part_of_speech: str, surface: str) -> str:
+    """Conservatively repair a contradictory controlled model label."""
+
+    if _grammar_role_matches(role, part_of_speech, surface):
+        return role
+    if len(surface.strip()) > 32 or part_of_speech in {"phrase", "clause"}:
+        return "clause"
+    if part_of_speech in {"conjunction", "particle"}:
+        return "connector"
+    if part_of_speech in {"verb", "auxiliary"}:
+        return "predicate"
+    if part_of_speech in {
+        "adjective",
+        "adverb",
+        "preposition",
+        "determiner",
+        "numeral",
+    }:
+        return "modifier"
+    return "other"
+
+
 def _has_repeated_arabic_content_word(value: str) -> bool:
     plain = "".join(
         character
@@ -1636,7 +1658,9 @@ return text outside the JSON object."""
 
         parts: list[dict[str, Any]] = []
         for item in aligned:
-            role = str(item.get("role", "")).strip().casefold().replace(" ", "-")
+            model_role = (
+                str(item.get("role", "")).strip().casefold().replace(" ", "-")
+            )
             part_of_speech = (
                 str(item.get("part_of_speech", ""))
                 .strip()
@@ -1644,13 +1668,14 @@ return text outside the JSON object."""
                 .replace(" ", "-")
             )
             lemma = re.sub(r"\s+", " ", str(item.get("lemma", ""))).strip()[:80]
-            if role not in _GRAMMAR_ROLES:
+            if model_role not in _GRAMMAR_ROLES:
                 raise ValueError("grammar role is invalid")
             if part_of_speech not in _GRAMMAR_PARTS_OF_SPEECH:
                 raise ValueError("grammar part of speech is invalid")
-            if not _grammar_role_matches(
-                role, part_of_speech, str(item["surface"])
-            ):
+            role = _normalise_grammar_role(
+                model_role, part_of_speech, str(item["surface"])
+            )
+            if not _grammar_role_matches(role, part_of_speech, str(item["surface"])):
                 raise ValueError("grammar role contradicts its part of speech")
             if any(marker in lemma for marker in _ENCODING_DAMAGE):
                 raise ValueError("grammar lemma has encoding damage")
@@ -1671,7 +1696,10 @@ return text outside the JSON object."""
                     "reading": "",
                     "color_key": _GRAMMAR_COLORS[role],
                     "confidence": confidence,
-                    "features": {"basis": "bounded-model-segmentation"},
+                    "features": {
+                        "basis": "bounded-model-segmentation",
+                        "model_role": model_role,
+                    },
                 }
             )
         summary = re.sub(
