@@ -485,3 +485,6 @@ source was live dictation and may contain recognition errors:
   Reserve a visible annotation gap, give neighboring ruby groups modest
   horizontal air, and keep the main characters legible without sacrificing the
   one-screen, no-scroll card boundary.
+- The first spacing pass was still too tight. Move the annotation itself away
+  from the base glyph, not only the surrounding line box, while retaining
+  enough reserved height to prevent clipping.

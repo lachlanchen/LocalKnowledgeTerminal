@@ -1170,20 +1170,22 @@ body.display-mode .card-view { border-radius: 0; }
 #chinese-term,
 .sentence-stage.language-japanese,
 .sentence-stage.language-chinese {
-  line-height: 2.5;
+  line-height: 2.65;
   letter-spacing: .018em;
 }
 #japanese-ruby ruby,
 #chinese-term ruby,
 .sentence-stage ruby {
-  margin-inline: .15em;
+  margin-inline: .18em;
   ruby-align: center;
   ruby-position: over;
 }
 #japanese-ruby rt,
 #chinese-term rt,
 .sentence-stage rt {
-  padding-block-end: .18em;
+  position: relative;
+  inset-block-start: -.32em;
+  padding-block-end: .22em;
   line-height: 1.05;
   letter-spacing: .07em;
 }
