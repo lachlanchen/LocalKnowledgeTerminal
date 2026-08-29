@@ -533,3 +533,11 @@ source was live dictation and may contain recognition errors:
   center column. A technically valid fit is not sufficient: distribute semantic
   rows from the actual canvas width, keep comfortable collision gaps, and make
   the graph and its boxes visibly occupy the available stage.
+- The next pass must balance flow and space instead of forcing every history
+  into one row. Keep small two- or three-node branches linear and large; place
+  graphs with four or more visible nodes clockwise around the central word,
+  root, or affix, then apply collision repulsion. This preserves history order
+  while using the top, bottom, left, and right of a fullscreen canvas.
+- Fit only after the focus explanation and multilingual annotations have taken
+  their space. A graph that was fitted before those panels appeared can still
+  clip its bottom node even when its mathematical bounding box was correct.

@@ -1101,8 +1101,13 @@ function semanticGraphPositions(data, canvasWidth = 1280) {
 
 function layoutGraphForCanvas() {
   if (!originCy || !originGraphData) return;
-  const positions = semanticGraphPositions(originGraphData, $("#origin-canvas").clientWidth);
-  originCy.nodes().positions((node) => positions.get(node.id()));
+  const graphNodes = originCy.nodes().map((node) => node);
+  if (graphNodes.length >= 4) {
+    layoutClockwiseGraphNodes(graphNodes, originGraphData.center_id);
+  } else {
+    const positions = semanticGraphPositions(originGraphData, $("#origin-canvas").clientWidth);
+    originCy.nodes().positions((node) => positions.get(node.id()));
+  }
   repelGraphNodes(originCy, originGraphData.center_id);
   if (overviewCy) {
     overviewCy.nodes().positions((node) => originCy.$id(node.id()).position());
@@ -1119,6 +1124,15 @@ function layoutFocusedGraphForCanvas(focus) {
   if (!nodes.length) return;
   if (nodes.length === 1) {
     nodes[0].position({ x: 0, y: 0 });
+    return;
+  }
+
+  const visibleCenterId = nodes.some((node) => node.id() === originGraphData?.center_id)
+    ? originGraphData.center_id
+    : null;
+  if (nodes.length >= 4 && visibleCenterId) {
+    layoutClockwiseGraphNodes(nodes, visibleCenterId);
+    repelGraphNodes(originCy, visibleCenterId, 160, nodes);
     return;
   }
 
@@ -1153,6 +1167,62 @@ function layoutFocusedGraphForCanvas(focus) {
   });
 }
 
+function clockwiseGraphOrder(nodes, centerId) {
+  const nodeById = new Map(nodes.map((node) => [node.id(), node]));
+  const stableIndex = new Map(nodes.map((node, index) => [node.id(), index]));
+  const satellites = nodes.filter((node) => node.id() !== centerId);
+  const satelliteIds = new Set(satellites.map((node) => node.id()));
+  const indegree = new Map(satellites.map((node) => [node.id(), 0]));
+  const outgoing = new Map(satellites.map((node) => [node.id(), []]));
+  originCy.edges().forEach((edge) => {
+    const source = edge.source().id();
+    const target = edge.target().id();
+    if (!satelliteIds.has(source) || !satelliteIds.has(target)) return;
+    outgoing.get(source).push(target);
+    indegree.set(target, indegree.get(target) + 1);
+  });
+  const ready = satellites
+    .filter((node) => indegree.get(node.id()) === 0)
+    .map((node) => node.id());
+  const orderedIds = [];
+  while (ready.length) {
+    ready.sort((left, right) => stableIndex.get(left) - stableIndex.get(right));
+    const id = ready.shift();
+    orderedIds.push(id);
+    outgoing.get(id).forEach((target) => {
+      indegree.set(target, indegree.get(target) - 1);
+      if (indegree.get(target) === 0) ready.push(target);
+    });
+  }
+  satellites.forEach((node) => {
+    if (!orderedIds.includes(node.id())) orderedIds.push(node.id());
+  });
+  return orderedIds.map((id) => nodeById.get(id));
+}
+
+function layoutClockwiseGraphNodes(nodes, centerId) {
+  const center = nodes.find((node) => node.id() === centerId);
+  if (!center) return;
+  center.position({ x: 0, y: 0 });
+  const satellites = clockwiseGraphOrder(nodes, centerId);
+  if (!satellites.length) return;
+  const canvas = $("#origin-canvas");
+  const aspect = Math.max(1.25, Math.min(2.05, canvas.clientWidth / Math.max(1, canvas.clientHeight)));
+  const widest = Math.max(center.data("nodeWidth"), ...satellites.map((node) => node.data("nodeWidth")));
+  const tallest = Math.max(center.data("nodeHeight"), ...satellites.map((node) => node.data("nodeHeight")));
+  const baseHeight = Math.max(650, tallest * 3.7, satellites.length * 92);
+  const radiusY = Math.max(230, (baseHeight - tallest) / 2);
+  const radiusX = Math.max(390, (baseHeight * aspect - widest) / 2);
+  const startAngle = -Math.PI * .75;
+  satellites.forEach((node, index) => {
+    const angle = startAngle + (Math.PI * 2 * index) / satellites.length;
+    node.position({
+      x: Math.cos(angle) * radiusX,
+      y: Math.sin(angle) * radiusY,
+    });
+  });
+}
+
 function layoutGraphForCurrentFocus(focus = graphFocusAreas[graphFocusIndex]) {
   if (!focus || focus.kind === "overview") {
     layoutGraphForCanvas();
@@ -1161,8 +1231,8 @@ function layoutGraphForCurrentFocus(focus = graphFocusAreas[graphFocusIndex]) {
   layoutFocusedGraphForCanvas(focus);
 }
 
-function repelGraphNodes(cy, centerId, iterations = 160) {
-  const nodes = cy.nodes().toArray();
+function repelGraphNodes(cy, centerId, iterations = 160, selectedNodes = null) {
+  const nodes = (selectedNodes || cy.nodes()).map((node) => node);
   for (let iteration = 0; iteration < iterations; iteration += 1) {
     const offsets = new Map(nodes.map((node) => [node.id(), { x: 0, y: 0 }]));
     let collisionCount = 0;
