@@ -334,8 +334,16 @@ For later Windows → GitHub → Pi development:
 
 ```bash
 cd /home/lachlan/LocalKnowledgeTerminal/source
-./scripts/update_pi.sh
+./scripts/update_pi_tmux.sh
+tmux attach -t lkt-update
 ```
+
+The tmux wrapper keeps deployment alive across SSH or browser transitions and
+writes `~/LocalKnowledgeTerminal/logs/update-pi.log`. The underlying idempotent
+`scripts/install_services.sh` installs all three systemd units, enables them for
+boot, starts them in model → web → worker order, verifies both health endpoints,
+and installs the graphical autostart entry. `scripts/update_pi.sh` runs the full
+test gate before invoking that service installer with `--restart`.
 
 Then open `http://127.0.0.1:8090` in the Pi's VNC desktop, or
 `http://<pi-lan-address>:8090` from the trusted local network.

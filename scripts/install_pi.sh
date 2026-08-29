@@ -99,28 +99,6 @@ runuser -u "$LKT_USER" -- env \
   PYTHONPATH="$SOURCE_DIR" LKT_SOURCE="$SOURCE_DIR" LKT_DATA_DIR="$LKT_HOME/data" \
   python3 -m lkt.cli knowledge-status >/dev/null
 
-install -o root -g root -m 0644 "$SOURCE_DIR/systemd/lkt-llm.service" /etc/systemd/system/
-install -o root -g root -m 0644 "$SOURCE_DIR/systemd/lkt-web.service" /etc/systemd/system/
-install -o root -g root -m 0644 "$SOURCE_DIR/systemd/lkt-worker.service" /etc/systemd/system/
-install -o root -g root -m 0755 \
-  "$SOURCE_DIR/scripts/open_kiosk.sh" /usr/local/bin/lkt-open-kiosk
-install -d -o "$LKT_USER" -g "$LKT_USER" -m 0755 "/home/${LKT_USER}/.config/autostart"
-install -o "$LKT_USER" -g "$LKT_USER" -m 0644 \
-  "$SOURCE_DIR/desktop/lkt-kiosk.desktop" \
-  "/home/${LKT_USER}/.config/autostart/lkt-kiosk.desktop"
-systemctl daemon-reload
-systemctl enable --now lkt-llm.service
-
-for attempt in $(seq 1 120); do
-  if curl --silent --fail http://127.0.0.1:8081/health >/dev/null; then break; fi
-  if [ "$attempt" -eq 120 ]; then
-    echo "Model server did not become ready" >&2
-    journalctl -u lkt-llm.service -n 60 --no-pager >&2
-    exit 1
-  fi
-  sleep 2
-done
-
-systemctl enable --now lkt-web.service
-systemctl enable --now lkt-worker.service
+LKT_USER="$LKT_USER" LKT_SOURCE="$SOURCE_DIR" \
+  "$SOURCE_DIR/scripts/install_services.sh" --start
 printf 'LKT installed. The next desktop login opens http://127.0.0.1:8090/?display\n'

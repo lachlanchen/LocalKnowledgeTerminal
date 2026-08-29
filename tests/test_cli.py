@@ -76,6 +76,13 @@ class AtomicWatchTests(unittest.TestCase):
         installer = (root / "scripts" / "install_pi.sh").read_text(
             encoding="utf-8"
         )
+        service_installer = (root / "scripts" / "install_services.sh").read_text(
+            encoding="utf-8"
+        )
+        updater = (root / "scripts" / "update_pi.sh").read_text(encoding="utf-8")
+        tmux_updater = (root / "scripts" / "update_pi_tmux.sh").read_text(
+            encoding="utf-8"
+        )
         self.assertIn("http://127.0.0.1:8090/?display", launcher)
         self.assertIn("http://127.0.0.1:8090/api/health", launcher)
         self.assertLess(launcher.index("pgrep -f"), launcher.index('exec "$BROWSER"'))
@@ -89,9 +96,19 @@ class AtomicWatchTests(unittest.TestCase):
         self.assertIn("Exec=/usr/local/bin/lkt-open-kiosk", desktop)
         self.assertIn("TryExec=/usr/local/bin/lkt-open-kiosk", desktop)
         self.assertIn("X-GNOME-Autostart-enabled=true", desktop)
-        self.assertIn("/usr/local/bin/lkt-open-kiosk", installer)
-        self.assertIn("desktop/lkt-kiosk.desktop", installer)
-        self.assertIn(".config/autostart/lkt-kiosk.desktop", installer)
+        self.assertIn("scripts/install_services.sh", installer)
+        for unit in ("lkt-llm.service", "lkt-web.service", "lkt-worker.service"):
+            self.assertIn(unit, service_installer)
+        self.assertIn("/usr/local/bin/lkt-open-kiosk", service_installer)
+        self.assertIn("desktop/lkt-kiosk.desktop", service_installer)
+        self.assertIn(".config/autostart/lkt-kiosk.desktop", service_installer)
+        self.assertIn("systemctl enable", service_installer)
+        self.assertIn("http://127.0.0.1:8081/health", service_installer)
+        self.assertIn("http://127.0.0.1:8090/api/health", service_installer)
+        self.assertIn("scripts/install_services.sh", updater)
+        self.assertIn("--restart", updater)
+        self.assertIn("tmux new-session", tmux_updater)
+        self.assertIn("remain-on-exit", tmux_updater)
 
     def test_watch_runs_bounded_idle_action(self) -> None:
         emitted: list[str] = []

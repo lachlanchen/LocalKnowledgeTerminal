@@ -7,8 +7,6 @@ git fetch origin main
 git merge --ff-only origin/main
 python3 -m unittest discover -s tests -v
 python3 -m compileall -q lkt tests
-sudo install -o root -g root -m 0644 systemd/lkt-worker.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable lkt-worker.service
-sudo systemctl restart lkt-llm.service lkt-web.service lkt-worker.service
-sudo systemctl --no-pager --full status lkt-llm.service lkt-web.service lkt-worker.service
+sudo env LKT_SOURCE="$SOURCE_DIR" "$SOURCE_DIR/scripts/install_services.sh" --restart
+sudo systemctl --no-pager --full status \
+  lkt-llm.service lkt-web.service lkt-worker.service
