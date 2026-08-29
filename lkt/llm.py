@@ -123,10 +123,11 @@ The requested mode is Root or Affix. Keep the exact primary Root/Affix book head
 do not invent a whole word merely to hold it. Build one complete graph around that form: its real
 meaning/function, useful historical ancestors, variants, and a few high-value words that genuinely
 contain or descend from it. Include other prefixes, roots, or suffixes only when they explain one of
-those words. BOOK EVIDENCE is authoritative. You may add established linguistic knowledge, but
-label it model. Never invent a quotation, record ID, or page. A book node must list at least one
-exact supplied Record ID in evidence_ids; otherwise label it model. Prefer a smaller accurate graph
-over speculative decomposition.
+those words. Use supplied Word Origins records for historical support when present. BOOK EVIDENCE
+is authoritative. You may add established linguistic knowledge, but label it model. Never invent a
+quotation, record ID, or page. A book node must list at least one exact supplied Record ID in
+evidence_ids; otherwise label it model. Prefer a smaller accurate graph over speculative
+decomposition.
 
 Return exactly one JSON object with no markdown:
 {
@@ -447,12 +448,12 @@ class LlamaCppClient:
                 "translations exactly; add prompts for thoughtful reflection"
             ),
             "root": (
-                "Prepare a complete ROOT-FOCUSED morphology graph grounded in both supplied "
-                "root and affix dictionary records"
+                "Prepare a complete ROOT-FOCUSED morphology graph grounded in the supplied "
+                "root, affix, and Word Origins records"
             ),
             "affix": (
-                "Prepare a complete AFFIX-FOCUSED morphology graph grounded in both supplied "
-                "affix and root dictionary records"
+                "Prepare a complete AFFIX-FOCUSED morphology graph grounded in the supplied "
+                "affix, root, and Word Origins records"
             ),
         }
         instruction = instructions.get(mode, "Create a grounded learning card")

@@ -379,6 +379,43 @@ class AutonomousDeckTests(unittest.TestCase):
         ).run_once()
         self.assertEqual(result.mode, "root")
 
+    def test_product_seeder_does_not_let_repairs_starve_morphology(self) -> None:
+        class _Store:
+            def accepted_for_modes(
+                self, _modes: tuple[str, ...]
+            ) -> list[dict[str, str]]:
+                return [
+                    *({"mode": "question"} for _ in range(8)),
+                    *({"mode": "answer"} for _ in range(8)),
+                    *({"mode": "knowledge"} for _ in range(2)),
+                    *({"mode": "word"} for _ in range(2)),
+                    *({"mode": "root"} for _ in range(2)),
+                    *({"mode": "affix"} for _ in range(2)),
+                ]
+
+        class _Book:
+            modes = ("question", "answer")
+
+        class _Lexical:
+            def run_bounded_once(self) -> DeckSeedResult:
+                return DeckSeedResult(status="repair-queued", mode="lexical")
+
+        class _Morphology:
+            def __init__(self) -> None:
+                self.calls: list[str] = []
+
+            def run_mode(self, mode: str) -> DeckSeedResult:
+                self.calls.append(mode)
+                return DeckSeedResult(status="prepared", mode=mode)
+
+        morphology = _Morphology()
+        result = BalancedProductSeeder(
+            _Book(), _Lexical(), _Store(), morphology=morphology
+        ).run_once()
+
+        self.assertEqual(result.mode, "root")
+        self.assertEqual(morphology.calls, ["root"])
+
 
 if __name__ == "__main__":
     unittest.main()

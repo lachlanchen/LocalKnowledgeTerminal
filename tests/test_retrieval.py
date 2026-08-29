@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
 
+from lkt.corpus import CorpusIndex, build_index
 from lkt.retrieval import (
     AffixRag,
     AnswerRag,
@@ -55,6 +57,45 @@ class RetrievalTests(unittest.TestCase):
             self.assertEqual({item.kind for item in root_evidence}, {
                 "morphology-root", "morphology-affix"
             })
+
+    def test_morphology_rag_adds_only_bounded_word_origin_context(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            roots = make_morphology_index(root, "root")
+            affixes = make_morphology_index(root, "affix")
+            source = root / "origins.jsonl"
+            source.write_text(
+                json.dumps(
+                    {
+                        "id": "spectacle",
+                        "headword": "spectacle",
+                        "display_headword": "spectacle",
+                        "section": "S",
+                        "date_label": "14th century",
+                        "plain_text": "Spectacle descends from Latin specere, to look.",
+                        "related_targets": [],
+                        "source_pages": [42],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            database = root / "origins.sqlite3"
+            build_index(source, database)
+            origins = CorpusIndex(database)
+
+            evidence = RootRag(roots, affixes, origins).retrieve("SPECT")
+
+            self.assertEqual(evidence[0].kind, "morphology-root")
+            self.assertIn("word-origins", {
+                item.corpus_id for item in evidence
+            })
+            self.assertNotIn(
+                "word-origins",
+                {
+                    item.corpus_id
+                    for item in RootRag(roots, affixes, origins).retrieve("a")
+                },
+            )
 
 
 if __name__ == "__main__":

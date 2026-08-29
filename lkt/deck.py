@@ -275,7 +275,7 @@ class AutonomousLexicalSeeder:
                 if not self._plan_has_pending_work(plan):
                     continue
                 return DeckSeedResult(
-                    status="queued",
+                    status="repair-queued",
                     mode="lexical",
                     prepared=int(progress["planned"]),
                     total=total,
@@ -501,6 +501,7 @@ class BalancedProductSeeder:
     def run_once(self) -> DeckSeedResult:
         counts = self.counts()
         attempted: set[str] = set()
+        pending_result: DeckSeedResult | None = None
         ranked = sorted(
             self.MODES,
             key=lambda mode: (counts[mode], self.MODES.index(mode)),
@@ -520,8 +521,17 @@ class BalancedProductSeeder:
                 result = self.book.run_mode(action)
             else:
                 continue
+            # A lexical repair plan or busy report performs no inference in
+            # this call and may not increase a visible deck. Preserve that
+            # result, but let one genuinely least-filled Root/Affix/book mode
+            # use this balance pass. Model work remains sequential.
+            if result.status in {"busy", "repair-queued"}:
+                pending_result = pending_result or result
+                continue
             if result.status != "complete":
                 return result
+        if pending_result is not None:
+            return pending_result
         return DeckSeedResult(
             status="complete",
             mode="all",

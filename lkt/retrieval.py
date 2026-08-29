@@ -67,17 +67,24 @@ class QuestionRag:
 
 @dataclass(frozen=True)
 class MorphologyRag:
-    """Retrieve one complete word decomposition with a mode-specific priority."""
+    """Retrieve one component with bounded support from all lexical books."""
 
     primary: MorphologyIndex
     secondary: MorphologyIndex
     corpus_id: str
+    origins: CorpusIndex | None = None
     primary_limit: int = 1
-    secondary_limit: int = 1
+    secondary_limit: int = 2
+    origin_limit: int = 2
 
     def retrieve(self, query: str) -> list[Evidence]:
         evidence = self.primary.search(query, self.primary_limit)
         evidence.extend(self.secondary.exact(query, self.secondary_limit))
+        lexical_key = "".join(character for character in query if character.isalpha())
+        if len(lexical_key) >= 3:
+            evidence.extend(self.secondary.search(query, self.secondary_limit))
+            if self.origins is not None:
+                evidence.extend(self.origins.search(query, self.origin_limit))
         result: list[Evidence] = []
         seen: set[tuple[str, str]] = set()
         for item in evidence:
@@ -90,13 +97,23 @@ class MorphologyRag:
 
 
 class RootRag(MorphologyRag):
-    def __init__(self, roots: MorphologyIndex, affixes: MorphologyIndex):
-        super().__init__(roots, affixes, "english-root-dictionary")
+    def __init__(
+        self,
+        roots: MorphologyIndex,
+        affixes: MorphologyIndex,
+        origins: CorpusIndex | None = None,
+    ):
+        super().__init__(roots, affixes, "english-root-dictionary", origins)
 
 
 class AffixRag(MorphologyRag):
-    def __init__(self, affixes: MorphologyIndex, roots: MorphologyIndex):
-        super().__init__(affixes, roots, "english-affix-dictionary")
+    def __init__(
+        self,
+        affixes: MorphologyIndex,
+        roots: MorphologyIndex,
+        origins: CorpusIndex | None = None,
+    ):
+        super().__init__(affixes, roots, "english-affix-dictionary", origins)
 
 
 def build_rag_engines(
@@ -118,6 +135,10 @@ def build_rag_engines(
     if "question" in card_books:
         engines["question"] = QuestionRag(card_books["question"])
     if "root" in morphology and "affix" in morphology:
-        engines["root"] = RootRag(morphology["root"], morphology["affix"])
-        engines["affix"] = AffixRag(morphology["affix"], morphology["root"])
+        engines["root"] = RootRag(
+            morphology["root"], morphology["affix"], corpus
+        )
+        engines["affix"] = AffixRag(
+            morphology["affix"], morphology["root"], corpus
+        )
     return engines
