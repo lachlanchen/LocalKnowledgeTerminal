@@ -274,6 +274,20 @@ def _normalise_grammar_role(role: str, part_of_speech: str, surface: str) -> str
     return "other"
 
 
+def _normalise_grammar_labels(
+    role: str, part_of_speech: str, surface: str
+) -> tuple[str, str]:
+    """Normalize a controlled role/POS pair while retaining its source text."""
+
+    normalized_role = _normalise_grammar_role(role, part_of_speech, surface)
+    normalized_part_of_speech = part_of_speech
+    if not _grammar_role_matches(
+        normalized_role, normalized_part_of_speech, surface
+    ) and normalized_role == "clause":
+        normalized_part_of_speech = "clause"
+    return normalized_role, normalized_part_of_speech
+
+
 def _has_repeated_arabic_content_word(value: str) -> bool:
     plain = "".join(
         character
@@ -1661,7 +1675,7 @@ return text outside the JSON object."""
             model_role = (
                 str(item.get("role", "")).strip().casefold().replace(" ", "-")
             )
-            part_of_speech = (
+            model_part_of_speech = (
                 str(item.get("part_of_speech", ""))
                 .strip()
                 .casefold()
@@ -1670,10 +1684,10 @@ return text outside the JSON object."""
             lemma = re.sub(r"\s+", " ", str(item.get("lemma", ""))).strip()[:80]
             if model_role not in _GRAMMAR_ROLES:
                 raise ValueError("grammar role is invalid")
-            if part_of_speech not in _GRAMMAR_PARTS_OF_SPEECH:
+            if model_part_of_speech not in _GRAMMAR_PARTS_OF_SPEECH:
                 raise ValueError("grammar part of speech is invalid")
-            role = _normalise_grammar_role(
-                model_role, part_of_speech, str(item["surface"])
+            role, part_of_speech = _normalise_grammar_labels(
+                model_role, model_part_of_speech, str(item["surface"])
             )
             if not _grammar_role_matches(role, part_of_speech, str(item["surface"])):
                 raise ValueError("grammar role contradicts its part of speech")
@@ -1699,6 +1713,7 @@ return text outside the JSON object."""
                     "features": {
                         "basis": "bounded-model-segmentation",
                         "model_role": model_role,
+                        "model_part_of_speech": model_part_of_speech,
                     },
                 }
             )

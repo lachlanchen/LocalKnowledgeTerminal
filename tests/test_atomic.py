@@ -21,6 +21,7 @@ from lkt.atomic import (
     _clean_morpheme_meaning,
     _align_grammar_parts,
     _morpheme_display_form,
+    _normalise_grammar_labels,
     _normalise_grammar_role,
     _plain_letter_key,
 )
@@ -439,6 +440,14 @@ class AtomicWorkerTests(unittest.TestCase):
                 "Would you do anything about it? If so, what?",
             ),
             "clause",
+        )
+        self.assertEqual(
+            _normalise_grammar_labels(
+                "connector",
+                "interjection",
+                "Would you do anything about it? If so, what?",
+            ),
+            ("clause", "clause"),
         )
 
     def test_artifact_quality_uses_payload_confidence_only_when_metadata_is_missing(

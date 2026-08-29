@@ -211,8 +211,8 @@ candidates are separate tasks. `prepare-grammar-parts` makes one bounded Qwen
 call for one reviewed language. The validator aligns the proposed phrases back
 to the original string, rejects omissions or rewrites, links the accepted
 analysis to its source evidence, conservatively normalizes incompatible
-role/part-of-speech pairs while preserving the original model label, and records
-the model/prompt revision. English,
+role/part-of-speech pairs while preserving both original model labels, and
+records the model/prompt revision. English,
 Japanese, and Chinese therefore fail and retry independently. The browser reads
 the accepted analysis from the shared card JSON and applies restrained role
 colors directly to the existing sentence/ruby carousel; it does not create a
