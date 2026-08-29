@@ -192,13 +192,21 @@ def command_sync_card_knowledge(_args: argparse.Namespace) -> int:
         model=settings.llm_model,
         prompt_version="autonomous-content-enrichment-v3",
     )
-    acquired = []
+    state = knowledge.card_book_enrichment_state()
+    newly_acquired = 0
+    cards_requiring_enrichment = 0
     jobs: set[str] = set()
     for card in reversed(cards):
-        acquired.append(knowledge.acquire_card_book_card(card))
+        card_id = str(card["card_id"])
+        if card_id not in state["reviewed"]:
+            knowledge.acquire_card_book_card(card)
+            newly_acquired += 1
+        elif card_id not in state["needs_grammar"]:
+            continue
+        cards_requiring_enrichment += 1
         jobs.update(
             planner.plan_card_enrichment(
-                str(card["card_id"]),
+                card_id,
                 include_investigation=False,
                 missing_only=True,
             ).jobs.values()
@@ -206,10 +214,10 @@ def command_sync_card_knowledge(_args: argparse.Namespace) -> int:
     print(
         json.dumps(
             {
-                "cards": len(acquired),
-                "language_atoms": sum(
-                    len(item.get("language_entity_ids", {})) for item in acquired
-                ),
+                "cards": len(cards),
+                "language_atoms": len(cards) * 3,
+                "newly_acquired_cards": newly_acquired,
+                "cards_requiring_enrichment": cards_requiring_enrichment,
                 "enrichment_jobs": len(jobs),
                 "knowledge": knowledge.status(),
             },

@@ -1811,6 +1811,63 @@ class KnowledgeStore:
             ).fetchone()
         return self.content_record(str(row["entity_id"])) if row else None
 
+    def card_book_enrichment_state(self) -> dict[str, set[str]]:
+        """Find fully acquired cards and only their genuinely missing grammar.
+
+        This is deliberately one read transaction. A full-database sync must
+        not replay hundreds of idempotent writes or open a connection for every
+        card/language pair on a small Pi.
+        """
+
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """SELECT property.value AS card_id, content.entity_id,
+                          content.language,
+                          EXISTS (
+                              SELECT 1 FROM grammar_analyses AS analysis
+                              JOIN entities AS grammar_entity
+                                ON grammar_entity.entity_id = analysis.entity_id
+                              WHERE analysis.subject_entity_id = content.entity_id
+                                AND grammar_entity.status = 'accepted'
+                          ) AS grammar_ready,
+                          EXISTS (
+                              SELECT 1 FROM preparation_jobs AS job
+                              WHERE job.subject_entity_id = content.entity_id
+                                AND job.job_type = 'prepare-grammar-parts'
+                                AND job.status IN ('queued', 'running')
+                          ) AS grammar_active
+                   FROM entity_properties AS property
+                   JOIN content_items AS content
+                     ON content.entity_id = property.entity_id
+                   JOIN entities AS content_entity
+                     ON content_entity.entity_id = content.entity_id
+                   WHERE property.name = 'source_card_id'
+                     AND content.language IN ('en', 'ja', 'zh')
+                     AND content_entity.status = 'accepted'
+                   ORDER BY property.value, content.language"""
+            ).fetchall()
+        grouped: dict[str, list[sqlite3.Row]] = {}
+        for row in rows:
+            try:
+                card_id = str(json.loads(row["card_id"]))
+            except (TypeError, json.JSONDecodeError):
+                continue
+            if card_id:
+                grouped.setdefault(card_id, []).append(row)
+        reviewed: set[str] = set()
+        needs_grammar: set[str] = set()
+        for card_id, items in grouped.items():
+            languages = {str(item["language"]) for item in items}
+            if languages != {"en", "ja", "zh"}:
+                continue
+            reviewed.add(card_id)
+            if any(
+                not bool(item["grammar_ready"]) and not bool(item["grammar_active"])
+                for item in items
+            ):
+                needs_grammar.add(card_id)
+        return {"reviewed": reviewed, "needs_grammar": needs_grammar}
+
     def grammar_for_content(self, content_entity_id: str) -> dict[str, Any] | None:
         """Return the current accepted sentence analysis and its exact parts."""
 

@@ -53,6 +53,41 @@ class KnowledgeStoreTests(unittest.TestCase):
                     3,
                 )
 
+    def test_card_enrichment_state_is_bulk_missing_only(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")
+            acquired = store.acquire_card_book_card(
+                {
+                    "card_id": "answer-bulk-state",
+                    "mode": "answer",
+                    "english": {"term": "Look again."},
+                    "japanese": {"term": "もう一度見て。"},
+                    "chinese": {"simplified": "再看一次。"},
+                    "evidence": [
+                        {
+                            "corpus_id": "book-of-answers",
+                            "entry_id": "answer-bulk-state",
+                            "locator": "answers.xhtml",
+                            "excerpt": "Look again.",
+                        }
+                    ],
+                }
+            )
+            state = store.card_book_enrichment_state()
+            self.assertEqual(state["reviewed"], {"answer-bulk-state"})
+            self.assertEqual(state["needs_grammar"], {"answer-bulk-state"})
+
+            for language, entity_id in acquired["language_entity_ids"].items():
+                store.enqueue_job(
+                    "prepare-grammar-parts",
+                    f"content:{entity_id}",
+                    subject_entity_id=entity_id,
+                    language=language,
+                )
+            state = store.card_book_enrichment_state()
+            self.assertEqual(state["reviewed"], {"answer-bulk-state"})
+            self.assertEqual(state["needs_grammar"], set())
+
     def test_atomic_word_knowledge_is_reused_and_projected_as_a_graph(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             database = Path(temp) / "knowledge.sqlite3"
