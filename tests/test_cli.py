@@ -64,6 +64,26 @@ class AtomicWatchTests(unittest.TestCase):
         self.assertIn("Environment=LKT_MODEL_CONTEXT=3072", unit)
         self.assertIn("Environment=LKT_BATCH_SIZE=128", unit)
 
+    def test_kiosk_autostart_is_bare_duplicate_safe_and_health_gated(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        launcher = (root / "scripts" / "open_kiosk.sh").read_text(encoding="utf-8")
+        desktop = (root / "desktop" / "lkt-kiosk.desktop").read_text(
+            encoding="utf-8"
+        )
+        installer = (root / "scripts" / "install_pi.sh").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("http://127.0.0.1:8090/?display", launcher)
+        self.assertIn("http://127.0.0.1:8090/api/health", launcher)
+        self.assertLess(launcher.index("pgrep -f"), launcher.index('exec "$BROWSER"'))
+        self.assertIn('--user-data-dir="$PROFILE_DIR"', launcher)
+        self.assertIn("--remote-debugging-address=127.0.0.1", launcher)
+        self.assertNotIn("?mode=", launcher)
+        self.assertIn("scripts/open_kiosk.sh", desktop)
+        self.assertIn("X-GNOME-Autostart-enabled=true", desktop)
+        self.assertIn("desktop/lkt-kiosk.desktop", installer)
+        self.assertIn(".config/autostart/lkt-kiosk.desktop", installer)
+
     def test_watch_runs_bounded_idle_action(self) -> None:
         emitted: list[str] = []
         status = run_atomic_watch(

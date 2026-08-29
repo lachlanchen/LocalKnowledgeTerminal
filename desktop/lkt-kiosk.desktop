@@ -1,0 +1,11 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Local Knowledge Terminal
+Comment=Open the offline accepted-card ambient display
+Exec=/bin/sh -lc "$HOME/LocalKnowledgeTerminal/source/scripts/open_kiosk.sh"
+TryExec=/usr/bin/chromium
+Terminal=false
+StartupNotify=false
+NoDisplay=true
+X-GNOME-Autostart-enabled=true

@@ -328,6 +328,13 @@ cd /home/lachlan/LocalKnowledgeTerminal/source
 Then open `http://127.0.0.1:8090` in the Pi's VNC desktop, or
 `http://<pi-lan-address>:8090` from the trusted local network.
 
+The installer also places `desktop/lkt-kiosk.desktop` in the Pi user's XDG
+autostart directory. On the next graphical login it runs
+`scripts/open_kiosk.sh`, waits for the local health endpoint, and opens exactly
+one dedicated Chromium profile at `http://127.0.0.1:8090/?display`. Running the
+launcher again is harmless: it detects that profile and does not open another
+window. Explicit mode URLs remain available for deliberate VNC use.
+
 ## Data and copyright
 
 The book PDFs, extracted corpora, model weights, generated indexes, and saved
