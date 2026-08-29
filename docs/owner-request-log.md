@@ -541,3 +541,30 @@ source was live dictation and may contain recognition errors:
 - Fit only after the focus explanation and multilingual annotations have taken
   their space. A graph that was fitted before those panels appeared can still
   clip its bottom node even when its mathematical bounding box was correct.
+
+## LazyBook Reader direction
+
+- Keep book, knowledge, and language as the terminal's central theme. Add a
+  future **Reader** tab without turning it into a separate application or
+  disturbing the card modes that already work.
+- Treat Reader as a sequential Question/Answer-family variation: retrieve one
+  real book paragraph, show it as a calm full-screen card, then advance one
+  paragraph at a time with deterministic previous/next navigation.
+- Keep the exact source paragraph immutable and retrieval-owned. Local Qwen may
+  independently organize it, create a labeled polished reading version, and
+  translate it, but generated wording must never masquerade as the quoted book
+  text or its citation.
+- Reuse the existing divide-and-conquer policy. Organization, polishing, and
+  each EN/JA/ZH translation are separate bounded jobs; Japanese uses ruby and
+  Chinese uses pinyin. Validate and cache accepted results, then backfill only
+  missing layers.
+- A long paragraph should be divided into ordered, readable inner slides so the
+  full-screen view keeps large type and avoids scrolling. Finish its slides in
+  order before moving to the next paragraph.
+- Persist a stable book/section/paragraph identity, sequence and locator, exact
+  source hash, citation, accepted transformations, revisions, and a local resume
+  cursor. Expose all of it through the shared card JSON so browser, later e-ink,
+  and later audio remain decoupled output adapters.
+- This is recorded future direction, not a claim that a Reader tab exists now.
+  Select and normalize a real sequential book corpus before implementing the
+  UI or generalizing current book adapters.
