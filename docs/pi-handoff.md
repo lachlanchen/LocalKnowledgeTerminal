@@ -8,15 +8,15 @@ indexes, and captured screens are not stored in Git.
 
 | Layer | Verified revision/state |
 |---|---|
-| Pi checkout | `e3180b8` (`Add local display preferences`) |
-| Browser behavior | `e3180b8` (`Add local display preferences`) |
+| Pi checkout | `6186b9c` (`Balance autonomous deck growth`) |
+| Browser behavior | `6186b9c` (`Balance autonomous deck growth`) |
 | Model | `Qwen3-4B-Q4_K_M.gguf`, 2,497,280,256 bytes |
 | Model SHA-256 | `7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5` |
 | llama.cpp package | pinned `v0.3.0`, source commit `c1d0e7a004015f23bc0233470b747b596f29b264` |
 | llama-server self-report | `0.3.0-dev`, GNU 12.2.0, Linux aarch64 |
 | Kernel | Raspberry Pi aarch64 `6.6.51+rpt-rpi-2712` |
 | Inference profile | one slot, 3,072-token context, batch 128, micro-batch 64 |
-| Background policy | one low-priority atomic job at a time; memory gate before every queued job; alternate book/lexical seeding only at queue idle |
+| Background policy | one low-priority atomic job at a time; memory gate before every job; periodic visible-count balancing; one unfinished autonomous lexical subject after existing backlog drains |
 
 `lkt-web`, `lkt-llm`, and `lkt-worker` were active. The live Python and browser
 code matched the runtime revision above, and the Pi worktree was clean.
@@ -337,3 +337,33 @@ The page was reloaded and left on Question with all six modes selected, Random
 on, cursor next at Answer, one Chromium target, and a 1920x1080 fullscreen
 window. `/api/health` remained ready and the background queue continued down
 to 53 jobs during the web-only tmux deployments.
+
+## Balanced growth deployment
+
+Revision `6186b9c` replaces idle-only book/lexical alternation with accepted
+visible-count balancing across Question â†’ Answer â†’ Word Card â†’ Word Origin â†’
+Root â†’ Affix. At deployment the accepted collections were 28 Questions, 31
+Answers, 3 Word Cards, and 2 each for Word Origin, Root, and Affix. The scheduler
+therefore paused new book draws and selected lexical catch-up. Existing runtime
+state contained two unfinished lexical subjects; the new bounded seeder reported
+that fact and did not add another. Its next claimed job was lexical
+`retrieve-evidence` even though optional book grammar work remained queued.
+
+The planned-term audit now counts only a term with an actual atomic plan, not
+every vocabulary entity discovered in reviewed book text. Live health changed
+from the misleading 40 planned lexical terms to 2 planned and 1 accepted out of
+6,944 eligible headwords. `/api/health` remained `ready`, all five model/web/
+worker/LightDM/WayVNC services were active, and the Pi checkout was clean.
+
+The complete Pi suite passed 131 tests in 36.110 seconds; `compileall` passed.
+The corresponding Windows validation passed 131 tests in 78.401 seconds,
+`compileall`, JavaScript syntax, and diff checks. An isolated temporary-database
+smoke used local `Qwen3-4B-Q4_K_M` plus real Book of Questions entry
+`question-060`; `CardService.create_from_evidence` completed its publication
+gate, then the temporary files were removed without changing the live deck.
+
+The saved-card dot strip is now a moving window of at most 18 items. A live CDP
+reload kept exactly one fullscreen `?display` target and reported 18 rendered
+dots for the complete 28-card Question collection with the exact `1 / 28`
+counter. Inner EN/JA/ZH slide dots remain local to the current card and are
+replaced on every card change.
