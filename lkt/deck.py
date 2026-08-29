@@ -4,6 +4,7 @@ import time
 from dataclasses import asdict, dataclass
 from typing import Any, Iterable
 
+from .corpus import CorpusIndex
 from .knowledge import KnowledgeStore
 from .preparation import PreparationPlanner
 from .service import CardService
@@ -158,4 +159,111 @@ class AutonomousDeckSeeder:
             prepared=sum(len(items) for items in prepared.values()),
             total=sum(self.service.card_books[mode].count() for mode in self.modes),
             message="every configured book record already has an accepted card",
+        )
+
+
+class AutonomousLexicalSeeder:
+    """Queue one unseen lexical plan only after the atomic worker becomes idle."""
+
+    MODES = ("knowledge", "word", "root", "affix")
+
+    def __init__(
+        self,
+        corpus: CorpusIndex,
+        store: CardStore,
+        knowledge: KnowledgeStore,
+        *,
+        model: str,
+        prompt_version: str = "autonomous-lexical-v1",
+    ):
+        self.corpus = corpus
+        self.store = store
+        self.knowledge = knowledge
+        self.model = model
+        self.prompt_version = prompt_version
+
+    def _planned_keys(self) -> set[str]:
+        planned = self.knowledge.planned_term_keys("en")
+        for card in self.store.accepted_for_modes(self.MODES):
+            query = str(card.get("query", "")).strip().casefold()
+            if query:
+                planned.add(query)
+        return planned
+
+    def progress(self) -> dict[str, Any]:
+        candidates = {item.casefold() for item in self.corpus.lexical_headwords()}
+        planned = len(candidates.intersection(self._planned_keys()))
+        accepted = {
+            str(card.get("query", "")).strip().casefold()
+            for card in self.store.accepted_for_modes(self.MODES)
+            if str(card.get("query", "")).strip()
+        }
+        accepted_count = len(candidates.intersection(accepted))
+        total = len(candidates)
+        return {
+            "ready": True,
+            "planned": planned,
+            "accepted": accepted_count,
+            "total": total,
+            "remaining": max(0, total - planned),
+            "complete": planned >= total,
+            "modes": list(self.MODES),
+        }
+
+    def run_once(self, seed: str = "") -> DeckSeedResult:
+        planned = self._planned_keys()
+        progress = self.progress()
+        total = int(progress["total"])
+        evidence = self.corpus.draw_unseen_word(
+            seed.strip() or f"{time.time_ns()}:lexical:{len(planned)}",
+            planned,
+        )
+        if evidence is None:
+            return DeckSeedResult(
+                status="complete",
+                mode="lexical",
+                prepared=int(progress["planned"]),
+                total=total,
+                message="every eligible Word Origins headword is already planned",
+            )
+        planner = PreparationPlanner(
+            self.knowledge,
+            model=self.model,
+            prompt_version=self.prompt_version,
+            source_fingerprint=self.corpus.metadata().get("source_sha256", ""),
+        )
+        plan = planner.plan_word(evidence.headword)
+        return DeckSeedResult(
+            status="queued",
+            mode="lexical",
+            source_entry_id=evidence.entry_id,
+            prepared=min(int(progress["planned"]) + 1, total),
+            total=total,
+            message=(
+                f"queued {len(plan.jobs)} missing-only jobs; one accepted plan "
+                "feeds Word Card, Word Origin, Root, and Affix"
+            ),
+        )
+
+
+class AutonomousSeedCoordinator:
+    """Alternate independent seeders so no product mode monopolizes idle time."""
+
+    def __init__(self, seeders: Iterable[Any]):
+        self.seeders = tuple(seeders)
+        if not self.seeders:
+            raise ValueError("autonomous seed coordination needs at least one seeder")
+        self._next = 0
+
+    def run_once(self) -> DeckSeedResult:
+        for _attempt in range(len(self.seeders)):
+            index = self._next % len(self.seeders)
+            self._next = (index + 1) % len(self.seeders)
+            result = self.seeders[index].run_once()
+            if result.status != "complete":
+                return result
+        return DeckSeedResult(
+            status="complete",
+            mode="all",
+            message="every configured autonomous source is already planned",
         )

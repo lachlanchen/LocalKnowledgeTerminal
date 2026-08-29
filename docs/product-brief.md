@@ -220,10 +220,11 @@ can request deliberate regeneration with the API's `refresh: true` flag.
   Place newly published cards immediately after the active card, then continue
   the shuffled pass. Preparation state and rejected candidates never enter the
   display deck.
-- Answer and Question have a finite autonomous source seeder. A future lexical
-  seeder must choose one unseen corpus term at a time and reuse the same
-  accepted atomic preparation across Word Card, Word Origin, Root, and Affix;
-  it must not regenerate complete existing cards.
+- Answer and Question have a finite autonomous source seeder. The lexical
+  seeder chooses one unseen simple Word Origins headword only at queue idle and
+  reuses the same atomic preparation across Word Card, Word Origin, Root, and
+  Affix. Alternate book and lexical turns, and exclude every term already
+  accepted, queued, or attempted; never regenerate complete existing cards.
 
 ## Engineering and delivery rules
 

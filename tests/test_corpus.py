@@ -61,6 +61,19 @@ class CorpusTests(unittest.TestCase):
             self.assertEqual(metadata["entry_count"], "2")
             self.assertEqual(len(metadata["source_sha256"]), 64)
 
+    def test_unseen_word_draw_is_unique_and_stops_after_exclusion(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            index = make_index(Path(temp))
+            first = index.draw_unseen_word("stable", ())
+            self.assertIsNotNone(first)
+            second = index.draw_unseen_word("stable", (first.headword,))
+            self.assertIsNotNone(second)
+            self.assertNotEqual(first.headword, second.headword)
+            self.assertIsNone(
+                index.draw_unseen_word("stable", ("abacus", "algorithm"))
+            )
+            self.assertEqual(index.lexical_headwords(), ["abacus", "algorithm"])
+
 
 if __name__ == "__main__":
     unittest.main()

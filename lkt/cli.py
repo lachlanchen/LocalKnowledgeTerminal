@@ -13,7 +13,12 @@ from .atomic import build_worker
 from .card_books import CardBookIndex, build_card_book_index
 from .config import Settings
 from .corpus import CorpusIndex, build_index
-from .deck import AutonomousDeckSeeder, DeckSeedResult
+from .deck import (
+    AutonomousDeckSeeder,
+    AutonomousLexicalSeeder,
+    AutonomousSeedCoordinator,
+    DeckSeedResult,
+)
 from .device import background_preparation_blocker
 from .graph import rebuild_ladybug
 from .freedict import build_freedict_index
@@ -496,7 +501,25 @@ def command_seed_deck(args: argparse.Namespace) -> int:
     return 0
 
 
-def guarded_deck_seed(seeder: AutonomousDeckSeeder) -> DeckSeedResult:
+def _lexical_seeder(settings: Settings) -> AutonomousLexicalSeeder:
+    return AutonomousLexicalSeeder(
+        CorpusIndex(settings.corpus_db),
+        CardStore(settings.cards_db),
+        KnowledgeStore(settings.knowledge_db),
+        model=settings.llm_model,
+    )
+
+
+def command_seed_lexical(args: argparse.Namespace) -> int:
+    """Queue one unseen Word Origins headword as a shared atomic plan."""
+
+    settings = _settings()
+    result = _lexical_seeder(settings).run_once(args.seed)
+    print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
+    return 0
+
+
+def guarded_deck_seed(seeder: Any) -> DeckSeedResult:
     """Run autonomous work only while the device has safe power and thermals."""
 
     blocker = background_preparation_blocker()
@@ -560,11 +583,12 @@ def command_work_atomic(args: argparse.Namespace) -> int:
     )
     if args.watch:
         stop_event = Event()
-        seeder = (
-            _deck_seeder(settings, args.autoprepare_modes)
-            if args.autoprepare_book_deck
-            else None
-        )
+        seeders: list[Any] = []
+        if args.autoprepare_lexical_deck:
+            seeders.append(_lexical_seeder(settings))
+        if args.autoprepare_book_deck:
+            seeders.append(_deck_seeder(settings, args.autoprepare_modes))
+        seeder = AutonomousSeedCoordinator(seeders) if seeders else None
 
         def stop_worker(_signum: int, _frame: Any) -> None:
             stop_event.set()
@@ -856,6 +880,13 @@ def parser() -> argparse.ArgumentParser:
     seed_deck.add_argument("--seed", default="")
     seed_deck.set_defaults(handler=command_seed_deck)
 
+    seed_lexical = commands.add_parser(
+        "seed-lexical",
+        help="queue one unseen Word Origins headword as a shared lexical plan",
+    )
+    seed_lexical.add_argument("--seed", default="")
+    seed_lexical.set_defaults(handler=command_seed_lexical)
+
     work_atomic = commands.add_parser(
         "work-atomic",
         help="run bounded evidence/meaning jobs and checkpoint accepted results",
@@ -872,6 +903,11 @@ def parser() -> argparse.ArgumentParser:
         "--autoprepare-book-deck",
         action="store_true",
         help="prepare one unseen Answer/Question record whenever the queue is idle",
+    )
+    work_atomic.add_argument(
+        "--autoprepare-lexical-deck",
+        action="store_true",
+        help="queue one unseen shared lexical plan whenever the queue is idle",
     )
     work_atomic.add_argument(
         "--autoprepare-modes",

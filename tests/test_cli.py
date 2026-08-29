@@ -49,6 +49,7 @@ class AtomicWatchTests(unittest.TestCase):
         self.assertIn("work-atomic --watch --recover-running", unit)
         self.assertIn("--job-delay 1", unit)
         self.assertIn("--autoprepare-book-deck", unit)
+        self.assertIn("--autoprepare-lexical-deck", unit)
         self.assertIn("--autoprepare-modes answer question", unit)
         self.assertIn("Nice=10", unit)
         self.assertIn("CPUWeight=25", unit)

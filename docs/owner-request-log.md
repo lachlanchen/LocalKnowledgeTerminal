@@ -459,8 +459,11 @@ source was live dictation and may contain recognition errors:
   card currently being read; insert newly published cards directly after it so
   the newest ready result receives next priority, then resume the shuffled
   unseen deck. Never surface queued, running, rejected, or dirty candidates.
-- Background completion is currently autonomous for the finite Answer and
-  Question books. Lexical corpus enumeration for Word Card/Origin/Root/Affix is
-  desired but remains a separate missing-only seeder; do not describe it as
-  implemented until it can select bounded unseen terms and reuse one accepted
-  atomic word plan across all four derived views.
+- Background completion covers both finite Answer/Question books and lexical
+  views. The lexical seeder selects one unseen simple Word Origins headword only
+  when the atomic queue is idle, then reuses one accepted atomic plan across
+  Word Card, Word Origin, and any derived Root/Affix views. Book and lexical
+  turns alternate so neither product family monopolizes idle inference.
+- A term already accepted, queued, or attempted is excluded from autonomous
+  selection. This is intentionally missing-only: a failed term cannot create an
+  endless requeue loop, and existing accepted knowledge is never regenerated.

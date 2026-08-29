@@ -13,7 +13,7 @@ from urllib.parse import parse_qs, urlparse
 from .card_books import CardBookIndex
 from .config import Settings
 from .corpus import CorpusIndex
-from .deck import AutonomousDeckSeeder
+from .deck import AutonomousDeckSeeder, AutonomousLexicalSeeder
 from .freedict import FreeDictRag
 from .intent import route_intent
 from .llm import LlamaCppClient, ModelUnavailable
@@ -68,6 +68,30 @@ def autonomous_deck_status(
             "remaining": 0,
             "complete": False,
             "modes": {},
+        }
+
+
+def autonomous_lexical_status(
+    service: CardService, knowledge: KnowledgeStore
+) -> dict[str, Any]:
+    """Expose missing-only lexical planning progress without queuing work."""
+
+    try:
+        return AutonomousLexicalSeeder(
+            service.corpus,
+            service.store,
+            knowledge,
+            model=service.model.model_name,
+        ).progress()
+    except (FileNotFoundError, OSError, ValueError, sqlite3.Error):
+        return {
+            "ready": False,
+            "planned": 0,
+            "accepted": 0,
+            "total": 0,
+            "remaining": 0,
+            "complete": False,
+            "modes": ["knowledge", "word", "root", "affix"],
         }
 
 
@@ -405,12 +429,14 @@ def handler_factory(
                         morphology[kind] = {"ready": False, "items": 0}
                 lexicons = correction_source_status(settings)
                 deck = autonomous_deck_status(service, knowledge)
+                lexical = autonomous_lexical_status(service, knowledge)
                 sources_ready = (
                     corpus_ready
                     and all(item.get("ready") for item in card_books.values())
                     and all(item.get("ready") for item in morphology.values())
                     and all(item.get("ready") for item in lexicons.values())
                     and deck.get("ready") is True
+                    and lexical.get("ready") is True
                 )
                 self._json(
                     {
@@ -424,6 +450,7 @@ def handler_factory(
                         "morphology": morphology,
                         "lexicons": lexicons,
                         "autonomous_deck": deck,
+                        "autonomous_lexical": lexical,
                         "knowledge": knowledge.status(),
                         "model": {
                             "ready": model_ready,

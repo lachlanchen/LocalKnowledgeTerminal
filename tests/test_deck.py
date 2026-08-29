@@ -5,7 +5,12 @@ import unittest
 from pathlib import Path
 from typing import Any
 
-from lkt.deck import AutonomousDeckSeeder
+from lkt.deck import (
+    AutonomousDeckSeeder,
+    AutonomousLexicalSeeder,
+    AutonomousSeedCoordinator,
+    DeckSeedResult,
+)
 from lkt.knowledge import KnowledgeStore
 from lkt.models import Evidence
 from lkt.service import CardService
@@ -128,6 +133,56 @@ class AutonomousDeckTests(unittest.TestCase):
             ).run_once("same-cycle")
 
             self.assertNotEqual(first.source_entry_id, second.source_entry_id)
+
+    def test_lexical_seeder_queues_each_corpus_word_once(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            corpus = make_index(root)
+            cards = CardStore(root / "cards.sqlite3")
+            knowledge = KnowledgeStore(root / "knowledge.sqlite3")
+            seeder = AutonomousLexicalSeeder(
+                corpus,
+                cards,
+                knowledge,
+                model="local-qwen-test",
+            )
+
+            first = seeder.run_once("lexical-cycle")
+            second = seeder.run_once("lexical-cycle")
+            complete = seeder.run_once("lexical-cycle")
+
+            self.assertEqual(first.status, "queued")
+            self.assertEqual(second.status, "queued")
+            self.assertNotEqual(first.source_entry_id, second.source_entry_id)
+            self.assertEqual(complete.status, "complete")
+            self.assertGreater(knowledge.status()["queued_jobs"], 20)
+            self.assertEqual(
+                seeder.progress(),
+                {
+                    "ready": True,
+                    "planned": 2,
+                    "accepted": 0,
+                    "total": 2,
+                    "remaining": 0,
+                    "complete": True,
+                    "modes": ["knowledge", "word", "root", "affix"],
+                },
+            )
+
+    def test_seed_coordinator_alternates_independent_sources(self) -> None:
+        class _Seeder:
+            def __init__(self, mode: str):
+                self.mode = mode
+
+            def run_once(self) -> DeckSeedResult:
+                return DeckSeedResult(status="queued", mode=self.mode)
+
+        coordinator = AutonomousSeedCoordinator(
+            (_Seeder("lexical"), _Seeder("answer"))
+        )
+        self.assertEqual(coordinator.run_once().mode, "lexical")
+        self.assertEqual(coordinator.run_once().mode, "answer")
+        self.assertEqual(coordinator.run_once().mode, "lexical")
 
 
 if __name__ == "__main__":

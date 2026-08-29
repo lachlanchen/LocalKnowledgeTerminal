@@ -13,6 +13,20 @@ from typing import Any
 from .models import CorpusEntry, Evidence
 
 
+_LEXICAL_HEADWORD = re.compile(r"^[A-Za-z][A-Za-z'-]{1,39}$")
+
+
+def _lexical_form(display_headword: str, headword: str) -> str:
+    for value in (display_headword, headword):
+        candidate = str(value).strip()
+        if (
+            _LEXICAL_HEADWORD.fullmatch(candidate)
+            and any(character.isalpha() for character in candidate)
+        ):
+            return candidate
+    return ""
+
+
 SCHEMA = """
 PRAGMA journal_mode=WAL;
 PRAGMA synchronous=NORMAL;
@@ -233,6 +247,74 @@ class CorpusIndex:
     def count(self) -> int:
         with closing(self._connect()) as connection:
             return int(connection.execute("SELECT count(*) FROM entries").fetchone()[0])
+
+    def lexical_headwords(self) -> list[str]:
+        """Return unique, single-word English candidates in stable source order."""
+
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """SELECT headword, display_headword
+                   FROM entries ORDER BY row_id"""
+            ).fetchall()
+        headwords: list[str] = []
+        seen: set[str] = set()
+        for row in rows:
+            headword = _lexical_form(row["display_headword"], row["headword"])
+            key = headword.casefold()
+            if not headword or key in seen:
+                continue
+            seen.add(key)
+            headwords.append(headword)
+        return headwords
+
+    def draw_unseen_word(
+        self, seed: str, excluded_headwords: Iterable[str]
+    ) -> Evidence | None:
+        """Choose one stable unseen lexical entry without repeating a headword."""
+
+        excluded = {
+            str(item).strip().casefold()
+            for item in excluded_headwords
+            if str(item).strip()
+        }
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """SELECT row_id, headword, display_headword
+                   FROM entries ORDER BY row_id"""
+            ).fetchall()
+        candidates: list[sqlite3.Row] = []
+        seen: set[str] = set()
+        for row in rows:
+            headword = _lexical_form(row["display_headword"], row["headword"])
+            key = headword.casefold()
+            if not headword or key in seen:
+                continue
+            seen.add(key)
+            candidates.append(row)
+        if not candidates:
+            return None
+        metadata = self.metadata()
+        material = metadata.get("source_sha256", "") + "\0" + seed.strip().casefold()
+        start = (
+            int.from_bytes(hashlib.sha256(material.encode("utf-8")).digest()[:8], "big")
+            % len(candidates)
+        )
+        for step in range(len(candidates)):
+            candidate = candidates[(start + step) % len(candidates)]
+            headword = _lexical_form(
+                candidate["display_headword"], candidate["headword"]
+            )
+            if headword.casefold() not in excluded:
+                with closing(self._connect()) as connection:
+                    row = connection.execute(
+                        "SELECT * FROM entries WHERE row_id = ?",
+                        (candidate["row_id"],),
+                    ).fetchone()
+                if row is None:
+                    return None
+                entry = _entry_from_row(row)
+                return entry.evidence(_excerpt(entry.plain_text, headword))
+        return None
 
     def search(self, query: str, limit: int = 4) -> list[Evidence]:
         query = query.strip()

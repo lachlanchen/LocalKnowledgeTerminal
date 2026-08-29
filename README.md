@@ -104,6 +104,15 @@ one bounded vocabulary investigation plus independent English, Japanese, and
 Chinese grammar jobs. Stable source entry IDs prevent repeats across restarts.
 It stops after all 318 Answers and 291 Questions are accepted.
 
+The same idle coordinator now grows the lexical modes without preloading a
+large queue. On alternating idle turns it selects exactly one simple Word
+Origins headword that has never been planned, records one shared atomic plan,
+then returns control to the one-job worker. Word Card can publish independently;
+a successful origin composition publishes Word Origin and derives its Root and
+Affix focus views from the same accepted atoms. Existing, queued, attempted, and
+accepted terms are excluded, so this is a missing-only walk rather than a
+regeneration loop.
+
 This ownership boundary is deliberate: reviewed book sentences, translations,
 and citations come from the local corpus records and are never rewritten by the
 model; new explanatory or lexical data is produced by the configured local
@@ -117,12 +126,12 @@ correction index as a required source and reports its readiness and entry count.
 Autonomous generation pauses during current Raspberry Pi undervoltage,
 throttling, or high temperature and resumes after the condition clears. The web
 client loads the complete selected mode (up to 1,000 accepted cards), keeps the
-newest first, and shuffles every other card once per carousel pass. The compact
-system status reports accepted versus total autonomous book cards, while
-`/api/health` exposes the same per-mode progress without scheduling model work.
-Word Card, Word Origin, Root, and Affix remain inquiry-driven rather than
-precomputing thousands of slow model views; once a word or linked term is
-selected, their persisted local pipeline runs without human data entry.
+newest first, and shuffles every other card once per carousel pass. It polls
+accepted cards without interrupting the current display and inserts a newly
+published result next. The compact status and `/api/health` report both finite
+book coverage and lexical planned/accepted progress without scheduling work.
+Interactive word requests remain immediate and reuse the same persisted atoms
+as autonomous preparation.
 
 ```text
  Word Origin ──► best Word Origins entry ─────┐
@@ -158,7 +167,7 @@ the configured book has no evidence, the app does not generate a card.
 | `lkt/corpus.py` | Word Origins ingestion, atomic SQLite index, exact + FTS retrieval |
 | `lkt/morphology.py` | Root/Affix polished-JSONL ingestion, provenance, exact + FTS retrieval |
 | `lkt/card_books.py` | Multilingual Answer/Question ingestion, search, and deterministic draws |
-| `lkt/deck.py` | One-at-a-time autonomous reviewed-book deck preparation |
+| `lkt/deck.py` | Alternating one-at-a-time book and lexical preparation |
 | `lkt/device.py` | Pi power/thermal readiness gate for background inference |
 | `lkt/retrieval.py` | Independent Word Origin, Word Card, Answer, and Question RAG policies |
 | `lkt/llm.py` | Small llama.cpp adapter and one strict prompt per experience |
@@ -212,6 +221,7 @@ python -m lkt.cli plan-word inspection --display-languages en ja zh fr ar
 python -m lkt.cli plan-translation inspection ar --prompt-version atomic-v2
 python -m lkt.cli work-atomic --limit 1
 python -m lkt.cli seed-deck --modes answer question
+python -m lkt.cli seed-lexical --seed first-pass
 ```
 
 With a llama.cpp server listening on port 8081:

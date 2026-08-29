@@ -1945,6 +1945,18 @@ class KnowledgeStore:
             ).fetchall()
         return [dict(row) for row in rows]
 
+    def planned_term_keys(self, language: str = "en") -> set[str]:
+        """Return normalized words already accepted, queued, or attempted."""
+
+        language = _language(language)
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """SELECT normalized FROM terms
+                   WHERE language = ? AND kind = 'word'""",
+                (language,),
+            ).fetchall()
+        return {str(row["normalized"]) for row in rows}
+
     def save_job_artifact(
         self,
         job_id: str,

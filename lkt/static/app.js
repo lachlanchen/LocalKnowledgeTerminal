@@ -1378,8 +1378,15 @@ async function loadHealth() {
     const lexiconItems = Object.values(health.lexicons || {}).reduce((total, item) => total + (item.entries || 0), 0);
     const sourceCount = (health.corpus.entries || 0) + bookItems + morphologyItems + lexiconItems;
     const deck = health.autonomous_deck || {};
+    const lexical = health.autonomous_lexical || {};
     container.title = ready ? `${sourceCount.toLocaleString()} local source records loaded` : "";
-    const progress = deck.total ? `${(deck.accepted || 0).toLocaleString()} / ${deck.total.toLocaleString()} autonomous cards` : "Local sources";
+    const bookProgress = deck.total
+      ? `${(deck.accepted || 0).toLocaleString()} / ${deck.total.toLocaleString()} book cards`
+      : "Local sources";
+    const lexicalProgress = lexical.planned
+      ? ` · ${lexical.planned.toLocaleString()} words planned`
+      : "";
+    const progress = bookProgress + lexicalProgress;
     text("#state-label", ready ? `${progress} · Qwen ready` : "Model or corpus is starting…");
   } catch (_error) {
     text("#state-label", "Terminal unavailable");
