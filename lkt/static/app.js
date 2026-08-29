@@ -749,8 +749,8 @@ function graphStyles(compact = false) {
     {
       selector: "node",
       style: {
-        width: 146,
-        height: 78,
+        width: 168,
+        height: 100,
         shape: "round-rectangle",
         "background-color": "#eaf2ff",
         "border-width": 3,
@@ -773,7 +773,7 @@ function graphStyles(compact = false) {
     { selector: "node.prefix", style: { "background-color": "#e5faf4", "border-color": "#00a98f" } },
     { selector: "node.root", style: { "background-color": "#f2eaff", "border-color": "#8b3dff" } },
     { selector: "node.suffix", style: { "background-color": "#fff7d6", "border-color": "#e29a00" } },
-    { selector: "node.center", style: { width: 184, height: 106, shape: "ellipse", "background-color": "#ffcf3d", "border-color": "#17213d", "border-width": 4 } },
+    { selector: "node.center", style: { width: 216, height: 132, shape: "ellipse", "background-color": "#ffcf3d", "border-color": "#17213d", "border-width": 4 } },
     { selector: ".dimmed", style: { display: "none" } },
     { selector: "node.focus-node", style: { "border-width": 5 } },
     {
@@ -809,13 +809,9 @@ function graphLanguageCode(value) {
 }
 
 function graphLabelMetrics(node, isCenter) {
-  const length = `${node.form || ""} ${node.meaning || ""}`.trim().length;
-  const termLength = String(node.form || "").length;
-  const base = isCenter ? 20 : 16;
-  const reduction = termLength > 28 ? 4 : termLength > 18 ? 2.5 : termLength > 11 ? 1 : 0;
   return {
-    termFontSize: Math.max(isCenter ? 13 : 11, base - reduction),
-    meaningFontSize: Math.max(8, (isCenter ? 11 : 9.5) - (length > 125 ? 1.5 : length > 75 ? .75 : 0)),
+    termFontSize: isCenter ? 22 : 18,
+    meaningFontSize: isCenter ? 15 : 13.5,
   };
 }
 
@@ -855,10 +851,10 @@ function updateGraphNodeBadges() {
     box.style.top = `${offsetY + position.y - height / 2}px`;
     box.style.width = `${width}px`;
     box.style.height = `${height}px`;
-    const baseWidth = node.hasClass("center") ? 184 : 146;
+    const baseWidth = node.hasClass("center") ? 216 : 168;
     const scale = Math.max(.72, Math.min(1.22, width / baseWidth));
-    box.style.setProperty("--graph-term-size", `${Math.max(9, node.data("termFontSize") * scale)}px`);
-    box.style.setProperty("--graph-meaning-size", `${Math.max(7.5, node.data("meaningFontSize") * scale)}px`);
+    box.style.setProperty("--graph-term-size", `${Math.max(13.5, node.data("termFontSize") * scale)}px`);
+    box.style.setProperty("--graph-meaning-size", `${Math.max(11.5, node.data("meaningFontSize") * scale)}px`);
     box.append(element("i", "graph-node-type", type.toLocaleUpperCase()));
     if (language) box.append(element("i", "graph-node-language", language));
     const copy = element("span", "graph-node-copy");
@@ -959,9 +955,9 @@ function semanticGraphPositions(data) {
       });
     }
   };
-  placeRows(components, -90, -1, 5, 170);
-  placeRows(histories, -205, -1, 5, 165);
-  placeRows(related, 110, 1, 5, 170);
+  placeRows(components, -140, -1, 5, 205, 130);
+  placeRows(histories, -300, -1, 5, 195, 130);
+  placeRows(related, 165, 1, 5, 195, 130);
   data.nodes.forEach((node, index) => {
     if (!positions.has(node.id)) positions.set(node.id, { x: index * 170, y: 145 });
   });

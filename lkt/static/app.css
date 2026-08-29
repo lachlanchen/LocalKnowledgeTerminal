@@ -1132,34 +1132,34 @@ body.display-mode .card-view { border-radius: 0; }
 .graph-node-copy {
   position: absolute;
   z-index: 1;
-  inset: 24px 7px 7px;
+  inset: 28px 9px 9px;
   display: flex;
   min-width: 0;
   align-items: center;
   justify-content: center;
   flex-direction: column;
-  gap: 3px;
+  gap: 5px;
   overflow: hidden;
   text-align: center;
 }
 .graph-node-term {
   display: -webkit-box;
   overflow: hidden;
-  color: #ffffff;
-  font: 950 var(--graph-term-size, 13px)/1.03 var(--sans);
+  color: #11182b;
+  font: 950 var(--graph-term-size, 18px)/1.05 var(--sans);
   letter-spacing: -.01em;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
-  -webkit-text-stroke: .8px #17213d;
+  -webkit-text-stroke: 1px rgba(255, 255, 255, .98);
   overflow-wrap: anywhere;
   paint-order: stroke fill;
-  text-shadow: 0 1px 0 rgba(23, 33, 61, .3);
+  text-shadow: 0 1px 2px rgba(255, 255, 255, .9);
 }
 .graph-node-meaning {
   display: -webkit-box;
   overflow: hidden;
   color: #263653;
-  font: 650 var(--graph-meaning-size, 9px)/1.14 var(--sans);
+  font: 650 var(--graph-meaning-size, 13.5px)/1.18 var(--sans);
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   overflow-wrap: anywhere;

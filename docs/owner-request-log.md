@@ -498,3 +498,9 @@ source was live dictation and may contain recognition errors:
   deliberate rows with different styles: the term is the focal outlined text;
   the explanation is quieter normal text. Both rows must auto-fit inside the
   node without overlap.
+- Correct the first contrast pass: the focal term must be black with a white
+  outline, not white with a black outline. Keep both the term and explanation
+  large; do not reduce their typography when the graph has unused space.
+- Give the root/prefix/suffix row more spatial separation from the center word
+  in Word Origin. Larger nodes and wider vertical/horizontal gaps should use the
+  full graph stage while keeping edges, badges, and copy from overlapping.
