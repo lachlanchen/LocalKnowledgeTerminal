@@ -15,6 +15,7 @@ from lkt.atomic import (
     _clean_usage_note,
     _collapse_repeated_arabic_alternative,
     _explicit_form_evidence_ids,
+    _origin_draft_review_reason,
     _has_repeated_arabic_content_word,
     _align_grammar_draft,
     _grammar_role_matches,
@@ -716,6 +717,42 @@ class AtomicWorkerTests(unittest.TestCase):
                         },
                         "model": self.model_name,
                     }
+                if "ORIGIN BRANCH REVIEW" in prompt:
+                    component_id = re.findall(
+                        r'"component_id": "([^"]+)"', prompt
+                    )[0]
+                    return {
+                        "value": {
+                            "component_id": component_id,
+                            "steps": [
+                                {
+                                    "form": "likkon",
+                                    "language": "gem-pro",
+                                    "period": "Frankish",
+                                    "meaning": "lick",
+                                    "confidence": 0.9,
+                                    "evidence_ids": [],
+                                },
+                                {
+                                    "form": "lechier",
+                                    "language": "fro",
+                                    "period": "Old French verb",
+                                    "meaning": "lick or live dissolutely",
+                                    "confidence": 0.92,
+                                    "evidence_ids": [],
+                                },
+                                {
+                                    "form": "lecheor",
+                                    "language": "fro",
+                                    "period": "Old French noun",
+                                    "meaning": "debauched person",
+                                    "confidence": 0.92,
+                                    "evidence_ids": [],
+                                },
+                            ],
+                        },
+                        "model": self.model_name,
+                    }
                 if "MORPHEME SPLIT" in prompt:
                     return {
                         "value": {
@@ -751,19 +788,19 @@ class AtomicWorkerTests(unittest.TestCase):
                             "component_id": component_id,
                             "steps": [
                                 {
-                                    "form": "lechier",
-                                    "language": "fro",
-                                    "period": "Old French",
-                                    "meaning": "lick",
-                                    "confidence": 0.92,
-                                    "evidence_ids": [],
-                                },
-                                {
                                     "form": "lecheor",
                                     "language": "fro",
                                     "period": "Old French derivative",
                                     "meaning": "lewd person",
                                     "confidence": 0.92,
+                                    "evidence_ids": [],
+                                },
+                                {
+                                    "form": "lecher",
+                                    "language": "en",
+                                    "period": "Modern English",
+                                    "meaning": "lewd person",
+                                    "confidence": 0.9,
                                     "evidence_ids": [],
                                 },
                             ],
@@ -820,9 +857,19 @@ class AtomicWorkerTests(unittest.TestCase):
             self.assertEqual(branch["component_kind"], "free")
             self.assertEqual(
                 [step["form"] for step in branch["steps"]],
-                ["lechier", "lecheor"],
+                ["likkon", "lechier", "lecheor"],
             )
             self.assertTrue(all(step["basis"] == "book" for step in branch["steps"]))
+            self.assertEqual(
+                len(
+                    store.artifacts_for_subject(
+                        plan.subject_key,
+                        stage="model-origin-review-draft",
+                        validation_state="candidate",
+                    )
+                ),
+                1,
+            )
 
     def test_explicit_book_chain_is_extracted_without_model_inference(self) -> None:
         steps = _book_origin_steps(

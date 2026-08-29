@@ -640,3 +640,7 @@ source was live dictation and may contain recognition errors:
 - Prepare exactly one missing item at a time, save retrieved evidence, model
   draft, normalized JSON, and published card, and reuse all accepted results.
   Never rerun an already accepted primary book record merely to make a tab grow.
+- When a local-Qwen etymology draft contains good book forms but repeats the
+  modern word or orders a branch badly, run one small independent RAG review.
+  Backfill only failed history/composition and reuse the accepted split and all
+  accepted language atoms.

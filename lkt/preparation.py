@@ -479,14 +479,22 @@ class PreparationPlanner:
             )
         assert retrieval is not None and meaning is not None
 
-        split = self._job(
-            "split-morphemes",
-            subject_key,
-            term_id,
-            language=language,
-            priority=30,
-            depends_on=(str(retrieval["job_id"]), str(meaning["job_id"])),
-        )
+        accepted_split = newest("accepted-morpheme-split", language)
+        jobs: dict[str, str] = {}
+        if accepted_split is None:
+            split = self._job(
+                "split-morphemes",
+                subject_key,
+                term_id,
+                language=language,
+                priority=30,
+                depends_on=(str(retrieval["job_id"]), str(meaning["job_id"])),
+            )
+            jobs["split-morphemes"] = split
+        else:
+            # Lexical structure is already accepted knowledge. A prompt/worker
+            # repair must not spend another model call rediscovering it.
+            split = str(accepted_split["job_id"])
         origin = self._job(
             "expand-origin-branches",
             subject_key,
@@ -502,15 +510,9 @@ class PreparationPlanner:
             priority=90,
             depends_on=(origin, *language_dependencies),
         )
-        return PreparationPlan(
-            term_id,
-            subject_key,
-            {
-                "split-morphemes": split,
-                "expand-origin-branches": origin,
-                "compose-origin-card": composition,
-            },
-        )
+        jobs["expand-origin-branches"] = origin
+        jobs["compose-origin-card"] = composition
+        return PreparationPlan(term_id, subject_key, jobs)
 
     def plan_content(
         self,

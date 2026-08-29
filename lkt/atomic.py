@@ -526,6 +526,40 @@ def _explicit_form_evidence_ids(
     )
 
 
+def _origin_draft_review_reason(
+    value: Any,
+    *,
+    component_id: str,
+    modern_word: str,
+    base_form: str,
+    fixed_provenance_ids: set[str],
+    evidence: list[dict[str, Any]],
+) -> str:
+    """Identify a weak origin draft before spending a whole job retry on it."""
+
+    if not isinstance(value, dict) or str(value.get("component_id", "")) != component_id:
+        return "the component_id changed"
+    steps = value.get("steps")
+    if not isinstance(steps, list) or not 1 <= len(steps) <= 3:
+        return "steps must contain one to three historical forms"
+    forbidden = {_plain_letter_key(modern_word), _plain_letter_key(base_form)}
+    for step in steps:
+        if not isinstance(step, dict):
+            return "a step is not an object"
+        form = str(step.get("form", "")).strip()
+        language = str(step.get("language", "")).strip().casefold()
+        period = str(step.get("period", "")).strip().casefold()
+        if not form or _plain_letter_key(form) in forbidden:
+            return "a historical step repeats the modern word or lexical base"
+        if language == "en" or "modern english" in period:
+            return "Modern English was incorrectly used as a historical step"
+        if fixed_provenance_ids and not (
+            set(_explicit_form_evidence_ids(form, evidence)) & fixed_provenance_ids
+        ):
+            return "a historical form is not visibly supported by the exact book entry"
+    return ""
+
+
 def _book_origin_steps(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Extract an explicit Latin <- Indo-European chain without inference."""
 
@@ -1376,6 +1410,14 @@ graph over a decorative graph."""
             max_tokens=256,
         )
         value = completion.get("value")
+        review_reason = _origin_draft_review_reason(
+            value,
+            component_id=str(focus["component_id"]),
+            modern_word=source["text"],
+            base_form=str(focus["form"]),
+            fixed_provenance_ids=set(fixed_provenance_ids),
+            evidence=focus_evidence,
+        )
         self.store.save_job_artifact(
             job["job_id"],
             "model-origin-draft",
@@ -1386,8 +1428,44 @@ graph over a decorative graph."""
                 "metrics": completion.get("metrics", {}),
             },
             language=source["language"],
-            validation_state="candidate",
+            validation_state="superseded" if review_reason else "candidate",
         )
+        if review_reason:
+            review_prompt = f"""ONE ORIGIN BRANCH REVIEW
+The first draft failed a structural or evidence check: {review_reason}.
+
+MODERN WORD: {source['text']}
+FIXED LEXICAL BASE AND EXACT RAG EVIDENCE:
+{json.dumps(prompt_focus, ensure_ascii=False)}
+
+REJECTED DRAFT:
+{json.dumps(value, ensure_ascii=False)}
+
+Return a corrected JSON object with exactly the fixed component_id and one to
+three `steps` ordered oldest to newest. The last historical step develops into
+the fixed base or modern word, but no step may repeat either of them. Do not use
+Modern English. Use only historical forms printed verbatim in the exact RAG
+evidence; {evidence_instruction}. Keep meanings under ten English words and
+stop before an uncertain ancestor. Return JSON only."""
+            completion = self.model.complete_json(
+                "You independently review one failed RAG-grounded etymology branch.",
+                review_prompt,
+                max_tokens=256,
+            )
+            value = completion.get("value")
+            self.store.save_job_artifact(
+                job["job_id"],
+                "model-origin-review-draft",
+                {
+                    "term": source["text"],
+                    "review_reason": review_reason,
+                    "value": value,
+                    "model": completion.get("model", self.model.model_name),
+                    "metrics": completion.get("metrics", {}),
+                },
+                language=source["language"],
+                validation_state="candidate",
+            )
         if not isinstance(value, dict) or str(value.get("component_id", "")) != str(
             focus["component_id"]
         ):

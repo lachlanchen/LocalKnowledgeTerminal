@@ -187,7 +187,7 @@ class AutonomousLexicalSeeder:
         knowledge: KnowledgeStore,
         *,
         model: str,
-        prompt_version: str = "autonomous-lexical-v2",
+        prompt_version: str = "autonomous-lexical-v3",
     ):
         self.corpus = corpus
         self.store = store

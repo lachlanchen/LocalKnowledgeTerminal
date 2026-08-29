@@ -219,6 +219,10 @@ accepted Word Card exists but its Word Origin view is missing after a terminal
 structure/history failure, it enqueues only a new structure review, origin
 branch, and composition. Existing accepted retrieval, meaning, translation, and
 pronunciation artifacts remain dependencies and are not regenerated.
+Autonomous lexical v3 also reuses an already accepted structure split. A failed
+history branch receives one bounded second local-Qwen review with the rejected
+draft and the same exact RAG evidence, so it can correct chronology or remove a
+repeated modern form without redoing any accepted lexical or language atom.
 The full-screen graph renders relationships as quiet directed arrows; verbose
 edge names stay in card JSON for future inspection instead of overlapping the
 large teaching nodes. Origin-source evidence is ordered before modern lexical
