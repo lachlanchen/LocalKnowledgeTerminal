@@ -113,6 +113,15 @@ Affix focus views from the same accepted atoms. Existing, queued, attempted, and
 accepted terms are excluded, so this is a missing-only walk rather than a
 regeneration loop.
 
+The bare browser remains Answer-first so a useful cited card appears
+immediately. After a card has completed every inner slide, ambient playback
+continues through Question → Answer → Word Card → Word Origin → Root → Affix.
+Each mode owns an independent accepted-only shuffled pass, so crossing tabs does
+not collapse their collections or repeat the same card on every visit. Newly
+accepted cards are placed first in that mode's remaining pass. An explicit tab
+or `?mode=` URL stays mode-local, and pointer, touch, or keyboard activity
+restarts the current card's full dwell before ambient motion can resume.
+
 This ownership boundary is deliberate: reviewed book sentences, translations,
 and citations come from the local corpus records and are never rewritten by the
 model; new explanatory or lexical data is produced by the configured local

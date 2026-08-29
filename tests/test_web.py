@@ -101,6 +101,24 @@ class WebInputTests(unittest.TestCase):
         self.assertIn('requested_mode in _ATOMIC_WORD_MODES', source)
         self.assertIn('extensions["grammar_analyses"]', source)
 
+    def test_bare_ambient_tour_crosses_accepted_mode_decks(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        script = (root / "lkt" / "static" / "app.js").read_text(encoding="utf-8")
+        self.assertIn(
+            'const AMBIENT_MODE_ORDER = ["question", "answer", "knowledge", "word", "root", "affix"];',
+            script,
+        )
+        self.assertIn("const ambientModeDecks = new Map();", script)
+        self.assertIn("async function acceptedCardsForMode(cardMode)", script)
+        self.assertIn("async function advanceAmbientMode(activityRevision)", script)
+        self.assertIn("takeAmbientCard(nextMode, cards)", script)
+        self.assertIn("!previous.acceptedIds.has(card.card_id)", script)
+        self.assertIn("shuffledAmbientPass(cards, previous?.lastCardId", script)
+        self.assertIn("activityRevision !== userActivityRevision", script)
+        self.assertIn("function noteActivity(userInitiated = false)", script)
+        self.assertIn("if (ambientRouting) {\n      advanceAmbientMode(userActivityRevision);", script)
+        self.assertIn('document.addEventListener("pointerdown", () => noteActivity(true)', script)
+
     def test_old_cards_receive_chinese_ruby_without_database_migration(self) -> None:
         card = {"chinese": {"simplified": "中国", "pinyin": "zhōng guó"}}
         rendered = renderable_card(card)

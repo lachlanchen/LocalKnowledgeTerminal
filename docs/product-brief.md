@@ -41,11 +41,18 @@ yet. They are future references only.
 
 ## Independent modes
 
-The bare terminal opens the accepted Book of Answers carousel as its ambient
-experience. A stable local draw is visible immediately and advances
-automatically when more than one accepted Answer card exists. Question, Word
-Card, Word Origin, Root, Affix, and Model Lab remain explicit user-selected
-paths rather than being mixed into the ambient card.
+The bare terminal opens the accepted Book of Answers carousel first so a stable
+local draw is visible immediately. After the current card finishes every inner
+slide, the ambient journey follows Question → Answer → Word Card → Word Origin
+→ Root → Affix and repeats. These remain separate mode-local collections: the
+journey selects one accepted card from each mode's own non-repeating shuffled
+pass rather than mixing records into one deck. A newly accepted card receives
+priority within its mode. Model Lab is never part of ambient playback.
+
+Selecting a tab or using a `?mode=` URL disables the cross-mode journey and
+keeps autoplay inside that exact mode. Pointer, touch, keyboard, or focused
+control activity restarts the current card's complete dwell, so ambient motion
+never switches the screen while somebody is reading or navigating it.
 
 On the bare ambient screen, one English word opens Word Card and an ordinary
 sentence or question opens local Chat. Explicit `word:`, `origin:`, `root:`,

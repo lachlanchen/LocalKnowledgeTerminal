@@ -30,10 +30,14 @@ let sentenceSlideTimer = null;
 let graphFocusTimer = null;
 let chromeTimer = null;
 let ambientRouting = false;
+let ambientModeIndex = 0;
+let userActivityRevision = 0;
+const ambientModeDecks = new Map();
 
 const INNER_SLIDE_DWELL_MS = 18000;
 const CARD_MIN_DWELL_MS = 30000;
 const ACCEPTED_DECK_SYNC_MS = 30000;
+const AMBIENT_MODE_ORDER = ["question", "answer", "knowledge", "word", "root", "affix"];
 
 const ALTERNATE_LANGUAGES = {
   french: { label: "FRANÇAIS · PRONONCIATION", className: "french" },
@@ -137,9 +141,13 @@ function show(name) {
   noteActivity();
 }
 
-function noteActivity() {
+function noteActivity(userInitiated = false) {
   document.body.classList.remove("chrome-collapsed");
   window.clearTimeout(chromeTimer);
+  if (userInitiated) {
+    userActivityRevision += 1;
+    if (ambientRouting && autoplayEnabled && visibleView === "card") scheduleCarousel();
+  }
   if (visibleView !== "card" || document.body.classList.contains("display-mode")) return;
   chromeTimer = window.setTimeout(() => {
     if (!["INPUT", "BUTTON", "TEXTAREA"].includes(document.activeElement?.tagName)) {
@@ -1216,7 +1224,7 @@ function setMode(nextMode, preserveView = false) {
     button.dataset.mode = mode;
     button.textContent = copy.examples[index];
   });
-  if (ambientRouting && mode === "answer") applyAmbientComposer();
+  if (ambientRouting) applyAmbientComposer();
   if (preserveView) return;
   if (mode === "chat") {
     show("chat");
@@ -1418,6 +1426,107 @@ function shuffledModeDeck(cards) {
   return deck;
 }
 
+function shuffledAmbientPass(cards, previousCardId = "") {
+  const deck = [...cards];
+  for (let index = deck.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [deck[index], deck[swapIndex]] = [deck[swapIndex], deck[index]];
+  }
+  if (deck.length > 1 && deck[0].card_id === previousCardId) deck.push(deck.shift());
+  return deck.map((card) => card.card_id);
+}
+
+function rememberAmbientCard(cardMode, cards, cardId) {
+  if (!AMBIENT_MODE_ORDER.includes(cardMode) || !cardId || !cards.length) return;
+  const acceptedIds = new Set(cards.map((card) => card.card_id));
+  const previous = ambientModeDecks.get(cardMode);
+  let remainingIds = previous
+    ? previous.remainingIds.filter((id) => acceptedIds.has(id) && id !== cardId)
+    : shuffledModeDeck(cards).map((card) => card.card_id).filter((id) => id !== cardId);
+  if (previous) {
+    const newIds = cards
+      .filter((card) => !previous.acceptedIds.has(card.card_id) && card.card_id !== cardId)
+      .map((card) => card.card_id);
+    const newIdSet = new Set(newIds);
+    remainingIds = [...newIds, ...remainingIds.filter((id) => !newIdSet.has(id))];
+  }
+  ambientModeDecks.set(cardMode, {
+    acceptedIds,
+    remainingIds,
+    lastCardId: cardId,
+  });
+}
+
+function takeAmbientCard(cardMode, cards) {
+  if (!cards.length) return null;
+  const byId = new Map(cards.map((card) => [card.card_id, card]));
+  const acceptedIds = new Set(byId.keys());
+  const previous = ambientModeDecks.get(cardMode);
+  let remainingIds = previous
+    ? previous.remainingIds.filter((id) => acceptedIds.has(id))
+    : shuffledModeDeck(cards).map((card) => card.card_id);
+  if (previous) {
+    const newIds = cards
+      .filter((card) => !previous.acceptedIds.has(card.card_id))
+      .map((card) => card.card_id);
+    const newIdSet = new Set(newIds);
+    remainingIds = [
+      ...newIds,
+      ...remainingIds.filter((id) => !newIdSet.has(id)),
+    ];
+  }
+  if (!remainingIds.length) {
+    remainingIds = shuffledAmbientPass(cards, previous?.lastCardId || "");
+  }
+  const selectedId = remainingIds.shift();
+  ambientModeDecks.set(cardMode, {
+    acceptedIds,
+    remainingIds,
+    lastCardId: selectedId,
+  });
+  return byId.get(selectedId) || null;
+}
+
+async function acceptedCardsForMode(cardMode) {
+  const response = await fetch(`/api/cards?mode=${encodeURIComponent(cardMode)}&limit=1000`);
+  const cards = await response.json();
+  if (!response.ok || !Array.isArray(cards)) throw new Error("Card history unavailable");
+  return cards;
+}
+
+async function advanceAmbientMode(activityRevision) {
+  for (let attempt = 0; attempt < AMBIENT_MODE_ORDER.length; attempt += 1) {
+    const nextMode = AMBIENT_MODE_ORDER[ambientModeIndex % AMBIENT_MODE_ORDER.length];
+    ambientModeIndex = (ambientModeIndex + 1) % AMBIENT_MODE_ORDER.length;
+    let cards;
+    try {
+      cards = await acceptedCardsForMode(nextMode);
+    } catch (_error) {
+      // Skip one unavailable or empty accepted deck; the next mode remains usable.
+      continue;
+    }
+    if (
+      !ambientRouting
+      || !autoplayEnabled
+      || activityRevision !== userActivityRevision
+    ) {
+      scheduleCarousel();
+      return;
+    }
+    const selected = takeAmbientCard(nextMode, cards);
+    if (!selected) continue;
+    setMode(nextMode, true);
+    allSavedCards = cards;
+    carouselCards = shuffledModeDeck(cards);
+    carouselIndex = carouselCards.findIndex((card) => card.card_id === selected.card_id);
+    renderModeDeckDots();
+    renderCard(selected, false);
+    scheduleCarousel();
+    return;
+  }
+  scheduleCarousel();
+}
+
 function renderModeDeckDots() {
   const history = $("#history");
   history.replaceChildren();
@@ -1428,6 +1537,7 @@ function renderModeDeckDots() {
     button.addEventListener("click", () => {
       carouselIndex = index;
       renderCard(card, false);
+      if (ambientRouting) rememberAmbientCard(mode, carouselCards, card.card_id);
       scheduleCarousel();
     });
     history.append(button);
@@ -1450,6 +1560,9 @@ function rebuildModeCarousel(openLatest = false) {
   carouselIndex = openLatest || found < 0 ? 0 : found;
   renderModeDeckDots();
   if (openLatest || found < 0) renderCard(carouselCards[carouselIndex], false);
+  if (ambientRouting && carouselIndex >= 0) {
+    rememberAmbientCard(mode, carouselCards, carouselCards[carouselIndex].card_id);
+  }
   updateCarouselChrome();
   scheduleCarousel();
 }
@@ -1512,6 +1625,9 @@ function navigateCards(step) {
   if (!carouselCards.length || visibleView === "loading") return;
   carouselIndex = (carouselIndex + step + carouselCards.length) % carouselCards.length;
   renderCard(carouselCards[carouselIndex], false);
+  if (ambientRouting) {
+    rememberAmbientCard(mode, carouselCards, carouselCards[carouselIndex].card_id);
+  }
   scheduleCarousel();
 }
 
@@ -1534,7 +1650,12 @@ function scheduleCarousel() {
   if (!autoplayEnabled) return;
   const dwell = Math.max(CARD_MIN_DWELL_MS, activeInnerSlideCount() * INNER_SLIDE_DWELL_MS);
   autoplayTimer = setTimeout(() => {
-    if (mode !== "chat" && carouselCards.length > 1) navigateCards(1);
+    if (mode === "chat") return;
+    if (ambientRouting) {
+      advanceAmbientMode(userActivityRevision);
+      return;
+    }
+    if (carouselCards.length > 1) navigateCards(1);
   }, dwell);
 }
 
@@ -1606,10 +1727,10 @@ document.addEventListener("fullscreenchange", () => {
     document.body.classList.remove("display-mode");
   }
 });
-document.addEventListener("pointermove", noteActivity, { passive: true });
-document.addEventListener("pointerdown", noteActivity, { passive: true });
-document.addEventListener("keydown", noteActivity);
-document.addEventListener("focusin", noteActivity);
+document.addEventListener("pointermove", () => noteActivity(true), { passive: true });
+document.addEventListener("pointerdown", () => noteActivity(true), { passive: true });
+document.addEventListener("keydown", () => noteActivity(true));
+document.addEventListener("focusin", () => noteActivity(true));
 window.addEventListener("resize", scheduleGraphNodeBadges, { passive: true });
 
 const initialParameters = new URLSearchParams(location.search);
