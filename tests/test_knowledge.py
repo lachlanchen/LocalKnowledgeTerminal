@@ -150,6 +150,47 @@ class KnowledgeStoreTests(unittest.TestCase):
                 2,
             )
             connection.close()
+            current = store.grammar_for_content(japanese)
+            self.assertIsNotNone(current)
+            assert current is not None
+            self.assertEqual(current["summary"], "noun plus suru verb")
+            self.assertEqual(
+                [part["role"] for part in current["parts"]],
+                ["object", "predicate"],
+            )
+
+            replacement = store.add_grammar_analysis(
+                japanese,
+                "ja",
+                "one predicate phrase",
+                [
+                    {
+                        "surface": "検査する",
+                        "role": "predicate",
+                        "part_of_speech": "phrase",
+                    }
+                ],
+                basis="model",
+            )
+            current = store.grammar_for_content(japanese)
+            self.assertIsNotNone(current)
+            assert current is not None
+            self.assertEqual(current["entity_id"], replacement)
+            connection = sqlite3.connect(database)
+            self.assertEqual(
+                connection.execute(
+                    "SELECT status FROM entities WHERE entity_id = ?", (analysis,)
+                ).fetchone()[0],
+                "archived",
+            )
+            self.assertEqual(
+                connection.execute(
+                    "SELECT basis FROM entity_edges WHERE target_entity_id = ?",
+                    (replacement,),
+                ).fetchone()[0],
+                "model",
+            )
+            connection.close()
 
     def test_rejected_morpheme_split_is_quarantined_without_erasing_provenance(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

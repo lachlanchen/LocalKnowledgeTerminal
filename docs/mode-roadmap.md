@@ -27,7 +27,12 @@ the connected ancestry graph are stored independently and reused.
 
 For accepted Answer and Question cards, exact reviewed English, Japanese, and
 Chinese text is now acquired as evidence-linked content atoms; the migration is
-idempotent and complete across the accepted card-book collection. The planner
-already represents sentence grammar, linked investigation terms, content
-translation, and content-card composition as separate jobs, but those content
-job handlers are still enrichment work—not a claimed runtime capability.
+idempotent across the accepted card-book collection. The worker now prepares
+English, Japanese, and Chinese sentence grammar as three independent local-model
+jobs. Its validator requires one to eight ordered phrases to reconstruct every
+character of the reviewed text and caps model confidence before acceptance.
+Each accepted analysis links back to retrieval-owned book evidence, records a
+revision, supersedes its earlier accepted analysis, and is projected into the
+shared card JSON for quiet grammar colors. Linked investigation terms remain a
+separate reusable task. New translation and content-card composition handlers
+remain future enrichment work—not claimed runtime capabilities.

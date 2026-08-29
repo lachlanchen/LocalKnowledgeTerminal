@@ -74,7 +74,7 @@ class AutonomousDeckTests(unittest.TestCase):
             self.assertEqual(len(source_ids), len(set(source_ids)))
             self.assertEqual(len(cards.accepted_for_modes(("answer", "question"))), 3)
             self.assertEqual(knowledge.status()["counts"]["content_items"], 9)
-            self.assertEqual(knowledge.status()["queued_jobs"], 3)
+            self.assertEqual(knowledge.status()["queued_jobs"], 12)
             self.assertEqual(
                 seeder.progress(),
                 {

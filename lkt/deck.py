@@ -137,9 +137,9 @@ class AutonomousDeckSeeder:
                 PreparationPlanner(
                     self.knowledge,
                     model=self.service.model.model_name,
-                    prompt_version="autonomous-content-terms-v1",
-                ).plan_card_investigations(card.card_id)
-                message = "local model card accepted and investigation queued"
+                    prompt_version="autonomous-content-enrichment-v2",
+                ).plan_card_enrichment(card.card_id)
+                message = "local model card accepted and language enrichment queued"
             except Exception as exc:
                 # Publication is already complete. Keep the visible reviewed
                 # card and report that normalized enrichment needs a later sync.

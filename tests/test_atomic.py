@@ -18,6 +18,7 @@ from lkt.atomic import (
     _has_repeated_arabic_content_word,
     _lexically_related,
     _clean_morpheme_meaning,
+    _align_grammar_parts,
     _morpheme_display_form,
     _plain_letter_key,
 )
@@ -306,6 +307,112 @@ class AtomicWorkerTests(unittest.TestCase):
             self.assertEqual(result.status, "retry")
             self.assertEqual(
                 store.investigation_terms(acquired["source_entity_id"]), []
+            )
+
+    def test_reviewed_sentence_grammar_is_exact_evidence_linked_knowledge(self) -> None:
+        class GrammarModel:
+            model_name = "test-qwen-4b"
+
+            def complete_json(
+                self, _system: str, prompt: str, *, max_tokens: int = 256
+            ) -> dict[str, Any]:
+                self.last_prompt = prompt
+                return {
+                    "value": {
+                        "summary": "modal question with subject, predicate, object, and modifier",
+                        "parts": [
+                            {
+                                "surface": "Would",
+                                "lemma": "would",
+                                "role": "modifier",
+                                "part_of_speech": "auxiliary",
+                                "confidence": 0.92,
+                            },
+                            {
+                                "surface": "a technological breakthrough",
+                                "lemma": "technological breakthrough",
+                                "role": "subject",
+                                "part_of_speech": "phrase",
+                                "confidence": 0.9,
+                            },
+                            {
+                                "surface": "justify",
+                                "lemma": "justify",
+                                "role": "predicate",
+                                "part_of_speech": "verb",
+                                "confidence": 0.95,
+                            },
+                            {
+                                "surface": "an enormous cost",
+                                "lemma": "enormous cost",
+                                "role": "object",
+                                "part_of_speech": "phrase",
+                                "confidence": 0.91,
+                            },
+                            {
+                                "surface": "for people?",
+                                "lemma": "for people",
+                                "role": "modifier",
+                                "part_of_speech": "phrase",
+                                "confidence": 0.88,
+                            },
+                        ],
+                    },
+                    "model": self.model_name,
+                    "metrics": {"completion_tokens": 92},
+                }
+
+        with tempfile.TemporaryDirectory() as temp:
+            store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")
+            acquired = store.acquire_card_book_card(self._question_card())
+            source_id = acquired["language_entity_ids"]["en"]
+            subject_key = f"content:{source_id}"
+            store.enqueue_job(
+                "prepare-grammar-parts",
+                subject_key,
+                subject_entity_id=source_id,
+                language="en",
+                model="test-qwen-4b",
+                prompt_version="grammar-test-v1",
+            )
+            model = GrammarModel()
+            result = PreparationWorker(store, FakeRetriever(), model).run_once()
+
+            self.assertIsNotNone(result)
+            assert result is not None
+            self.assertEqual(result.job_type, "prepare-grammar-parts")
+            self.assertEqual(result.status, "complete")
+            analysis = store.grammar_for_content(source_id)
+            self.assertIsNotNone(analysis)
+            assert analysis is not None
+            self.assertEqual(
+                "".join(part["surface"] for part in analysis["parts"]),
+                self._question_card()["english"]["term"],
+            )
+            self.assertEqual(
+                [part["color_key"] for part in analysis["parts"]],
+                [
+                    "grammar-modifier",
+                    "grammar-subject",
+                    "grammar-predicate",
+                    "grammar-object",
+                    "grammar-modifier",
+                ],
+            )
+            self.assertTrue(store.evidence_for_entity(analysis["entity_id"]))
+            artifact = store.artifacts_for_subject(
+                subject_key,
+                stage="accepted-grammar-parts",
+                validation_state="accepted",
+            )[0]
+            self.assertEqual(artifact["payload"]["source_entity_id"], source_id)
+            self.assertIn("REVIEWED QUESTION TEXT", model.last_prompt)
+
+    def test_grammar_alignment_rejects_missing_reviewed_words(self) -> None:
+        with self.assertRaisesRegex(ValueError, "did not reach the end"):
+            _align_grammar_parts(
+                "A complete reviewed sentence.",
+                [{"surface": "A complete", "role": "subject"}],
             )
 
     def test_artifact_quality_uses_payload_confidence_only_when_metadata_is_missing(

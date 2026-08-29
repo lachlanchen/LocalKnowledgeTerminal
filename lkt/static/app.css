@@ -832,6 +832,14 @@ body.display-mode .card-view { border-radius: 0; }
   overflow-wrap: anywhere;
 }
 .sentence-text { max-width: 100%; margin: 0; }
+.grammar-part { color: #17213d; }
+.grammar-part.role-subject { color: #1769ff; }
+.grammar-part.role-predicate { color: #e54d38; }
+.grammar-part.role-object { color: #00896f; }
+.grammar-part.role-modifier { color: #7b45d6; }
+.grammar-part.role-connector { color: #b06b00; }
+.grammar-part.role-clause { color: #087d9d; }
+.grammar-part.role-other { color: #52607d; }
 .sentence-stage.language-japanese,
 .sentence-stage.language-chinese { line-height: 2.05; }
 .sentence-stage ruby { margin-inline: .06em; ruby-align: center; }

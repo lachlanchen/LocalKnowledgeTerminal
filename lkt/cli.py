@@ -177,12 +177,25 @@ def command_knowledge_status(_args: argparse.Namespace) -> int:
 
 
 def command_sync_card_knowledge(_args: argparse.Namespace) -> int:
-    """Backfill reviewed Answer/Question cards into normalized knowledge."""
+    """Backfill reviewed cards and queue their independent local enrichment."""
 
     settings = _settings()
     knowledge = KnowledgeStore(settings.knowledge_db)
     cards = CardStore(settings.cards_db).accepted_for_modes(("answer", "question"))
-    acquired = [knowledge.acquire_card_book_card(card) for card in cards]
+    planner = PreparationPlanner(
+        knowledge,
+        model=settings.llm_model,
+        prompt_version="autonomous-content-enrichment-v2",
+    )
+    acquired = []
+    jobs: set[str] = set()
+    for card in reversed(cards):
+        acquired.append(knowledge.acquire_card_book_card(card))
+        jobs.update(
+            planner.plan_card_enrichment(
+                str(card["card_id"]), include_investigation=False
+            ).jobs.values()
+        )
     print(
         json.dumps(
             {
@@ -190,6 +203,7 @@ def command_sync_card_knowledge(_args: argparse.Namespace) -> int:
                 "language_atoms": sum(
                     len(item.get("language_entity_ids", {})) for item in acquired
                 ),
+                "enrichment_jobs": len(jobs),
                 "knowledge": knowledge.status(),
             },
             ensure_ascii=False,
@@ -447,7 +461,7 @@ def command_plan_content(args: argparse.Namespace) -> int:
 def command_plan_card_investigations(args: argparse.Namespace) -> int:
     settings = _settings()
     planner = _planner(settings, args)
-    plan = planner.plan_card_investigations(args.card_id)
+    plan = planner.plan_card_enrichment(args.card_id)
     print(
         json.dumps(
             {
@@ -820,10 +834,12 @@ def parser() -> argparse.ArgumentParser:
 
     plan_card_investigations = commands.add_parser(
         "plan-card-investigations",
-        help="enqueue one bounded vocabulary selection from an accepted book card",
+        help="enqueue vocabulary and EN/JA/ZH grammar for an accepted book card",
     )
     plan_card_investigations.add_argument("card_id")
-    plan_card_investigations.add_argument("--prompt-version", default="content-terms-v1")
+    plan_card_investigations.add_argument(
+        "--prompt-version", default="autonomous-content-enrichment-v2"
+    )
     plan_card_investigations.add_argument("--source-fingerprint", default="")
     plan_card_investigations.set_defaults(handler=command_plan_card_investigations)
 

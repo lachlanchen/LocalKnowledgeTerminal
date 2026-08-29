@@ -1337,6 +1337,7 @@ class KnowledgeStore:
         parts: Iterable[dict[str, Any]],
         *,
         analysis_type: str = "sentence",
+        basis: str = "reviewed",
         status: str = "accepted",
         quality_score: float | None = None,
     ) -> str:
@@ -1392,8 +1393,37 @@ class KnowledgeStore:
                         json.dumps(item.get("features", {}), ensure_ascii=False),
                     ),
                 )
+            if status == "accepted":
+                previous_ids = [
+                    str(row["entity_id"])
+                    for row in connection.execute(
+                        """SELECT entity_id FROM grammar_analyses
+                           WHERE subject_entity_id = ? AND language = ?
+                             AND analysis_type = ? AND entity_id <> ?""",
+                        (
+                            subject_entity_id,
+                            language,
+                            analysis_type.strip(),
+                            entity_id,
+                        ),
+                    )
+                ]
+                if previous_ids:
+                    placeholders = ",".join("?" for _ in previous_ids)
+                    timestamp = _now()
+                    connection.execute(
+                        f"UPDATE entities SET status = 'archived', updated_at = ? "
+                        f"WHERE entity_id IN ({placeholders})",
+                        (timestamp, *previous_ids),
+                    )
+                    connection.execute(
+                        f"UPDATE entity_edges SET status = 'archived', updated_at = ? "
+                        f"WHERE target_entity_id IN ({placeholders}) "
+                        "AND relation = 'has-grammar'",
+                        (timestamp, *previous_ids),
+                    )
             connection.commit()
-        self.add_edge(subject_entity_id, entity_id, "has-grammar", basis="reviewed")
+        self.add_edge(subject_entity_id, entity_id, "has-grammar", basis=basis)
         return entity_id
 
     def set_property(self, entity_id: str, name: str, value: Any) -> str:
@@ -1779,6 +1809,39 @@ class KnowledgeStore:
                 (json.dumps(card_id, ensure_ascii=False), language),
             ).fetchone()
         return self.content_record(str(row["entity_id"])) if row else None
+
+    def grammar_for_content(self, content_entity_id: str) -> dict[str, Any] | None:
+        """Return the current accepted sentence analysis and its exact parts."""
+
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                """SELECT analysis.entity_id, analysis.language,
+                          analysis.analysis_type, analysis.summary,
+                          entity.quality_score
+                   FROM grammar_analyses AS analysis
+                   JOIN entities AS entity ON entity.entity_id = analysis.entity_id
+                   WHERE analysis.subject_entity_id = ?
+                     AND entity.status = 'accepted'
+                   ORDER BY entity.updated_at DESC, entity.created_at DESC
+                   LIMIT 1""",
+                (content_entity_id,),
+            ).fetchone()
+            if row is None:
+                return None
+            parts = [
+                {
+                    **dict(part),
+                    "features": json.loads(part["features"]),
+                }
+                for part in connection.execute(
+                    """SELECT ordinal, surface, lemma, role, part_of_speech,
+                              reading, color_key, features
+                       FROM grammar_parts WHERE analysis_id = ?
+                       ORDER BY ordinal""",
+                    (row["entity_id"],),
+                )
+            ]
+        return {**dict(row), "parts": parts}
 
     def evidence_for_entity(self, entity_id: str) -> list[dict[str, Any]]:
         with closing(self._connect()) as connection:

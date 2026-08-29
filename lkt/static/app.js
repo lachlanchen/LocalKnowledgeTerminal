@@ -156,13 +156,18 @@ function renderRubyElement(container, tokens, term, fallbackReading = "") {
   container.replaceChildren();
   if (Array.isArray(tokens) && tokens.length) {
     const appendToken = (target, token) => {
+      const role = ["subject", "predicate", "object", "modifier", "connector", "clause", "other"]
+        .includes(token.grammarRole) ? token.grammarRole : "";
+      const tokenTarget = role ? element("span", `grammar-part role-${role}`) : target;
       if (!token.r) {
-        target.append(document.createTextNode(token.t || ""));
+        tokenTarget.append(document.createTextNode(token.t || ""));
+        if (tokenTarget !== target) target.append(tokenTarget);
         return;
       }
       const ruby = document.createElement("ruby");
       ruby.append(document.createTextNode(token.t || ""), element("rt", "", token.r));
-      target.append(ruby);
+      tokenTarget.append(ruby);
+      if (tokenTarget !== target) target.append(tokenTarget);
     };
     for (let index = 0; index < tokens.length; index += 1) {
       const token = tokens[index];
@@ -254,13 +259,82 @@ function splitRubyTokens(tokens, maxCharacters) {
   return chunks;
 }
 
+function grammarAnalysis(card, language, sourceText) {
+  const analysis = card.extensions?.grammar_analyses?.[language];
+  const parts = Array.isArray(analysis?.parts) ? analysis.parts : [];
+  if (!sourceText || !parts.length) return null;
+  if (parts.map((part) => String(part.surface || "")).join("") !== sourceText) return null;
+  const roles = new Set(["subject", "predicate", "object", "modifier", "connector", "clause", "other"]);
+  if (parts.some((part) => !part.surface || !roles.has(part.role))) return null;
+  return { ...analysis, parts };
+}
+
+function grammarChunks(parts, maxCharacters) {
+  const chunks = [];
+  let chunk = [];
+  let length = 0;
+  parts.forEach((part) => {
+    const partLength = String(part.surface || "").length;
+    if (chunk.length && length + partLength > maxCharacters) {
+      chunks.push(chunk);
+      chunk = [];
+      length = 0;
+    }
+    chunk.push(part);
+    length += partLength;
+  });
+  if (chunk.length) chunks.push(chunk);
+  return chunks;
+}
+
+function annotateRubyGrammar(tokens, analysis, sourceText) {
+  if (!analysis || !Array.isArray(tokens) || !tokens.length) return tokens;
+  if (tokens.map((token) => String(token.t || "")).join("") !== sourceText) return tokens;
+  const roles = [];
+  analysis.parts.forEach((part) => {
+    for (let index = 0; index < String(part.surface).length; index += 1) {
+      roles.push(part.role);
+    }
+  });
+  let cursor = 0;
+  return tokens.map((token) => {
+    const textValue = String(token.t || "");
+    const tokenRoles = roles.slice(cursor, cursor + textValue.length)
+      .filter((role, index) => !/\s/.test(textValue[index] || ""));
+    cursor += textValue.length;
+    const grammarRole = tokenRoles.sort((left, right) => (
+      tokenRoles.filter((item) => item === right).length
+      - tokenRoles.filter((item) => item === left).length
+    ))[0];
+    return grammarRole ? { ...token, grammarRole } : token;
+  });
+}
+
 function buildSentenceSlides(card) {
   const slides = [];
-  splitText(card.english.term || card.title, 165).forEach((term) => {
-    slides.push({ language: "english", label: "ENGLISH", term, tokens: [] });
-  });
+  const englishText = card.english.term || card.title;
+  const englishGrammar = grammarAnalysis(card, "en", englishText);
+  if (englishGrammar) {
+    grammarChunks(englishGrammar.parts, 165).forEach((grammarParts) => {
+      slides.push({
+        language: "english",
+        label: "ENGLISH",
+        term: grammarParts.map((part) => part.surface).join(""),
+        tokens: [],
+        grammarParts,
+      });
+    });
+  } else {
+    splitText(englishText, 165).forEach((term) => {
+      slides.push({ language: "english", label: "ENGLISH", term, tokens: [] });
+    });
+  }
   const japaneseTokens = Array.isArray(card.japanese.ruby_tokens) ? card.japanese.ruby_tokens : [];
-  const japaneseChunks = splitRubyTokens(japaneseTokens, 64);
+  const japaneseGrammar = grammarAnalysis(card, "ja", card.japanese.term);
+  const japaneseChunks = splitRubyTokens(
+    annotateRubyGrammar(japaneseTokens, japaneseGrammar, card.japanese.term),
+    64,
+  );
   if (japaneseChunks.length) {
     japaneseChunks.forEach((tokens) => slides.push({ language: "japanese", label: "日本語 · FURIGANA", term: "", tokens }));
   } else {
@@ -269,7 +343,11 @@ function buildSentenceSlides(card) {
     });
   }
   const chineseTokens = Array.isArray(card.chinese.ruby_tokens) ? card.chinese.ruby_tokens : [];
-  const chineseChunks = splitRubyTokens(chineseTokens, 48);
+  const chineseGrammar = grammarAnalysis(card, "zh", card.chinese.simplified);
+  const chineseChunks = splitRubyTokens(
+    annotateRubyGrammar(chineseTokens, chineseGrammar, card.chinese.simplified),
+    48,
+  );
   if (chineseChunks.length) {
     chineseChunks.forEach((tokens) => slides.push({ language: "chinese", label: "中文 · PINYIN", term: "", tokens }));
   } else {
@@ -333,7 +411,13 @@ function showSentenceSlide(requestedIndex) {
   const content = element("p", "sentence-text");
   stage.replaceChildren(content);
   if (slide.language === "english") {
-    content.textContent = slide.term;
+    if (Array.isArray(slide.grammarParts) && slide.grammarParts.length) {
+      slide.grammarParts.forEach((part) => {
+        content.append(element("span", `grammar-part role-${part.role}`, part.surface));
+      });
+    } else {
+      content.textContent = slide.term;
+    }
   } else {
     renderRubyElement(content, slide.tokens, slide.term, slide.reading || "");
   }

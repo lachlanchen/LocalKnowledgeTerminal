@@ -206,9 +206,16 @@ not copied into book evidence. `sync-card-knowledge` safely backfills cards that
 predate this acquisition path and the LadybugDB projection remains rebuildable
 from the resulting SQLite atoms.
 
-Further content enrichment follows the same rule: sentence grammar and
-investigation candidates remain separate tasks. A later selected-word action
-can start a child inquiry while retaining its source content item and card.
+Content enrichment follows the same rule: sentence grammar and investigation
+candidates are separate tasks. `prepare-grammar-parts` makes one bounded Qwen
+call for one reviewed language. The validator aligns the proposed phrases back
+to the original string, rejects omissions or rewrites, links the accepted
+analysis to its source evidence, and records the model/prompt revision. English,
+Japanese, and Chinese therefore fail and retry independently. The browser reads
+the accepted analysis from the shared card JSON and applies restrained role
+colors directly to the existing sentence/ruby carousel; it does not create a
+second presentation-only grammar store. A later selected-word action can start
+a child inquiry while retaining its source content item and card.
 
 Model Lab already uses that lineage boundary for conversation history. The
 first successful turn creates an `inquiry_thread`; each later turn records its

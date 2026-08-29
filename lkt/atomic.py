@@ -30,6 +30,7 @@ SUPPORTED_ATOMIC_JOBS = (
     "split-morphemes",
     "expand-origin-branches",
     "extract-investigation-terms",
+    "prepare-grammar-parts",
     "prepare-translation",
     "prepare-pronunciation",
     "prepare-grammar-properties",
@@ -62,6 +63,36 @@ _INVESTIGATION_STOPWORDS = {
     "have", "into", "more", "other", "people", "same", "than", "that",
     "their", "there", "these", "they", "this", "those", "through", "very",
     "what", "when", "where", "which", "while", "with", "would", "your",
+}
+_CONTENT_LANGUAGE_NAMES = {
+    "en": "English",
+    "ja": "Japanese",
+    "zh": "Simplified Chinese",
+}
+_GRAMMAR_ROLES = {
+    "subject",
+    "predicate",
+    "object",
+    "modifier",
+    "connector",
+    "clause",
+    "other",
+}
+_GRAMMAR_PARTS_OF_SPEECH = _PARTS_OF_SPEECH | {
+    "auxiliary",
+    "particle",
+    "phrase",
+    "clause",
+    "punctuation",
+}
+_GRAMMAR_COLORS = {
+    "subject": "grammar-subject",
+    "predicate": "grammar-predicate",
+    "object": "grammar-object",
+    "modifier": "grammar-modifier",
+    "connector": "grammar-connector",
+    "clause": "grammar-clause",
+    "other": "grammar-other",
 }
 
 
@@ -147,6 +178,48 @@ def _clean_usage_note(value: Any, target_language: str = "") -> str:
     } & {"avec", "des", "dans", "et", "la", "le", "les", "pour", "sens", "une"}:
         return ""
     return note[:180]
+
+
+def _align_grammar_parts(
+    text: str, raw_parts: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Map model-proposed phrases back onto every exact source character."""
+
+    if not 1 <= len(raw_parts) <= 8:
+        raise ValueError("grammar task must return one to eight parts")
+    cursor = 0
+    aligned: list[dict[str, Any]] = []
+    for raw in raw_parts:
+        if not isinstance(raw, dict):
+            raise ValueError("grammar part is not an object")
+        requested = str(raw.get("surface", "")).strip()
+        if not requested or any(marker in requested for marker in _ENCODING_DAMAGE):
+            raise ValueError("grammar part has invalid text")
+        pieces = re.split(r"(\s+)", requested)
+        pattern = "".join(r"\s+" if piece.isspace() else re.escape(piece) for piece in pieces)
+        match = re.search(pattern, text[cursor:])
+        if match is None:
+            raise ValueError("grammar part was not copied from the reviewed text")
+        start = cursor + match.start()
+        end = cursor + match.end()
+        gap = text[cursor:start]
+        if any(character.isalnum() for character in gap):
+            raise ValueError("grammar parts skipped reviewed text")
+        if gap and aligned:
+            aligned[-1]["surface"] += gap
+        surface = text[start:end]
+        if gap and not aligned:
+            surface = gap + surface
+        aligned.append({**raw, "surface": surface})
+        cursor = end
+    tail = text[cursor:]
+    if any(character.isalnum() for character in tail):
+        raise ValueError("grammar parts did not reach the end of reviewed text")
+    if tail:
+        aligned[-1]["surface"] += tail
+    if "".join(str(part["surface"]) for part in aligned) != text:
+        raise ValueError("grammar parts do not reconstruct the reviewed text")
+    return aligned
 
 
 def _has_repeated_arabic_content_word(value: str) -> bool:
@@ -535,6 +608,8 @@ class PreparationWorker:
                 artifact_id = self._expand_origin_branches(job)
             elif job["job_type"] == "extract-investigation-terms":
                 artifact_id = self._extract_investigation_terms(job)
+            elif job["job_type"] == "prepare-grammar-parts":
+                artifact_id = self._prepare_grammar_parts(job)
             elif job["job_type"] == "prepare-translation":
                 artifact_id = self._prepare_translation(job)
             elif job["job_type"] == "prepare-pronunciation":
@@ -1469,6 +1544,153 @@ the sentence, add translations, or include markdown."""
             "accepted-investigation-terms",
             accepted,
             language="en",
+            validation_state="accepted",
+            quality_score=quality,
+        )
+
+    def _prepare_grammar_parts(self, job: dict[str, Any]) -> str:
+        source = self.store.content_record(str(job["subject_entity_id"]))
+        language = str(job.get("language", ""))
+        if language not in _CONTENT_LANGUAGE_NAMES or source["language"] != language:
+            raise ValueError("grammar task language does not match reviewed content")
+        if source["status"] != "accepted":
+            raise ValueError("grammar task requires accepted reviewed content")
+        if source["kind"] not in {"answer", "question"}:
+            raise ValueError("grammar task requires reviewed Answer/Question content")
+        evidence = self.store.evidence_for_entity(source["entity_id"])
+        if not evidence:
+            raise ValueError("reviewed content evidence is missing")
+
+        prompt = f"""LANGUAGE: {_CONTENT_LANGUAGE_NAMES[language]}
+REVIEWED {source['kind'].upper()} TEXT:
+{source['text']}
+
+Return exactly one JSON object with:
+summary: one short description of the sentence pattern, at most 14 words
+parts: one to eight contiguous grammatical phrases covering the reviewed text
+
+Every part has:
+surface: exact consecutive text copied from the reviewed text, including nearby punctuation
+lemma: a short base form when useful, otherwise an empty string
+role: exactly one of subject, predicate, object, modifier, connector, clause, other
+part_of_speech: exactly one of noun, verb, adjective, adverb, pronoun,
+preposition, conjunction, interjection, determiner, numeral, auxiliary,
+particle, phrase, clause, punctuation, other
+confidence: number from 0 to 1
+
+Preserve every character once and in order. Use a few meaningful phrases, not
+one part per character. Do not translate, rewrite, explain, add markdown, or
+return text outside the JSON object."""
+        completion = self.model.complete_json(
+            "You segment fixed reviewed text into a few exact grammar phrases.",
+            prompt,
+            max_tokens=384,
+        )
+        value = completion.get("value")
+        self.store.save_job_artifact(
+            job["job_id"],
+            "model-grammar-draft",
+            {
+                "source_entity_id": source["entity_id"],
+                "value": value,
+                "model": completion.get("model", self.model.model_name),
+                "metrics": completion.get("metrics", {}),
+            },
+            language=language,
+            validation_state="candidate",
+        )
+        raw_parts = value.get("parts") if isinstance(value, dict) else None
+        if not isinstance(raw_parts, list):
+            raise ValueError("grammar task did not return parts")
+        aligned = _align_grammar_parts(source["text"], raw_parts)
+
+        parts: list[dict[str, Any]] = []
+        for item in aligned:
+            role = str(item.get("role", "")).strip().casefold().replace(" ", "-")
+            part_of_speech = (
+                str(item.get("part_of_speech", ""))
+                .strip()
+                .casefold()
+                .replace(" ", "-")
+            )
+            lemma = re.sub(r"\s+", " ", str(item.get("lemma", ""))).strip()[:80]
+            if role not in _GRAMMAR_ROLES:
+                raise ValueError("grammar role is invalid")
+            if part_of_speech not in _GRAMMAR_PARTS_OF_SPEECH:
+                raise ValueError("grammar part of speech is invalid")
+            if any(marker in lemma for marker in _ENCODING_DAMAGE):
+                raise ValueError("grammar lemma has encoding damage")
+            try:
+                confidence = max(
+                    0.0, min(float(item.get("confidence", 0.0)), 0.75)
+                )
+            except (TypeError, ValueError) as exc:
+                raise ValueError("grammar confidence is invalid") from exc
+            if confidence < 0.55:
+                raise ValueError("grammar confidence is below acceptance threshold")
+            parts.append(
+                {
+                    "surface": str(item["surface"]),
+                    "lemma": lemma,
+                    "role": role,
+                    "part_of_speech": part_of_speech,
+                    "reading": "",
+                    "color_key": _GRAMMAR_COLORS[role],
+                    "confidence": confidence,
+                    "features": {"basis": "bounded-model-segmentation"},
+                }
+            )
+        summary = re.sub(
+            r"\s+", " ", str(value.get("summary", "")) if isinstance(value, dict) else ""
+        ).strip()[:180]
+        if not summary or any(marker in summary for marker in _ENCODING_DAMAGE):
+            raise ValueError("grammar summary is invalid")
+        if language == "en" and len(summary.split()) > 14:
+            raise ValueError("grammar summary is too long")
+
+        quality = min(part["confidence"] for part in parts)
+        analysis_id = self.store.add_grammar_analysis(
+            source["entity_id"],
+            language,
+            summary,
+            parts,
+            basis="model",
+            status="accepted",
+            quality_score=quality,
+        )
+        evidence_ids = [str(item["evidence_id"]) for item in evidence]
+        for evidence_id in evidence_ids:
+            self.store.link_evidence(
+                analysis_id,
+                evidence_id,
+                claim=f"grammar segmentation of reviewed {source['kind']} text",
+                confidence=quality,
+            )
+        accepted = {
+            "analysis_id": analysis_id,
+            "source_entity_id": source["entity_id"],
+            "source_key": source["source_key"],
+            "kind": source["kind"],
+            "language": language,
+            "summary": summary,
+            "parts": parts,
+            "evidence_ids": evidence_ids,
+            "model": completion.get("model", self.model.model_name),
+            "metrics": completion.get("metrics", {}),
+        }
+        self.store.record_revision(
+            analysis_id,
+            accepted,
+            model=str(accepted["model"]),
+            prompt_version=str(job.get("prompt_version", "")),
+            reason="bounded reviewed-content grammar segmentation",
+            accepted=True,
+        )
+        return self.store.save_job_artifact(
+            job["job_id"],
+            "accepted-grammar-parts",
+            accepted,
+            language=language,
             validation_state="accepted",
             quality_score=quality,
         )

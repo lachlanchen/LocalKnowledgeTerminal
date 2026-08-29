@@ -233,6 +233,23 @@ def handler_factory(
         extensions["investigation_terms"] = knowledge.investigation_terms(
             source["entity_id"]
         )
+        grammar_analyses: dict[str, dict[str, Any]] = {}
+        for language in ("en", "ja", "zh"):
+            content = knowledge.content_for_card(
+                str(rendered.get("card_id", "")), language
+            )
+            if content is None:
+                continue
+            analysis = knowledge.grammar_for_content(str(content["entity_id"]))
+            if analysis is None:
+                continue
+            grammar_analyses[language] = {
+                **analysis,
+                "source_entity_id": content["entity_id"],
+                "source_text": content["text"],
+            }
+        if grammar_analyses:
+            extensions["grammar_analyses"] = grammar_analyses
         rendered["extensions"] = extensions
         return rendered
 

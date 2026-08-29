@@ -502,3 +502,43 @@ class PreparationPlanner:
             subject_key,
             {"extract-investigation-terms": extraction},
         )
+
+    def plan_card_enrichment(
+        self, card_id: str, *, include_investigation: bool = True
+    ) -> PreparationPlan:
+        """Queue independent vocabulary and EN/JA/ZH grammar tasks for a card."""
+
+        contents = {
+            language: self.store.content_for_card(card_id, language)
+            for language in ("en", "ja", "zh")
+        }
+        if any(content is None for content in contents.values()):
+            raise ValueError(
+                f"reviewed EN/JA/ZH content is unavailable for card {card_id!r}"
+            )
+        english = contents["en"]
+        assert english is not None
+        jobs: dict[str, str] = {}
+        if include_investigation:
+            extraction = self._job(
+                "extract-investigation-terms",
+                f"content:{english['entity_id']}",
+                str(english["entity_id"]),
+                language="en",
+                priority=20,
+            )
+            jobs["extract-investigation-terms"] = extraction
+        for language, content in contents.items():
+            assert content is not None
+            jobs[f"grammar:{language}"] = self._job(
+                "prepare-grammar-parts",
+                f"content:{content['entity_id']}",
+                str(content["entity_id"]),
+                language=language,
+                priority=30,
+            )
+        return PreparationPlan(
+            str(english["entity_id"]),
+            f"content:{english['entity_id']}",
+            jobs,
+        )

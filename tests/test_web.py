@@ -72,9 +72,15 @@ class WebInputTests(unittest.TestCase):
         self.assertIn("health.lexicons", script)
         self.assertIn("health.autonomous_deck", script)
         self.assertIn("autonomous cards", script)
+        self.assertIn('grammarAnalysis(card, "en", englishText)', script)
+        self.assertIn("annotateRubyGrammar", script)
+        self.assertIn("grammarParts.forEach", script)
+        self.assertIn(".grammar-part.role-subject", style)
+        self.assertIn(".grammar-part.role-predicate", style)
         self.assertIn('id="loading-kicker"', page)
         source = (root / "lkt" / "web.py").read_text(encoding="utf-8")
         self.assertIn('requested_mode in _ATOMIC_WORD_MODES', source)
+        self.assertIn('extensions["grammar_analyses"]', source)
 
     def test_old_cards_receive_chinese_ruby_without_database_migration(self) -> None:
         card = {"chinese": {"simplified": "中国", "pinyin": "zhōng guó"}}

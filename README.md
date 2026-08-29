@@ -63,7 +63,9 @@ one compact source citation. Word Origin reserves its center for a Cytoscape.js
 directed graph. Word Card uses large English/IPA above fixed Japanese/Chinese
 and a rotating French/Arabic panel. Answer and Question use an inner language
 carousel—English, Japanese ruby, Chinese pinyin ruby—and split unusually long
-sentences into additional readable slides. Saved cards form independent,
+sentences into additional readable slides. Accepted local grammar analysis adds
+quiet role colors to the same exact text; it adds no legend or crowded metadata.
+Saved cards form independent,
 mode-local outer carousels with previous/next controls.
 Root, Affix, and Word Origin share one Cytoscape graph renderer: a complete
 saved graph, a corner overview map, and inner focus slides that zoom into a
@@ -81,7 +83,11 @@ traversal projection and can always be rebuilt from SQLite.
 Accepted Book Answer and Book Question cards also place their exact reviewed
 English, Japanese, and Chinese texts in this normalized store. Each language is
 an independent content atom linked to the retrieval-owned book citation; model
-reflection is deliberately excluded from that book evidence.
+reflection is deliberately excluded from that book evidence. Qwen segments each
+language in a separate bounded job. A result is accepted only when its ordered
+parts reconstruct the reviewed sentence character-for-character; accepted
+parts, evidence links, model revision, and superseded analyses remain reusable
+knowledge rather than presentation-only markup.
 
 Preparation uses small dependency-aware jobs: retrieve evidence, prepare one
 meaning, split components, recursively expand each origin branch, prepare each
@@ -94,8 +100,9 @@ Question decks autonomously. When the atomic queue is idle, it chooses exactly
 one source entry that has never produced an accepted card, balances progress
 between the two books, asks the Pi's local Qwen to prepare the small title and
 reflection, publishes only through the normal validation gate, and then queues
-one bounded vocabulary investigation. Stable source entry IDs prevent repeats
-across restarts. It stops after all 318 Answers and 291 Questions are accepted.
+one bounded vocabulary investigation plus independent English, Japanese, and
+Chinese grammar jobs. Stable source entry IDs prevent repeats across restarts.
+It stops after all 318 Answers and 291 Questions are accepted.
 
 This ownership boundary is deliberate: reviewed book sentences, translations,
 and citations come from the local corpus records and are never rewritten by the

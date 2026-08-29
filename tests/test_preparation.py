@@ -260,6 +260,60 @@ class PreparationPlannerTests(unittest.TestCase):
             self.assertIn("translation:zh", plan.jobs)
             self.assertIn("compose-answer-card", plan.jobs)
 
+    def test_reviewed_card_enrichment_uses_one_independent_job_per_language(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")
+            store.acquire_card_book_card(
+                {
+                    "card_id": "answer-card-1",
+                    "mode": "answer",
+                    "english": {"term": "Look more closely."},
+                    "japanese": {"term": "もっとよく見て。"},
+                    "chinese": {"simplified": "再仔细看看。"},
+                    "evidence": [
+                        {
+                            "corpus_id": "book-of-answers",
+                            "entry_id": "answer-1",
+                            "locator": "answers.xhtml",
+                            "excerpt": "Look more closely.",
+                        }
+                    ],
+                }
+            )
+            planner = PreparationPlanner(
+                store,
+                model="Qwen3-4B-Q4_K_M",
+                prompt_version="content-enrichment-v2",
+            )
+            plan = planner.plan_card_enrichment("answer-card-1")
+            self.assertEqual(
+                set(plan.jobs),
+                {
+                    "extract-investigation-terms",
+                    "grammar:en",
+                    "grammar:ja",
+                    "grammar:zh",
+                },
+            )
+            jobs = {
+                (job["job_type"], job["language"])
+                for job in store.jobs_for_subject(plan.subject_key)
+            }
+            self.assertIn(("extract-investigation-terms", "en"), jobs)
+            self.assertIn(("prepare-grammar-parts", "en"), jobs)
+            self.assertEqual(
+                len(
+                    PreparationPlanner(
+                        store,
+                        model="Qwen3-4B-Q4_K_M",
+                        prompt_version="grammar-backfill-v2",
+                    ).plan_card_enrichment(
+                        "answer-card-1", include_investigation=False
+                    ).jobs
+                ),
+                3,
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
