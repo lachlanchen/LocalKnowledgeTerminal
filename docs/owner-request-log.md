@@ -504,3 +504,28 @@ source was live dictation and may contain recognition errors:
 - Give the root/prefix/suffix row more spatial separation from the center word
   in Word Origin. Larger nodes and wider vertical/horizontal gaps should use the
   full graph stage while keeping edges, badges, and copy from overlapping.
+
+## Responsive graph fit and future display controls
+
+- In Word Origin, Root, and Affix, size every node from its actual term and
+  explanation. Never hide, clamp, or block node copy merely to preserve a fixed
+  box. Let collision-aware repulsion adapt the complete graph to the available
+  stage and use spare space.
+- Recalculate the best fit from the current canvas whenever a card, graph focus,
+  tab, viewport size, or fullscreen state changes. Provide one visible **FIT**
+  control that resets to the complete graph at its best readable scale.
+- Keep multilingual meaning outside graph geometry in a dedicated corner panel.
+  The owner's default graph languages are English, Japanese, Chinese, French,
+  and Arabic. Use large language colors; color Arabic by grapheme/letter as in
+  `WordsCardEink` while preserving right-to-left shaping.
+- A later settings pass should control visible languages and touch/hover word
+  detail. Defaults are EN/JA/ZH for Question and Answer, and EN/JA/ZH/FR/AR for
+  Word Card, Word Origin, Root, and Affix. A word-detail modal may expose deeper
+  meaning without crowding the ambient card; it is recorded but does not delay
+  the graph-fit correction.
+- Saved cards within every mode are shuffled by default for ambient variety.
+  Inner slides never shuffle: each chosen card plays its language, sentence,
+  origin, root, or affix focus slides in deterministic linear order before the
+  next random card.
+- Add representative Word Card and Word Origin screenshots to the README after
+  the live layout is verified. Keep only intentional product screenshots in Git.

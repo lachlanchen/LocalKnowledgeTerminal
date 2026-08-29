@@ -46,8 +46,11 @@ removes navigation/composer chrome but renders the same card JSON.
 
 Word Origin renders its stored `origin_graph` with a pinned, locally vendored
 Cytoscape.js build. The model returns a modern root plus ancestor/component
-nodes whose parent links form a directed ancestry tree; a breadth-first layout
-keeps the graph deterministic, interactive, and non-overlapping. Word Card
+nodes whose parent links form a directed ancestry tree. The renderer measures
+the complete term and explanation, assigns content-sized node geometry, then
+uses deterministic semantic rows with content-aware collision repulsion. It
+refits the visible focus to the actual canvas after card, viewport, and
+fullscreen changes; **FIT** restores the complete best view. Word Card
 keeps Japanese/Chinese fixed and rotates stored French/Arabic forms in the third
 panel beneath the English/IPA hero. The renderer never asks the model for data
 while changing a slide.

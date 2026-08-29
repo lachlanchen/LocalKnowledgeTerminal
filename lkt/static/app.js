@@ -28,6 +28,7 @@ let sentenceSlides = [];
 let sentenceSlideIndex = 0;
 let sentenceSlideTimer = null;
 let graphFocusTimer = null;
+let graphViewportFitTimer = null;
 let chromeTimer = null;
 let ambientRouting = false;
 let ambientModeIndex = 0;
@@ -749,8 +750,8 @@ function graphStyles(compact = false) {
     {
       selector: "node",
       style: {
-        width: 168,
-        height: 100,
+        width: "data(nodeWidth)",
+        height: "data(nodeHeight)",
         shape: "round-rectangle",
         "background-color": "#eaf2ff",
         "border-width": 3,
@@ -773,7 +774,7 @@ function graphStyles(compact = false) {
     { selector: "node.prefix", style: { "background-color": "#e5faf4", "border-color": "#00a98f" } },
     { selector: "node.root", style: { "background-color": "#f2eaff", "border-color": "#8b3dff" } },
     { selector: "node.suffix", style: { "background-color": "#fff7d6", "border-color": "#e29a00" } },
-    { selector: "node.center", style: { width: 216, height: 132, shape: "ellipse", "background-color": "#ffcf3d", "border-color": "#17213d", "border-width": 4 } },
+    { selector: "node.center", style: { "background-color": "#ffcf3d", "border-color": "#17213d", "border-width": 4 } },
     { selector: ".dimmed", style: { display: "none" } },
     { selector: "node.focus-node", style: { "border-width": 5 } },
     {
@@ -808,10 +809,63 @@ function graphLanguageCode(value) {
     || language.slice(0, 4).toLocaleUpperCase();
 }
 
-function graphLabelMetrics(node, isCenter) {
+function graphTextWidth(value, fontSize, fontWeight = 650) {
+  const canvas = graphTextWidth.canvas || (graphTextWidth.canvas = document.createElement("canvas"));
+  const context = canvas.getContext("2d");
+  context.font = `${fontWeight} ${fontSize}px Inter, Segoe UI, Noto Sans CJK SC, sans-serif`;
+  return context.measureText(String(value || "")).width;
+}
+
+function graphTextLines(value, maxWidth, fontSize, fontWeight = 650) {
+  const textValue = String(value || "").trim();
+  if (!textValue) return 0;
+  const graphemes = typeof Intl.Segmenter === "function"
+    ? [...new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(textValue)].map((item) => item.segment)
+    : Array.from(textValue);
+  let lines = 1;
+  let line = "";
+  graphemes.forEach((grapheme) => {
+    if (grapheme === "\n") {
+      lines += 1;
+      line = "";
+      return;
+    }
+    const candidate = `${line}${grapheme}`;
+    if (line && graphTextWidth(candidate, fontSize, fontWeight) > maxWidth) {
+      lines += 1;
+      line = grapheme.trimStart();
+    } else {
+      line = candidate;
+    }
+  });
+  return lines;
+}
+
+function graphNodeMetrics(node, isCenter) {
+  const term = String(node.form || "—");
+  const meaning = String(node.meaning || "");
+  const termFontSize = isCenter ? 22 : 18;
+  const meaningFontSize = isCenter ? 15 : 13.5;
+  const minimumWidth = isCenter ? 238 : 184;
+  const maximumWidth = isCenter ? 380 : 320;
+  const contentLength = [...`${term} ${meaning}`].length;
+  const naturalTermWidth = graphTextWidth(term, termFontSize, 950) + (isCenter ? 52 : 28);
+  const densityWidth = minimumWidth + Math.sqrt(Math.max(0, contentLength - 28)) * 10;
+  const nodeWidth = Math.round(Math.max(
+    minimumWidth,
+    Math.min(maximumWidth, Math.max(naturalTermWidth, densityWidth)),
+  ));
+  const contentWidth = nodeWidth - (isCenter ? 42 : 24);
+  const termLines = graphTextLines(term, contentWidth, termFontSize, 950);
+  const meaningLines = graphTextLines(meaning, contentWidth, meaningFontSize, 650);
+  const copyHeight = termLines * termFontSize * 1.08
+    + (meaningLines ? 7 + meaningLines * meaningFontSize * 1.22 : 0);
+  const nodeHeight = Math.ceil(Math.max(isCenter ? 138 : 106, 37 + copyHeight + 14));
   return {
-    termFontSize: isCenter ? 22 : 18,
-    meaningFontSize: isCenter ? 15 : 13.5,
+    nodeWidth,
+    nodeHeight,
+    termFontSize,
+    meaningFontSize,
   };
 }
 
@@ -845,16 +899,28 @@ function updateGraphNodeBadges() {
     const safeLanguage = language.toLocaleLowerCase().replace(/[^a-z0-9-]/g, "");
     const box = element(
       "span",
-      `graph-node-badge-box type-${type}${safeLanguage ? ` lang-${safeLanguage}` : ""}`,
+      `graph-node-badge-box type-${type}${safeLanguage ? ` lang-${safeLanguage}` : ""}${node.hasClass("center") ? " center" : ""}`,
     );
+    box.dataset.nodeId = node.id();
     box.style.left = `${offsetX + position.x - width / 2}px`;
     box.style.top = `${offsetY + position.y - height / 2}px`;
     box.style.width = `${width}px`;
     box.style.height = `${height}px`;
-    const baseWidth = node.hasClass("center") ? 216 : 168;
-    const scale = Math.max(.72, Math.min(1.22, width / baseWidth));
-    box.style.setProperty("--graph-term-size", `${Math.max(13.5, node.data("termFontSize") * scale)}px`);
-    box.style.setProperty("--graph-meaning-size", `${Math.max(11.5, node.data("meaningFontSize") * scale)}px`);
+    const scale = width / node.data("nodeWidth");
+    box.style.setProperty("--graph-node-scale", scale);
+    box.style.setProperty("--graph-term-size", `${node.data("termFontSize") * scale}px`);
+    box.style.setProperty("--graph-meaning-size", `${node.data("meaningFontSize") * scale}px`);
+    box.style.setProperty("--graph-copy-top", `${32 * scale}px`);
+    box.style.setProperty("--graph-copy-side", `${10 * scale}px`);
+    box.style.setProperty("--graph-copy-bottom", `${10 * scale}px`);
+    box.style.setProperty("--graph-copy-gap", `${7 * scale}px`);
+    box.style.setProperty("--graph-badge-top", `${6 * scale}px`);
+    box.style.setProperty("--graph-badge-side", `${6 * scale}px`);
+    box.style.setProperty("--graph-badge-space", `${9 * scale}px`);
+    box.style.setProperty("--graph-badge-radius", `${8 * scale}px`);
+    box.style.setProperty("--graph-badge-padding-y", `${3 * scale}px`);
+    box.style.setProperty("--graph-badge-padding-x", `${6 * scale}px`);
+    box.style.setProperty("--graph-badge-size", `${10 * scale}px`);
     box.append(element("i", "graph-node-type", type.toLocaleUpperCase()));
     if (language) box.append(element("i", "graph-node-language", language));
     const copy = element("span", "graph-node-copy");
@@ -877,30 +943,96 @@ function scheduleGraphNodeBadges() {
   graphNodeBadgeFrame = window.requestAnimationFrame(updateGraphNodeBadges);
 }
 
+function appendArabicLetters(container, value) {
+  const textValue = String(value || "");
+  const letters = typeof Intl.Segmenter === "function"
+    ? [...new Intl.Segmenter("ar", { granularity: "grapheme" }).segment(textValue)].map((item) => item.segment)
+    : Array.from(textValue);
+  let colorIndex = 0;
+  letters.forEach((letter) => {
+    if (/^\s+$/.test(letter)) {
+      container.append(document.createTextNode(letter));
+      return;
+    }
+    container.append(element("span", `arabic-letter tone-${colorIndex % 6}`, letter));
+    colorIndex += 1;
+  });
+}
+
 function renderGraphFocusAnnotations(focus) {
   const container = $("#graph-focus-annotations");
   const explicit = focus?.annotations && typeof focus.annotations === "object"
     ? focus.annotations
     : null;
-  const useCardTranslations = ["overview", "parts"].includes(focus?.kind)
-    || focus?.id === "parts";
   const values = [
-    ["JA", explicit?.ja?.term || (useCardTranslations ? activeCard?.japanese?.term : "")],
-    ["ZH", explicit?.zh?.term || (useCardTranslations ? activeCard?.chinese?.simplified : "")],
-    ["AR", explicit?.ar?.term || (useCardTranslations ? activeCard?.extra_languages?.arabic?.term : "")],
-  ].filter(([, value]) => value);
-  container.replaceChildren(...values.map(([language, value]) => {
-    const item = element("span", "graph-focus-annotation");
+    ["JA", explicit?.ja?.term || activeCard?.japanese?.term, explicit?.ja?.meaning || activeCard?.japanese?.meaning],
+    ["ZH", explicit?.zh?.term || activeCard?.chinese?.simplified, explicit?.zh?.meaning || activeCard?.chinese?.meaning],
+    ["FR", explicit?.fr?.term || activeCard?.extra_languages?.french?.term, explicit?.fr?.meaning || activeCard?.extra_languages?.french?.meaning],
+    ["AR", explicit?.ar?.term || activeCard?.extra_languages?.arabic?.term, explicit?.ar?.meaning || activeCard?.extra_languages?.arabic?.meaning],
+  ].filter(([, term]) => term);
+  container.replaceChildren(...values.map(([language, value, meaning]) => {
+    const item = element("span", `graph-focus-annotation language-${language.toLocaleLowerCase()}`);
     item.append(element("small", "", language));
     const term = element("b", "", value);
     term.dir = "auto";
+    if (language === "AR") {
+      term.replaceChildren();
+      term.dir = "rtl";
+      appendArabicLetters(term, value);
+    }
     item.append(term);
+    if (meaning) {
+      const explanation = element("em", "", meaning);
+      explanation.dir = "auto";
+      item.append(explanation);
+    }
     return item;
   }));
   container.classList.toggle("hidden", values.length === 0);
 }
 
-function showGraphFocus(requestedIndex) {
+function visibleGraphElements() {
+  if (!originCy) return null;
+  const nodes = originCy.nodes().filter((node) => !node.hasClass("dimmed"));
+  const ids = new Set(nodes.map((node) => node.id()));
+  const edges = originCy.edges().filter((edge) => (
+    !edge.hasClass("dimmed") && ids.has(edge.source().id()) && ids.has(edge.target().id())
+  ));
+  return nodes.union(edges);
+}
+
+function fitGraphView({ wholeGraph = false, animate = false } = {}) {
+  if (!originCy || $("#origin-graph").classList.contains("hidden")) return;
+  originCy.resize();
+  const target = wholeGraph ? originCy.elements() : visibleGraphElements();
+  if (!target?.length) return;
+  const canvas = $("#origin-canvas");
+  const shortestSide = Math.min(canvas.clientWidth, canvas.clientHeight);
+  const padding = Math.max(24, Math.min(72, Math.round(shortestSide * (wholeGraph ? .055 : .09))));
+  originCy.stop();
+  if (animate) {
+    originCy.animate({ fit: { eles: target, padding }, duration: 350 });
+  } else {
+    originCy.fit(target, padding);
+  }
+  overviewCy?.resize();
+  overviewCy?.fit(overviewCy.elements(), 9);
+  scheduleGraphNodeBadges();
+}
+
+function scheduleGraphViewportFit(delay = 90) {
+  window.clearTimeout(graphViewportFitTimer);
+  graphViewportFitTimer = window.setTimeout(() => fitGraphView(), delay);
+}
+
+function resetGraphAutofit() {
+  if (!originCy || !graphFocusAreas.length) return;
+  const overviewIndex = Math.max(0, graphFocusAreas.findIndex((area) => area.kind === "overview"));
+  showGraphFocus(overviewIndex, false);
+  fitGraphView({ wholeGraph: true, animate: true });
+}
+
+function showGraphFocus(requestedIndex, animate = true) {
   if (!originCy || !graphFocusAreas.length) return;
   graphFocusIndex = (requestedIndex + graphFocusAreas.length) % graphFocusAreas.length;
   const focus = graphFocusAreas[graphFocusIndex];
@@ -917,13 +1049,7 @@ function showGraphFocus(requestedIndex) {
     focusNodes.addClass("focus-node");
     overviewCy?.nodes().filter((node) => ids.has(node.id())).addClass("focus-node");
   }
-  const target = focus.kind === "overview"
-    ? originCy.elements()
-    : focusNodes.union(focusEdges);
-  originCy.animate({
-    fit: { eles: target, padding: focus.kind === "overview" ? 28 : 70 },
-    duration: 350,
-  });
+  fitGraphView({ wholeGraph: focus.kind === "overview", animate });
   text("#graph-focus-headline", focus.headline || focus.label);
   optionalText("#graph-focus-explanation", focus.explanation);
   renderGraphFocusAnnotations(focus);
@@ -964,6 +1090,46 @@ function semanticGraphPositions(data) {
   return positions;
 }
 
+function repelGraphNodes(cy, centerId, iterations = 160) {
+  const nodes = cy.nodes().toArray();
+  for (let iteration = 0; iteration < iterations; iteration += 1) {
+    const offsets = new Map(nodes.map((node) => [node.id(), { x: 0, y: 0 }]));
+    let collisionCount = 0;
+    for (let leftIndex = 0; leftIndex < nodes.length; leftIndex += 1) {
+      for (let rightIndex = leftIndex + 1; rightIndex < nodes.length; rightIndex += 1) {
+        const left = nodes[leftIndex];
+        const right = nodes[rightIndex];
+        const leftPosition = left.position();
+        const rightPosition = right.position();
+        const dx = rightPosition.x - leftPosition.x;
+        const dy = rightPosition.y - leftPosition.y;
+        const requiredX = (left.data("nodeWidth") + right.data("nodeWidth")) / 2 + 42;
+        const requiredY = (left.data("nodeHeight") + right.data("nodeHeight")) / 2 + 36;
+        const overlapX = requiredX - Math.abs(dx);
+        const overlapY = requiredY - Math.abs(dy);
+        if (overlapX <= 0 || overlapY <= 0) continue;
+        collisionCount += 1;
+        const moveAlongX = overlapX / requiredX < overlapY / requiredY;
+        const axis = moveAlongX ? "x" : "y";
+        const delta = (moveAlongX ? overlapX : overlapY) / 2 + .6;
+        const direction = (moveAlongX ? dx : dy) === 0
+          ? (left.id().localeCompare(right.id()) < 0 ? 1 : -1)
+          : Math.sign(moveAlongX ? dx : dy);
+        const leftShare = left.id() === centerId ? 0 : (right.id() === centerId ? 2 : 1);
+        const rightShare = right.id() === centerId ? 0 : (left.id() === centerId ? 2 : 1);
+        offsets.get(left.id())[axis] -= direction * delta * leftShare;
+        offsets.get(right.id())[axis] += direction * delta * rightShare;
+      }
+    }
+    nodes.forEach((node) => {
+      if (node.id() === centerId) return;
+      const offset = offsets.get(node.id());
+      node.position({ x: node.position("x") + offset.x, y: node.position("y") + offset.y });
+    });
+    if (!collisionCount) break;
+  }
+}
+
 function renderOriginGraph(card) {
   const graph = $("#origin-graph");
   const canvas = $("#origin-canvas");
@@ -989,7 +1155,7 @@ function renderOriginGraph(card) {
   const semanticPositions = semanticGraphPositions(data);
   const graphNodes = data.nodes.map((node) => {
     const isCenter = node.id === data.center_id;
-    const metrics = graphLabelMetrics(node, isCenter);
+    const metrics = graphNodeMetrics(node, isCenter);
     return {
       data: {
         id: node.id,
@@ -1022,7 +1188,7 @@ function renderOriginGraph(card) {
   originCy = window.cytoscape({
     container: canvas,
     elements: [...graphNodes, ...graphEdges],
-    minZoom: .25,
+    minZoom: .08,
     maxZoom: 2.2,
     wheelSensitivity: .16,
     boxSelectionEnabled: false,
@@ -1030,7 +1196,8 @@ function renderOriginGraph(card) {
     layout: { name: "preset", fit: true, padding: 24 },
     style: graphStyles(),
   });
-  originCy.fit(originCy.elements(), 28);
+  repelGraphNodes(originCy, data.center_id);
+  fitGraphView({ wholeGraph: true });
   originCy.on("render", scheduleGraphNodeBadges);
   const overviewNodes = graphNodes.map((item) => ({
     ...item,
@@ -1075,14 +1242,16 @@ function renderOriginGraph(card) {
     });
     return button;
   }));
-  $("#graph-focus-controls").classList.toggle("hidden", graphFocusAreas.length < 2);
+  $("#previous-graph-focus").disabled = graphFocusAreas.length < 2;
+  $("#next-graph-focus").disabled = graphFocusAreas.length < 2;
+  $("#graph-focus-dots").classList.toggle("hidden", graphFocusAreas.length < 2);
   originCy.on("tap", "node", (event) => {
     const index = graphFocusAreas.findIndex((area) => (
       area.kind !== "overview" && area.node_ids?.includes(event.target.id())
     ));
     if (index >= 0) showGraphFocus(index);
   });
-  showGraphFocus(0);
+  showGraphFocus(0, false);
   if (graphFocusAreas.length > 1) {
     graphFocusTimer = window.setInterval(
       () => {
@@ -1733,6 +1902,11 @@ $("#next-graph-focus").addEventListener("click", () => {
   showGraphFocus(graphFocusIndex + 1);
   scheduleCarousel();
 });
+$("#fit-graph").addEventListener("click", () => {
+  window.clearInterval(graphFocusTimer);
+  resetGraphAutofit();
+  scheduleCarousel();
+});
 $("#toggle-autoplay").addEventListener("click", () => {
   autoplayEnabled = !autoplayEnabled;
   updateCarouselChrome();
@@ -1743,12 +1917,13 @@ document.addEventListener("fullscreenchange", () => {
   if (!document.fullscreenElement && !new URLSearchParams(location.search).has("display")) {
     document.body.classList.remove("display-mode");
   }
+  scheduleGraphViewportFit(160);
 });
 document.addEventListener("pointermove", () => noteActivity(true), { passive: true });
 document.addEventListener("pointerdown", () => noteActivity(true), { passive: true });
 document.addEventListener("keydown", () => noteActivity(true));
 document.addEventListener("focusin", () => noteActivity(true));
-window.addEventListener("resize", scheduleGraphNodeBadges, { passive: true });
+window.addEventListener("resize", () => scheduleGraphViewportFit(120), { passive: true });
 
 const initialParameters = new URLSearchParams(location.search);
 const initialMode = MODE_COPY[initialParameters.get("mode")] ? initialParameters.get("mode") : "answer";
