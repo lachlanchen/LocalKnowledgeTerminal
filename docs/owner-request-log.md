@@ -414,3 +414,34 @@ source was live dictation and may contain recognition errors:
 - Preserve the practical distinction between source and generation. Exact
   reviewed book text and citations are corpus-owned rather than model-generated;
   this is a correctness feature, not manual card editing.
+
+## Oracle-style voice flow and compact origin annotations
+
+- Treat the future microphone interaction as a calm fortune-card/oracle flow:
+  the user asks aloud, transcription appears locally, and the terminal draws a
+  random reviewed Book Answer as the full-screen response.
+- When idle, ambient playback should eventually traverse tabs, each tab's saved
+  cards, and each card's inner slides. Touch or deliberate navigation always
+  takes priority over ambient motion.
+- Preserve the current Word Origin graph layout; the owner explicitly considers
+  it good. Keep ancestry/history clear and non-overlapping, and learn from the
+  earlier `WordOrigins` language-labeled edges.
+- Do not add separate multilingual graph slides. Keep English meaning primary
+  and place one compact Japanese/Chinese/Arabic annotation line immediately
+  beside or below that explanation.
+- Keep the form and English explanation inside each Word Origin, Root, and
+  Affix node as one fluid, naturally wrapping label centered both vertically
+  and horizontally. Do not reserve rigid rows for the term or explanation; let
+  the label use the node's available width and height.
+- Treat root/prefix/suffix/word as structural metadata and the language code as
+  language metadata. Float these as small opposite-corner annotations instead
+  of spending normal node rows on `ROOT`, `AFFIX`, `EN`, `LA`, and similar tags.
+- Data enrichment remains divide-and-conquer and missing-only. Never rerun all
+  preparation merely to add a renderer feature; retain accepted atoms and
+  backfill only the specific absent artifact when one is actually required.
+- Keep outer card arrows and inner sentence/graph-focus arrows as two distinct
+  navigation levels. Both already exist; refine their clarity without changing
+  the successful layout.
+- New annotations and histories remain local-Qwen output grounded by retrieved
+  books/dictionaries, saved as bounded reusable JSON atoms. Rendering code may
+  validate and lay out those atoms but must not hand-author runtime knowledge.

@@ -22,6 +22,7 @@ let originCy = null;
 let overviewCy = null;
 let graphFocusAreas = [];
 let graphFocusIndex = 0;
+let graphNodeBadgeFrame = null;
 let allSavedCards = [];
 let sentenceSlides = [];
 let sentenceSlideIndex = 0;
@@ -723,10 +724,11 @@ function graphStyles(compact = false) {
         label: "data(label)",
         color: "#17213d",
         "font-family": "Inter, Segoe UI, Noto Sans CJK SC, sans-serif",
-        "font-size": 14,
+        "font-size": "data(fontSize)",
         "font-weight": 700,
         "text-wrap": "wrap",
-        "text-max-width": 126,
+        "text-overflow-wrap": "anywhere",
+        "text-max-width": "data(labelWidth)",
         "text-valign": "center",
         "text-halign": "center",
         "transition-property": "opacity, border-width, width, height",
@@ -737,7 +739,7 @@ function graphStyles(compact = false) {
     { selector: "node.prefix", style: { "background-color": "#e5faf4", "border-color": "#00a98f" } },
     { selector: "node.root", style: { "background-color": "#f2eaff", "border-color": "#8b3dff" } },
     { selector: "node.suffix", style: { "background-color": "#fff7d6", "border-color": "#e29a00" } },
-    { selector: "node.center", style: { width: 184, height: 106, shape: "ellipse", "background-color": "#ffcf3d", "border-color": "#17213d", "border-width": 4, "font-size": 17, "text-max-width": 158 } },
+    { selector: "node.center", style: { width: 184, height: 106, shape: "ellipse", "background-color": "#ffcf3d", "border-color": "#17213d", "border-width": 4 } },
     { selector: ".dimmed", style: { display: "none" } },
     { selector: "node.focus-node", style: { "border-width": 5 } },
     {
@@ -751,6 +753,102 @@ function graphStyles(compact = false) {
       },
     },
   ];
+}
+
+function graphLanguageCode(value) {
+  const language = String(value || "").trim();
+  if (!language) return "";
+  const normalized = language.toLocaleLowerCase();
+  const aliases = [
+    [/proto-indo-european|\bpie\b/, "PIE"],
+    [/classical latin|late latin|medieval latin|\blatin\b/, "LA"],
+    [/ancient greek|classical greek|\bgreek\b/, "EL"],
+    [/old french|middle french|\bfrench\b/, "FR"],
+    [/old english|middle english|modern english|\benglish\b/, "EN"],
+    [/germanic/, "GM"],
+    [/arabic/, "AR"],
+    [/chinese/, "ZH"],
+    [/japanese/, "JA"],
+  ];
+  return aliases.find(([pattern]) => pattern.test(normalized))?.[1]
+    || language.slice(0, 4).toLocaleUpperCase();
+}
+
+function graphLabelMetrics(node, isCenter) {
+  const length = `${node.form || ""} ${node.meaning || ""}`.trim().length;
+  const base = isCenter ? 17 : 14;
+  const reduction = length > 125 ? 3.5 : length > 88 ? 2.5 : length > 58 ? 1.25 : 0;
+  return {
+    fontSize: Math.max(isCenter ? 12 : 10.5, base - reduction),
+    labelWidth: isCenter ? 158 : 126,
+  };
+}
+
+function clearGraphNodeBadges() {
+  if (graphNodeBadgeFrame !== null) window.cancelAnimationFrame(graphNodeBadgeFrame);
+  graphNodeBadgeFrame = null;
+  $("#graph-node-badges").replaceChildren();
+}
+
+function updateGraphNodeBadges() {
+  graphNodeBadgeFrame = null;
+  const layer = $("#graph-node-badges");
+  const graph = $("#origin-graph");
+  const canvas = $("#origin-canvas");
+  if (!originCy || graph.classList.contains("hidden")) {
+    layer.replaceChildren();
+    return;
+  }
+  const graphRect = graph.getBoundingClientRect();
+  const canvasRect = canvas.getBoundingClientRect();
+  const offsetX = canvasRect.left - graphRect.left;
+  const offsetY = canvasRect.top - graphRect.top;
+  const badges = [];
+  originCy.nodes().forEach((node) => {
+    if (node.hasClass("dimmed") || node.style("display") === "none") return;
+    const position = node.renderedPosition();
+    const width = node.renderedWidth();
+    const height = node.renderedHeight();
+    const type = String(node.data("type") || "related");
+    const box = element("span", `graph-node-badge-box type-${type}`);
+    box.style.left = `${offsetX + position.x - width / 2}px`;
+    box.style.top = `${offsetY + position.y - height / 2}px`;
+    box.style.width = `${width}px`;
+    box.style.height = `${height}px`;
+    box.append(element("i", "graph-node-type", type.toLocaleUpperCase()));
+    const language = graphLanguageCode(node.data("language"));
+    if (language) box.append(element("i", "graph-node-language", language));
+    badges.push(box);
+  });
+  layer.replaceChildren(...badges);
+}
+
+function scheduleGraphNodeBadges() {
+  if (graphNodeBadgeFrame !== null) return;
+  graphNodeBadgeFrame = window.requestAnimationFrame(updateGraphNodeBadges);
+}
+
+function renderGraphFocusAnnotations(focus) {
+  const container = $("#graph-focus-annotations");
+  const explicit = focus?.annotations && typeof focus.annotations === "object"
+    ? focus.annotations
+    : null;
+  const useCardTranslations = ["overview", "parts"].includes(focus?.kind)
+    || focus?.id === "parts";
+  const values = [
+    ["JA", explicit?.ja?.term || (useCardTranslations ? activeCard?.japanese?.term : "")],
+    ["ZH", explicit?.zh?.term || (useCardTranslations ? activeCard?.chinese?.simplified : "")],
+    ["AR", explicit?.ar?.term || (useCardTranslations ? activeCard?.extra_languages?.arabic?.term : "")],
+  ].filter(([, value]) => value);
+  container.replaceChildren(...values.map(([language, value]) => {
+    const item = element("span", "graph-focus-annotation");
+    item.append(element("small", "", language));
+    const term = element("b", "", value);
+    term.dir = "auto";
+    item.append(term);
+    return item;
+  }));
+  container.classList.toggle("hidden", values.length === 0);
 }
 
 function showGraphFocus(requestedIndex) {
@@ -779,10 +877,12 @@ function showGraphFocus(requestedIndex) {
   });
   text("#graph-focus-headline", focus.headline || focus.label);
   optionalText("#graph-focus-explanation", focus.explanation);
+  renderGraphFocusAnnotations(focus);
   text("#graph-focus-position", `${graphFocusIndex + 1} / ${graphFocusAreas.length}`);
   all("#graph-focus-dots button").forEach((button, index) => {
     button.classList.toggle("active", index === graphFocusIndex);
   });
+  scheduleGraphNodeBadges();
 }
 
 function semanticGraphPositions(data) {
@@ -823,6 +923,7 @@ function renderOriginGraph(card) {
   overviewCy?.destroy();
   originCy = null;
   overviewCy = null;
+  clearGraphNodeBadges();
   canvas.replaceChildren();
   overview.replaceChildren();
   const data = unifiedGraph(card);
@@ -836,19 +937,25 @@ function renderOriginGraph(card) {
     return;
   }
   const semanticPositions = semanticGraphPositions(data);
-  const graphNodes = data.nodes.map((node) => ({
-    data: {
-      id: node.id,
-      label: [node.form || "—", node.language, node.meaning].filter(Boolean).join("\n"),
-      type: node.type || "related",
-    },
-    classes: [
-      node.basis === "book" ? "book" : "model",
-      node.type || "related",
-      node.id === data.center_id ? "center" : "",
-    ].filter(Boolean).join(" "),
-    position: semanticPositions.get(node.id),
-  }));
+  const graphNodes = data.nodes.map((node) => {
+    const isCenter = node.id === data.center_id;
+    const metrics = graphLabelMetrics(node, isCenter);
+    return {
+      data: {
+        id: node.id,
+        label: [node.form || "—", node.meaning].filter(Boolean).join(" · "),
+        type: node.type || "related",
+        language: node.language || "",
+        ...metrics,
+      },
+      classes: [
+        node.basis === "book" ? "book" : "model",
+        node.type || "related",
+        isCenter ? "center" : "",
+      ].filter(Boolean).join(" "),
+      position: semanticPositions.get(node.id),
+    };
+  });
   const ids = new Set(data.nodes.map((node) => node.id));
   const graphEdges = (data.edges || [])
     .filter((edge) => ids.has(edge.source) && ids.has(edge.target))
@@ -872,6 +979,7 @@ function renderOriginGraph(card) {
     style: graphStyles(),
   });
   originCy.fit(originCy.elements(), 28);
+  originCy.on("render", scheduleGraphNodeBadges);
   const overviewNodes = graphNodes.map((item) => ({
     ...item,
     position: originCy.$id(item.data.id).position(),
@@ -1363,6 +1471,7 @@ document.addEventListener("pointermove", noteActivity, { passive: true });
 document.addEventListener("pointerdown", noteActivity, { passive: true });
 document.addEventListener("keydown", noteActivity);
 document.addEventListener("focusin", noteActivity);
+window.addEventListener("resize", scheduleGraphNodeBadges, { passive: true });
 
 const initialParameters = new URLSearchParams(location.search);
 const initialMode = MODE_COPY[initialParameters.get("mode")] ? initialParameters.get("mode") : "answer";

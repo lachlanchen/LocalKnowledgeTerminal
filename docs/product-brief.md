@@ -190,6 +190,26 @@ can request deliberate regeneration with the API's `refresh: true` flag.
   device probe has identified the actual card/source.
 - Keep microphone, e-ink, and audio work out of the core retrieval/model modules.
 
+### Future oracle-style interaction
+
+- Once microphone hardware is proven, show full-screen local transcription and
+  then draw a random cited Book Answer. The experience may feel like a calm
+  fortune/oracle card while remaining an offline corpus-backed product.
+- Idle playback may advance through tabs, complete mode-local card decks, and
+  inner slides. Pointer, keyboard, or touch activity suspends ambient movement.
+- Preserve the current Word Origin layout. Keep English meaning primary and add
+  compact accepted Japanese, Chinese, and Arabic annotations beside/below that
+  explanation rather than creating separate language slides.
+- Word Origin, Root, and Affix graph nodes use one centered, fluid
+  form-plus-explanation label that wraps naturally into the available box.
+  Structural type and language code are independent tiny corner metadata, not
+  dedicated text rows. Long labels may shrink modestly within a readable bound.
+- Preparation and later enrichment are idempotent and missing-only. Existing
+  accepted atoms are reused; a backfill queues only the absent bounded artifact
+  and never regenerates the complete deck.
+- Outer arrows navigate saved cards; inner arrows navigate sentence or graph
+  focus slides. Keep both levels available and visually distinct.
+
 ## Engineering and delivery rules
 
 - Keep corpus ingestion, retrieval, model inference, card composition, storage,
