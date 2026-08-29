@@ -8,7 +8,7 @@ indexes, and captured screens are not stored in Git.
 
 | Layer | Verified revision/state |
 |---|---|
-| LKT runtime code | `ba282c64c32a9e51d895e65a075e53806de74eb0` |
+| LKT runtime code | `19d43bc` (`Complete inner card sequences`) |
 | Model | `Qwen3-4B-Q4_K_M.gguf`, 2,497,280,256 bytes |
 | Model SHA-256 | `7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5` |
 | llama.cpp package | pinned `v0.3.0`, source commit `c1d0e7a004015f23bc0233470b747b596f29b264` |
@@ -19,8 +19,7 @@ indexes, and captured screens are not stored in Git.
 
 `lkt-web`, `lkt-llm`, and `lkt-worker` were active. The live Python and browser
 code matched the runtime revision above, and the Pi worktree was clean.
-`/api/health` returned `ready`, with Qwen reported as local and ready. A later
-documentation-only handoff commit does not alter that runtime code revision.
+`/api/health` returned `ready`, with Qwen reported as local and ready.
 
 The model service is bounded by systemd at `MemoryHigh=5 GiB`,
 `MemoryMax=6 GiB`, `MemorySwapMax=128 MiB`, and `OOMPolicy=stop`. At final audit
@@ -57,13 +56,22 @@ generation.
 - Answer and Question backfill walks all 609 reviewed book records without
   repeating a source record. It balances the two completion percentages and
   pauses on current undervoltage, throttling, high temperature, or low available
-  memory. At audit, `/api/health` reported 52 of 609 accepted: 27 Answers and
-  25 Questions, with 557 remaining. The same compact progress appears in the
+  memory. At audit, `/api/health` reported 58 of 609 accepted: 30 Answers and
+  28 Questions, with 551 remaining. The same compact progress appears in the
   browser header, and the decks were still growing.
 - Each selected tab loads all its accepted cards, keeps the newest first, and
   shuffles the remainder without replacement for each carousel pass. Lexical
   modes are inquiry/queue driven, then reuse accepted atoms rather than
   regenerating them on every view.
+- The selected deck now polls accepted cards every 30 seconds without
+  interrupting the current card. A newly published card is placed next, then
+  traversal resumes through the existing shuffled pass. Queued, running,
+  rejected, and dirty candidates never enter this browser projection.
+- Question and Answer inner slides are deterministic: all English sentence
+  slides, then Japanese, then Chinese, with the optional final Explore/word
+  teaching slide last. Each receives 18 seconds. The outer card timer derives
+  its dwell from the full inner count, so a new random card cannot cut off a
+  language.
 - A live real-book smoke request was completed entirely on the Pi by
   Qwen3-4B in 52.75 seconds. Card
   `bae4877a-8ace-4100-aee9-a689221acb1a` preserved the exact reviewed
@@ -81,6 +89,15 @@ generation.
   `7646e7ed-33da-40ef-9ed9-2221d84bd1ca`, and
   `d90d7365-dd17-4a09-b132-4bdc1e5aa0a7`. Each reuses the same accepted atomic
   history while keeping its own card mode and focus slides.
+- A live real-book retrieval after this deployment returned Question card
+  `72506e8f-bfa3-4a1e-892c-4b10ac60c7f7` with source-owned citation
+  `question-115` and non-empty accepted English, Japanese, and Chinese text.
+  The `predecessor` Word Origin returned eight graph nodes and six focus areas.
+  The served browser bundle contained the 18-second sequencer and morphology
+  corner-metadata renderer.
+- Existing accepted content was retained. At audit, 161 independent missing
+  enrichment jobs remained queued; deployment did not replan or regenerate the
+  accepted deck.
 
 The LadybugDB traversal projection was rebuilt atomically after the smoke card.
 It contains 286 accepted nodes and 243 accepted edges, fingerprint
@@ -116,10 +133,14 @@ not imported by the core service.
 
 ## Validation performed
 
-- Windows development checkout: 110 unit tests passed; `compileall` passed.
-- Pi checkout after fast-forward: 110 unit tests passed; `compileall` passed.
+- Windows development checkout: 114 unit tests passed; `compileall` and
+  JavaScript syntax checks passed.
+- Pi checkout after fast-forward to `19d43bc`: 114 unit tests passed in
+  202.404 seconds; `compileall` and JavaScript syntax checks passed.
 - Live `/api/health`: ready, including all book, morphology, model, knowledge,
   FreeDict correction, and autonomous deck progress status.
-- Real book card: generated and retrieved with its source-owned evidence.
+- Real book card: `question-115` was retrieved with source-owned evidence and
+  accepted EN/JA/ZH content.
+- Real origin graph: `predecessor` returned eight nodes and six focus areas.
 - One-page kiosk: visually audited at 1920×1080; exactly one Chromium page left
   open.
