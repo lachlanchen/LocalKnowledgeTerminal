@@ -68,6 +68,8 @@ class WebInputTests(unittest.TestCase):
         self.assertEqual(page.count("data-setting-mode"), 6)
         self.assertIn('ambientModes: [...AMBIENT_MODE_ORDER]', script)
         self.assertIn("function activeAmbientModeOrder()", script)
+        self.assertIn("function ambientIndexAfter(cardMode)", script)
+        self.assertIn("ambientModeIndex = ambientIndexAfter(initialMode)", script)
         self.assertIn('all("[data-setting-mode]:checked")', script)
         self.assertIn("displaySettings.ambientModes = AMBIENT_MODE_ORDER.filter", script)
         self.assertIn(".settings-dialog", style)

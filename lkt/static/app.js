@@ -193,6 +193,12 @@ function activeAmbientModeOrder() {
   ));
 }
 
+function ambientIndexAfter(cardMode) {
+  const enabledModes = activeAmbientModeOrder();
+  const currentIndex = enabledModes.indexOf(cardMode);
+  return currentIndex < 0 ? 0 : (currentIndex + 1) % enabledModes.length;
+}
+
 function visibleLanguages(cardMode = mode) {
   return new Set(displaySettings.languages[languageProfileForMode(cardMode)]);
 }
@@ -251,7 +257,7 @@ function applySettingsControls() {
   ));
   displaySettings.randomCards = $("#random-cards-setting").checked;
   saveDisplaySettings();
-  ambientModeIndex = 0;
+  ambientModeIndex = ambientIndexAfter(mode);
   ambientModeDecks.clear();
   if (activeCard?.mode === mode) renderCard(activeCard, false);
   if (mode !== "chat") rebuildModeCarousel(false);
@@ -2256,6 +2262,7 @@ const initialMode = MODE_COPY[initialParameters.get("mode")]
   ? initialParameters.get("mode")
   : activeAmbientModeOrder()[0];
 ambientRouting = !initialParameters.has("mode");
+if (ambientRouting) ambientModeIndex = ambientIndexAfter(initialMode);
 setMode(initialMode);
 if (initialParameters.has("display")) document.body.classList.add("display-mode");
 loadHealth();
