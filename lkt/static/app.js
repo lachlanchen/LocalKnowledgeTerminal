@@ -2208,7 +2208,14 @@ document.addEventListener("fullscreenchange", () => {
 });
 document.addEventListener("pointermove", () => noteActivity(true), { passive: true });
 document.addEventListener("pointerdown", () => noteActivity(true), { passive: true });
-document.addEventListener("keydown", () => noteActivity(true));
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && new URLSearchParams(location.search).has("display")) {
+    event.preventDefault();
+    window.close();
+    return;
+  }
+  noteActivity(true);
+});
 document.addEventListener("focusin", () => noteActivity(true));
 window.addEventListener("resize", () => scheduleGraphViewportFit(120), { passive: true });
 
