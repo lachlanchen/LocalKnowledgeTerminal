@@ -102,6 +102,8 @@ runuser -u "$LKT_USER" -- env \
 install -o root -g root -m 0644 "$SOURCE_DIR/systemd/lkt-llm.service" /etc/systemd/system/
 install -o root -g root -m 0644 "$SOURCE_DIR/systemd/lkt-web.service" /etc/systemd/system/
 install -o root -g root -m 0644 "$SOURCE_DIR/systemd/lkt-worker.service" /etc/systemd/system/
+install -o root -g root -m 0755 \
+  "$SOURCE_DIR/scripts/open_kiosk.sh" /usr/local/bin/lkt-open-kiosk
 install -d -o "$LKT_USER" -g "$LKT_USER" -m 0755 "/home/${LKT_USER}/.config/autostart"
 install -o "$LKT_USER" -g "$LKT_USER" -m 0644 \
   "$SOURCE_DIR/desktop/lkt-kiosk.desktop" \

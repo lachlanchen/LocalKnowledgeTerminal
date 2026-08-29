@@ -79,8 +79,10 @@ class AtomicWatchTests(unittest.TestCase):
         self.assertIn('--user-data-dir="$PROFILE_DIR"', launcher)
         self.assertIn("--remote-debugging-address=127.0.0.1", launcher)
         self.assertNotIn("?mode=", launcher)
-        self.assertIn("scripts/open_kiosk.sh", desktop)
+        self.assertIn("Exec=/usr/local/bin/lkt-open-kiosk", desktop)
+        self.assertIn("TryExec=/usr/local/bin/lkt-open-kiosk", desktop)
         self.assertIn("X-GNOME-Autostart-enabled=true", desktop)
+        self.assertIn("/usr/local/bin/lkt-open-kiosk", installer)
         self.assertIn("desktop/lkt-kiosk.desktop", installer)
         self.assertIn(".config/autostart/lkt-kiosk.desktop", installer)
 
