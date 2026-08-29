@@ -8,7 +8,7 @@ indexes, and captured screens are not stored in Git.
 
 | Layer | Verified revision/state |
 |---|---|
-| LKT runtime code | `20c77b9` (`Give ruby annotations breathing room`) |
+| LKT runtime code | `f1299e8` (`Cycle accepted modes while ambient`) |
 | Model | `Qwen3-4B-Q4_K_M.gguf`, 2,497,280,256 bytes |
 | Model SHA-256 | `7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5` |
 | llama.cpp package | pinned `v0.3.0`, source commit `c1d0e7a004015f23bc0233470b747b596f29b264` |
@@ -134,6 +134,25 @@ sentence, evidence rail, and controls remained visible without overlap, clipping
 document scroll, or blocked content. The temporary audit image was removed after
 inspection and was not committed.
 
+Deployed revision `f1299e8` adds a true cross-mode ambient journey without
+merging the six collections. A live Chromium protocol audit on the Pi traversed
+these accepted card modes and IDs in order:
+
+1. Answer `af040b8d-7d26-4436-a04d-58c41af0e2bc` (initial draw)
+2. Question `72506e8f-bfa3-4a1e-892c-4b10ac60c7f7`
+3. Answer `49e919df-d9ba-4967-a846-e8823d047bad`
+4. Word Card `78844f32-31a8-4d81-91b4-2f001fdb6ef0`
+5. Word Origin `a47f2207-4455-405d-a7b8-24deca3705e3`
+6. Root `7646e7ed-33da-40ef-9ed9-2221d84bd1ca`
+7. Affix `d90d7365-dd17-4a09-b132-4bdc1e5aa0a7`
+
+The same single kiosk target was then returned to
+`http://127.0.0.1:8090/?display` and left on the Answer-first ambient start.
+Each mode retains an independent non-repeating accepted-card pass; a newly
+accepted card is inserted first for its mode. Explicit tabs and `?mode=` URLs
+remain mode-local. Pointer, touch, key, or focus activity restarts the current
+card's full dwell before cross-mode motion can resume. Model Lab is excluded.
+
 Direct entry points remain:
 
 - Answer/default: `http://127.0.0.1:8090/?display`
@@ -154,15 +173,18 @@ not imported by the core service.
 
 ## Validation performed
 
-- Windows development checkout: 117 unit tests passed; `compileall` and
+- Windows development checkout: 118 unit tests passed; `compileall` and
   JavaScript syntax checks passed.
-- Pi checkout after fast-forward to `20c77b9`: 117 full-suite tests passed on
-  the preceding runtime commit; the deployed CSS revision then passed all 10
-  focused web tests and `compileall`. The runtime image does not install Node.js;
-  JavaScript syntax was therefore checked in the Windows development gate before
-  deployment.
+- Pi checkout after fast-forward to `f1299e8`: 118 full-suite tests passed in
+  49.590 seconds and `compileall` passed. The runtime image does not install
+  Node.js; JavaScript syntax was therefore checked in the Windows development
+  gate before deployment.
 - Live `/api/health`: ready, including all book, morphology, model, knowledge,
   FreeDict correction, and autonomous deck progress status.
+- Accelerated Chromium used the deployed browser code with the Pi's real
+  accepted-card API: the bare route requested Answer → Question → Answer → Word
+  Card → Word Origin → Root → Affix, while an explicit Question route requested
+  Question only. The temporary read-only audit proxy was removed afterward.
 - Real book card: `question-115` was retrieved with source-owned evidence and
   accepted EN/JA/ZH content.
 - Real origin graph: `predecessor` returned eight nodes and six focus areas.
