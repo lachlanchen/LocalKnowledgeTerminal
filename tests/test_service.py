@@ -45,6 +45,145 @@ class FakeModel:
 
 
 class ServiceTests(unittest.TestCase):
+    def test_morphology_stages_survive_a_later_language_failure(self) -> None:
+        class StagedModel:
+            model_name = "test-staged-qwen"
+
+            def __init__(self) -> None:
+                self.graph_calls = 0
+                self.language_calls = 0
+
+            def generate_morphology_graph(
+                self, query: str, _mode: str, _evidence: list[Evidence]
+            ) -> dict[str, Any]:
+                self.graph_calls += 1
+                nodes = [
+                    {
+                        "id": "spect",
+                        "type": "root",
+                        "form": query,
+                        "meaning": "look",
+                        "basis": "book",
+                        "evidence_ids": ["root-spect"],
+                    },
+                    *(
+                        {
+                            "id": word,
+                            "type": "word",
+                            "form": word,
+                            "meaning": meaning,
+                            "basis": "model",
+                            "evidence_ids": [],
+                        }
+                        for word, meaning in (
+                            ("inspect", "look into"),
+                            ("respect", "look back"),
+                            ("prospect", "look forward"),
+                            ("spectator", "one who watches"),
+                        )
+                    ),
+                ]
+                return {
+                    "value": {
+                        "title": query,
+                        "summary_en": "look or see",
+                        "morphology_graph": {
+                            "center_id": "spect",
+                            "nodes": nodes,
+                            "edges": [
+                                {
+                                    "source": "spect",
+                                    "target": word,
+                                    "relationship": "root-of",
+                                }
+                                for word in (
+                                    "inspect", "respect", "prospect", "spectator"
+                                )
+                            ],
+                            "focus_areas": [
+                                {
+                                    "id": "overview",
+                                    "kind": "overview",
+                                    "node_ids": [item["id"] for item in nodes],
+                                },
+                                {
+                                    "id": "root",
+                                    "kind": "root",
+                                    "node_ids": ["spect", "inspect"],
+                                },
+                            ],
+                        },
+                    },
+                    "attempts": 1,
+                }
+
+            def generate_morphology_languages(
+                self,
+                query: str,
+                _mode: str,
+                _evidence: list[Evidence],
+                _graph: dict[str, Any],
+            ) -> dict[str, Any]:
+                self.language_calls += 1
+                if self.language_calls == 1:
+                    raise RuntimeError("temporary language-stage failure")
+                return {
+                    "value": {
+                        "english": {"term": query, "meaning": "look or see"},
+                        "japanese": {
+                            "term": "見る",
+                            "reading": "みる",
+                            "meaning": "見る",
+                        },
+                        "chinese": {
+                            "simplified": "看",
+                            "pinyin": "kàn",
+                            "meaning": "看",
+                        },
+                        "french": {"term": "voir", "meaning": "regarder"},
+                        "arabic": {"term": "نظر", "meaning": "رؤية"},
+                    },
+                    "attempts": 1,
+                }
+
+            def generate(
+                self, _query: str, _mode: str, _evidence: list[Evidence]
+            ) -> dict[str, Any]:
+                raise AssertionError("staged morphology must not use monolithic generation")
+
+        with tempfile.TemporaryDirectory() as temp:
+            store = CardStore(Path(temp) / "cards.sqlite3")
+            model = StagedModel()
+            service = CardService(make_index(Path(temp)), model, store)
+            evidence = [
+                Evidence(
+                    "root-spect",
+                    "SPECT",
+                    "Root Dictionary",
+                    "S",
+                    (58,),
+                    "Latin spect: look or see.",
+                    corpus_id="test-root-dictionary",
+                    kind="morphology-root",
+                )
+            ]
+
+            with self.assertRaisesRegex(RuntimeError, "language-stage"):
+                service.create_from_evidence("SPECT", "root", evidence)
+            card = service.create_from_evidence("SPECT", "root", evidence)
+
+            self.assertEqual(model.graph_calls, 1)
+            self.assertEqual(model.language_calls, 2)
+            artifacts = store.preparation_artifacts(
+                card.extensions["preparation_run_id"]
+            )
+            graph_stage = next(
+                item for item in artifacts
+                if item["stage"] == "model-morphology-graph"
+            )
+            self.assertIn("reused_from_artifact_id", graph_stage["payload"])
+            self.assertEqual(card.extensions["morphology_graph"]["center_id"], "spect")
+
     def test_morphology_graph_keeps_cited_nodes_and_downgrades_fake_book_ids(self) -> None:
         evidence = [
             Evidence(

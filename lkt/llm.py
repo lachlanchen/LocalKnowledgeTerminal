@@ -133,14 +133,9 @@ Return exactly one JSON object with no markdown:
 {
   "title": "center English word",
   "summary_en": "one concise modern definition",
-  "english": {"term": "", "pronunciation": "IPA", "meaning": "short meaning"},
-  "japanese": {"term": "established equivalent", "reading": "exact kana", "meaning": "short Japanese meaning", "ruby_tokens": [{"t": "visible segment", "r": "kana or empty"}]},
-  "chinese": {"simplified": "established equivalent", "traditional": "", "pinyin": "tone-marked pinyin", "meaning": "short Chinese meaning"},
-  "french": {"term": "established equivalent", "pronunciation": "IPA if known", "meaning": "short French meaning"},
-  "arabic": {"term": "established Arabic equivalent", "reading": "simple transliteration", "meaning": "short Arabic meaning"},
   "morphology_graph": {
     "center_id": "word",
-    "nodes": [{"id": "unique-id", "type": "word|prefix|root|suffix|historical|related", "form": "visible form", "meaning": "at most 10 words", "language": "English/Latin/Greek/etc", "history": "one concise factual sentence", "basis": "book|model", "evidence_ids": ["exact Record ID"], "confidence": "high|medium"}],
+    "nodes": [{"id": "unique-id", "type": "word|prefix|root|suffix|historical|related", "form": "visible form", "meaning": "at most 8 words", "language": "English/Latin/Greek/etc", "history": "at most 12 words", "basis": "book|model", "evidence_ids": ["exact Record ID"], "confidence": "high|medium"}],
     "edges": [{"source": "earlier/component node id", "target": "later/formed word id", "relationship": "developed-into|prefix-of|root-of|suffix-of|related-form"}],
     "focus_areas": [{"id": "overview-or-node-id", "label": "short slide label", "kind": "overview|root|prefix|suffix|history", "node_ids": ["ids visible in this area"], "headline": "one core idea", "explanation": "one short teaching sentence"}]
   }
@@ -150,9 +145,22 @@ Use 7 to 14 nodes and a connected directed graph. Components point into words; h
 point into descendants. Never chain sibling components into each other. Start focus_areas with an
 overview containing all node IDs, then add one area for each important root, prefix, and suffix.
 Recursive history should stop when evidence becomes uncertain or ceases to aid understanding.
-Japanese ruby token text must concatenate exactly to japanese.term. Use Unicode directly. Keep the
-whole response under 700 words. If French or Arabic has no honest compact equivalent, return its
-object with empty strings instead of guessing. /no_think"""
+Use Unicode directly. Keep the graph response under 750 words. /no_think"""
+
+
+MORPHOLOGY_LANGUAGE_PROMPT = """You prepare only the compact multilingual presentation for one
+already reviewed Root or Affix graph. Do not change its structure, history, or citations. Return
+exactly one JSON object with no markdown:
+{
+  "english": {"term": "exact center form", "pronunciation": "IPA if useful", "meaning": "short English meaning"},
+  "japanese": {"term": "established equivalent", "reading": "exact kana", "meaning": "short Japanese meaning", "ruby_tokens": [{"t": "visible segment", "r": "kana or empty"}]},
+  "chinese": {"simplified": "established equivalent", "traditional": "", "pinyin": "tone-marked pinyin", "meaning": "short Chinese meaning"},
+  "french": {"term": "established equivalent", "pronunciation": "IPA if known", "meaning": "short French meaning"},
+  "arabic": {"term": "established Arabic equivalent", "reading": "simple transliteration", "meaning": "short Arabic meaning"}
+}
+Japanese ruby token text must concatenate exactly to japanese.term. Use Unicode directly. Keep each
+meaning to one short phrase and the entire response under 140 words. If French or Arabic has no
+honest compact equivalent, return its object with empty strings instead of guessing. /no_think"""
 
 
 def _extract_json(text: str) -> dict[str, Any]:
@@ -178,6 +186,97 @@ def _nonempty_path(value: dict[str, Any], *path: str) -> bool:
             return False
         current = current.get(key)
     return isinstance(current, str) and bool(current.strip())
+
+
+def _morphology_graph_errors(value: dict[str, Any]) -> list[str]:
+    missing: list[str] = []
+    graph = value.get("morphology_graph")
+    if not isinstance(graph, dict):
+        return ["morphology_graph"]
+    nodes = graph.get("nodes")
+    edges = graph.get("edges")
+    focuses = graph.get("focus_areas")
+    center_id = str(graph.get("center_id", "")).strip()
+    if not isinstance(nodes, list) or len(nodes) < 5:
+        missing.append("morphology_graph.nodes[5+]")
+        nodes = []
+    node_ids = {
+        str(node.get("id", "")).strip()
+        for node in nodes
+        if isinstance(node, dict)
+    }
+    if not center_id or center_id not in node_ids:
+        missing.append("morphology_graph.center_id")
+    if any(
+        not isinstance(node, dict)
+        or any(
+            not str(node.get(key, "")).strip()
+            for key in ("id", "type", "form", "meaning", "basis")
+        )
+        for node in nodes
+    ):
+        missing.append("morphology_graph.complete_nodes")
+    valid_edges = (
+        [
+            edge
+            for edge in edges
+            if isinstance(edge, dict)
+            and str(edge.get("source", "")).strip() in node_ids
+            and str(edge.get("target", "")).strip() in node_ids
+        ]
+        if isinstance(edges, list)
+        else []
+    )
+    if len(valid_edges) < max(1, len(nodes) - 1):
+        missing.append("morphology_graph.connected_edges")
+    else:
+        adjacency = {node_id: set() for node_id in node_ids}
+        for edge in valid_edges:
+            source = str(edge["source"]).strip()
+            target = str(edge["target"]).strip()
+            adjacency[source].add(target)
+            adjacency[target].add(source)
+        reached = {center_id} if center_id in adjacency else set()
+        frontier = list(reached)
+        while frontier:
+            current = frontier.pop()
+            for neighbor in adjacency[current] - reached:
+                reached.add(neighbor)
+                frontier.append(neighbor)
+        if reached != node_ids:
+            missing.append("morphology_graph.connected")
+    if not isinstance(focuses, list) or len(focuses) < 2:
+        missing.append("morphology_graph.focus_areas[2+]")
+    return missing
+
+
+def _validate_morphology_graph_draft(value: dict[str, Any]) -> None:
+    missing = [
+        path
+        for path in ("title", "summary_en")
+        if not _nonempty_path(value, path)
+    ]
+    missing.extend(_morphology_graph_errors(value))
+    if missing:
+        raise ValueError(
+            f"model returned incomplete morphology graph: {', '.join(missing)}"
+        )
+
+
+def _validate_morphology_language_draft(value: dict[str, Any]) -> None:
+    required = (
+        ("english", "term"),
+        ("english", "meaning"),
+        ("japanese", "term"),
+        ("japanese", "reading"),
+        ("chinese", "simplified"),
+        ("chinese", "pinyin"),
+    )
+    missing = [".".join(path) for path in required if not _nonempty_path(value, *path)]
+    if missing:
+        raise ValueError(
+            f"model returned incomplete morphology languages: {', '.join(missing)}"
+        )
 
 
 def _validate_card_draft(value: dict[str, Any], mode: str) -> None:
@@ -234,60 +333,7 @@ def _validate_card_draft(value: dict[str, Any], mode: str) -> None:
         if not _nonempty_path(value, *path)
     ]
     if mode in {"word", "root", "affix"}:
-        graph = value.get("morphology_graph")
-        if not isinstance(graph, dict):
-            missing.append("morphology_graph")
-        else:
-            nodes = graph.get("nodes")
-            edges = graph.get("edges")
-            focuses = graph.get("focus_areas")
-            center_id = str(graph.get("center_id", "")).strip()
-            if not isinstance(nodes, list) or len(nodes) < 5:
-                missing.append("morphology_graph.nodes[5+]")
-                nodes = []
-            node_ids = {
-                str(node.get("id", "")).strip()
-                for node in nodes
-                if isinstance(node, dict)
-            }
-            if not center_id or center_id not in node_ids:
-                missing.append("morphology_graph.center_id")
-            if any(
-                not isinstance(node, dict)
-                or any(
-                    not str(node.get(key, "")).strip()
-                    for key in ("id", "type", "form", "meaning", "basis")
-                )
-                for node in nodes
-            ):
-                missing.append("morphology_graph.complete_nodes")
-            valid_edges = [
-                edge
-                for edge in edges
-                if isinstance(edge, dict)
-                and str(edge.get("source", "")).strip() in node_ids
-                and str(edge.get("target", "")).strip() in node_ids
-            ] if isinstance(edges, list) else []
-            if len(valid_edges) < max(1, len(nodes) - 1):
-                missing.append("morphology_graph.connected_edges")
-            else:
-                adjacency = {node_id: set() for node_id in node_ids}
-                for edge in valid_edges:
-                    source = str(edge["source"]).strip()
-                    target = str(edge["target"]).strip()
-                    adjacency[source].add(target)
-                    adjacency[target].add(source)
-                reached = {center_id} if center_id in adjacency else set()
-                frontier = list(reached)
-                while frontier:
-                    current = frontier.pop()
-                    for neighbor in adjacency[current] - reached:
-                        reached.add(neighbor)
-                        frontier.append(neighbor)
-                if reached != node_ids:
-                    missing.append("morphology_graph.connected")
-            if not isinstance(focuses, list) or len(focuses) < 2:
-                missing.append("morphology_graph.focus_areas[2+]")
+        missing.extend(_morphology_graph_errors(value))
     if missing:
         raise ValueError(f"model returned incomplete card fields: {', '.join(missing)}")
 
@@ -435,7 +481,146 @@ class LlamaCppClient:
             },
         }
 
+    def _complete_card_stage(
+        self,
+        payload: dict[str, Any],
+        validator: Any,
+        *,
+        repair_tokens: int,
+        repair_instruction: str,
+    ) -> dict[str, Any]:
+        """Run one bounded JSON stage with one fresh, non-recursive retry."""
+
+        failures: list[dict[str, str]] = []
+        for attempt in range(2):
+            body, elapsed = self._request(payload)
+            content = self._content(body)
+            try:
+                value = _extract_json(str(content))
+                validator(value)
+                return {
+                    "value": value,
+                    "raw": str(content),
+                    "model": self.model_name,
+                    "attempts": attempt + 1,
+                    "elapsed_seconds": round(elapsed, 2),
+                    "failed_attempts": failures,
+                }
+            except ValueError as exc:
+                failures.append(
+                    {"error": str(exc)[:500], "raw": str(content)[:12_000]}
+                )
+                if attempt:
+                    raise ModelUnavailable(
+                        "model stage was invalid after one fresh repair attempt"
+                    ) from exc
+                # Never feed a ceiling-truncated JSON document back into Qwen.
+                # A fresh deterministic attempt uses the original evidence and
+                # a larger ceiling, avoiding recursive context inflation.
+                payload = {
+                    **payload,
+                    "temperature": 0.0,
+                    "presence_penalty": 0.0,
+                    "max_tokens": repair_tokens,
+                    "messages": [
+                        *payload["messages"],
+                        {
+                            "role": "user",
+                            "content": f"{repair_instruction} /no_think",
+                        },
+                    ],
+                }
+        raise AssertionError("unreachable")
+
+    def generate_morphology_graph(
+        self, query: str, mode: str, evidence: list[Evidence]
+    ) -> dict[str, Any]:
+        instruction = (
+            f"Prepare a complete {mode.upper()}-FOCUSED graph for the exact "
+            f"primary component {query!r}."
+        )
+        payload = {
+            "model": self.model_name,
+            "messages": [
+                {"role": "system", "content": MORPHOLOGY_PROMPT},
+                {
+                    "role": "user",
+                    "content": (
+                        f"{instruction}\n\nBOOK EVIDENCE\n"
+                        f"{_evidence_context(evidence)}\n\n/no_think"
+                    ),
+                },
+            ],
+            "temperature": 0.2,
+            "top_p": 0.8,
+            "top_k": 20,
+            "presence_penalty": 0.1,
+            "max_tokens": 1200,
+            "stream": False,
+        }
+        return self._complete_card_stage(
+            payload,
+            _validate_morphology_graph_draft,
+            repair_tokens=1400,
+            repair_instruction=(
+                "Start again from the supplied evidence. Return one complete, concise "
+                "graph JSON object; close every array and object"
+            ),
+        )
+
+    def generate_morphology_languages(
+        self,
+        query: str,
+        mode: str,
+        evidence: list[Evidence],
+        graph: dict[str, Any],
+    ) -> dict[str, Any]:
+        primary = evidence[0]
+        payload = {
+            "model": self.model_name,
+            "messages": [
+                {"role": "system", "content": MORPHOLOGY_LANGUAGE_PROMPT},
+                {
+                    "role": "user",
+                    "content": (
+                        f"MODE: {mode}\nEXACT CENTER FORM: {query}\n"
+                        f"ACCEPTED SUMMARY: {graph.get('summary_en', '')}\n"
+                        f"PRIMARY BOOK HEADWORD: {primary.headword}\n"
+                        f"PRIMARY BOOK TEXT: {primary.excerpt[:1200]}\n\n/no_think"
+                    ),
+                },
+            ],
+            "temperature": 0.1,
+            "top_p": 0.8,
+            "top_k": 20,
+            "presence_penalty": 0.0,
+            "max_tokens": 384,
+            "stream": False,
+        }
+        return self._complete_card_stage(
+            payload,
+            _validate_morphology_language_draft,
+            repair_tokens=512,
+            repair_instruction=(
+                "Start again. Return only the five compact language objects with "
+                "valid Japanese kana and tone-marked Chinese pinyin"
+            ),
+        )
+
     def generate(self, query: str, mode: str, evidence: list[Evidence]) -> dict[str, Any]:
+        if mode in {"root", "affix"}:
+            graph_stage = self.generate_morphology_graph(query, mode, evidence)
+            language_stage = self.generate_morphology_languages(
+                query, mode, evidence, graph_stage["value"]
+            )
+            draft = {**graph_stage["value"], **language_stage["value"]}
+            _validate_card_draft(draft, mode)
+            draft["_preparation_stages"] = {
+                "model-morphology-graph": graph_stage,
+                "model-morphology-languages": language_stage,
+            }
+            return draft
+
         instructions = {
             "word": "Create a WORD ORIGIN card grounded in the retrieved dictionary entry",
             "knowledge": "Create a WORD CARD grounded in the retrieved Word Origins entries",
@@ -446,14 +631,6 @@ class LlamaCppClient:
             "question": (
                 "Create a BOOK QUESTION card. Preserve the selected question and its reviewed "
                 "translations exactly; add prompts for thoughtful reflection"
-            ),
-            "root": (
-                "Prepare a complete ROOT-FOCUSED morphology graph grounded in the supplied "
-                "root, affix, and Word Origins records"
-            ),
-            "affix": (
-                "Prepare a complete AFFIX-FOCUSED morphology graph grounded in the supplied "
-                "affix, root, and Word Origins records"
             ),
         }
         instruction = instructions.get(mode, "Create a grounded learning card")
@@ -467,16 +644,12 @@ class LlamaCppClient:
             "knowledge": WORD_CARD_PROMPT,
             "answer": ANSWER_PROMPT,
             "question": QUESTION_PROMPT,
-            "root": MORPHOLOGY_PROMPT,
-            "affix": MORPHOLOGY_PROMPT,
         }
         token_budgets = {
             "word": 900,
             "knowledge": 300,
             "answer": 140,
             "question": 140,
-            "root": 900,
-            "affix": 900,
         }
         payload = {
             "model": self.model_name,

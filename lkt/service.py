@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 import uuid
 from datetime import UTC, datetime
@@ -17,6 +19,13 @@ from .store import CardStore
 
 class NoEvidence(LookupError):
     pass
+
+
+def _fingerprint(value: Any) -> str:
+    encoded = json.dumps(
+        value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def _short_text(value: Any, fallback: str = "", limit: int = 4000) -> str:
@@ -411,7 +420,72 @@ class CardService:
             [item.to_dict() for item in evidence],
         )
         try:
-            generated = self.model.generate(query, mode, evidence)
+            graph_generator = getattr(self.model, "generate_morphology_graph", None)
+            language_generator = getattr(
+                self.model, "generate_morphology_languages", None
+            )
+            if (
+                mode in {"root", "affix"}
+                and callable(graph_generator)
+                and callable(language_generator)
+            ):
+                evidence_fingerprint = _fingerprint(
+                    [item.to_dict() for item in evidence]
+                )
+                reusable_graph = self.store.reusable_preparation_artifact(
+                    mode,
+                    query,
+                    self.model.model_name,
+                    "model-morphology-graph",
+                    evidence_fingerprint,
+                )
+                if reusable_graph:
+                    graph_stage = {
+                        **reusable_graph["payload"],
+                        "reused_from_artifact_id": reusable_graph["artifact_id"],
+                    }
+                else:
+                    graph_stage = graph_generator(query, mode, evidence)
+                    graph_stage["evidence_fingerprint"] = evidence_fingerprint
+                self.store.save_preparation_artifact(
+                    preparation_run_id, "model-morphology-graph", graph_stage
+                )
+
+                graph_value = graph_stage["value"]
+                language_fingerprint = _fingerprint(
+                    {"evidence": evidence_fingerprint, "graph": graph_value}
+                )
+                reusable_languages = self.store.reusable_preparation_artifact(
+                    mode,
+                    query,
+                    self.model.model_name,
+                    "model-morphology-languages",
+                    language_fingerprint,
+                )
+                if reusable_languages:
+                    language_stage = {
+                        **reusable_languages["payload"],
+                        "reused_from_artifact_id": reusable_languages["artifact_id"],
+                    }
+                else:
+                    language_stage = language_generator(
+                        query, mode, evidence, graph_value
+                    )
+                    language_stage["evidence_fingerprint"] = language_fingerprint
+                self.store.save_preparation_artifact(
+                    preparation_run_id,
+                    "model-morphology-languages",
+                    language_stage,
+                )
+                generated = {**graph_value, **language_stage["value"]}
+            else:
+                generated = self.model.generate(query, mode, evidence)
+                model_stages = generated.pop("_preparation_stages", {})
+                if isinstance(model_stages, dict):
+                    for stage, payload in model_stages.items():
+                        self.store.save_preparation_artifact(
+                            preparation_run_id, str(stage), payload
+                        )
         except Exception as exc:
             self.store.finish_preparation(
                 preparation_run_id, "failed", error=str(exc)

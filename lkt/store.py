@@ -458,6 +458,44 @@ class CardStore:
             for row in rows
         ]
 
+    def reusable_preparation_artifact(
+        self,
+        mode: str,
+        query: str,
+        model: str,
+        stage: str,
+        evidence_fingerprint: str,
+    ) -> dict[str, Any] | None:
+        """Reuse one accepted inference stage after a later stage failed."""
+
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """SELECT artifact.artifact_id, artifact.run_id,
+                          artifact.payload, artifact.created_at
+                   FROM preparation_artifacts AS artifact
+                   JOIN preparation_runs AS run ON run.run_id = artifact.run_id
+                   WHERE run.mode = ? AND run.query = ? COLLATE NOCASE
+                     AND run.model = ? AND artifact.stage = ?
+                     AND artifact.reusable = 1
+                   ORDER BY artifact.created_at DESC LIMIT 20""",
+                (mode.strip(), query.strip(), model.strip(), stage.strip()),
+            ).fetchall()
+        for row in rows:
+            payload = json.loads(row[2])
+            if not isinstance(payload, dict):
+                continue
+            if payload.get("evidence_fingerprint") != evidence_fingerprint:
+                continue
+            if not isinstance(payload.get("value"), dict):
+                continue
+            return {
+                "artifact_id": row[0],
+                "run_id": row[1],
+                "payload": payload,
+                "created_at": row[3],
+            }
+        return None
+
     def archive(self, card_id: str) -> bool:
         with closing(self._connect()) as connection:
             result = connection.execute(

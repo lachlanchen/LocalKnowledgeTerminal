@@ -156,6 +156,109 @@ class LlmParsingTests(unittest.TestCase):
         self.assertEqual(repair_payload["temperature"], 0.0)
         self.assertIn("Repair the previous response", repair_payload["messages"][-1]["content"])
 
+    def test_morphology_is_divided_and_repairs_without_recursive_raw_json(self) -> None:
+        client = LlamaCppClient("http://localhost/v1/chat/completions", "test")
+        nodes = [
+            {
+                "id": "spect",
+                "type": "root",
+                "form": "SPECT",
+                "meaning": "look",
+                "basis": "book",
+                "evidence_ids": ["root-spect"],
+            },
+            *(
+                {
+                    "id": word,
+                    "type": "word",
+                    "form": word,
+                    "meaning": "related word",
+                    "basis": "model",
+                    "evidence_ids": [],
+                }
+                for word in ("inspect", "respect", "prospect", "spectator")
+            ),
+        ]
+        graph = {
+            "title": "SPECT",
+            "summary_en": "look or see",
+            "morphology_graph": {
+                "center_id": "spect",
+                "nodes": nodes,
+                "edges": [
+                    {"source": "spect", "target": word, "relationship": "root-of"}
+                    for word in ("inspect", "respect", "prospect", "spectator")
+                ],
+                "focus_areas": [
+                    {
+                        "id": "overview",
+                        "kind": "overview",
+                        "node_ids": [item["id"] for item in nodes],
+                    },
+                    {
+                        "id": "root",
+                        "kind": "root",
+                        "node_ids": ["spect", "inspect"],
+                    },
+                ],
+            },
+        }
+        languages = {
+            "english": {"term": "SPECT", "meaning": "look or see"},
+            "japanese": {"term": "見る", "reading": "みる", "meaning": "見る"},
+            "chinese": {"simplified": "看", "pinyin": "kàn", "meaning": "看"},
+            "french": {"term": "voir", "meaning": "regarder"},
+            "arabic": {"term": "نظر", "meaning": "رؤية"},
+        }
+        invalid = {"choices": [{"message": {"content": '{"title":"SPECT"'}}]}
+        valid_graph = {
+            "choices": [{"message": {"content": json.dumps(graph)}}]
+        }
+        valid_languages = {
+            "choices": [{"message": {"content": json.dumps(languages)}}]
+        }
+        evidence = [
+            Evidence(
+                "root-spect",
+                "SPECT",
+                "S",
+                "Latin",
+                (58,),
+                "Latin spect means look or see.",
+            )
+        ]
+
+        with patch.object(
+            client,
+            "_request",
+            side_effect=[
+                (invalid, 1.0),
+                (valid_graph, 2.0),
+                (valid_languages, 1.0),
+            ],
+        ) as request:
+            result = client.generate("SPECT", "root", evidence)
+
+        self.assertEqual(result["title"], "SPECT")
+        self.assertEqual(result["japanese"]["reading"], "みる")
+        self.assertEqual(request.call_count, 3)
+        first_graph = request.call_args_list[0].args[0]
+        repaired_graph = request.call_args_list[1].args[0]
+        language_call = request.call_args_list[2].args[0]
+        self.assertEqual(first_graph["max_tokens"], 1200)
+        self.assertEqual(repaired_graph["max_tokens"], 1400)
+        self.assertFalse(
+            any(
+                message["role"] == "assistant"
+                for message in repaired_graph["messages"]
+            )
+        )
+        self.assertEqual(language_call["max_tokens"], 384)
+        self.assertEqual(
+            set(result["_preparation_stages"]),
+            {"model-morphology-graph", "model-morphology-languages"},
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
