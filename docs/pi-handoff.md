@@ -8,7 +8,7 @@ indexes, and captured screens are not stored in Git.
 
 | Layer | Verified revision/state |
 |---|---|
-| LKT runtime code | `dbdd281` (`Seed lexical views while idle`) |
+| LKT runtime code | `20c77b9` (`Give ruby annotations breathing room`) |
 | Model | `Qwen3-4B-Q4_K_M.gguf`, 2,497,280,256 bytes |
 | Model SHA-256 | `7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5` |
 | llama.cpp package | pinned `v0.3.0`, source commit `c1d0e7a004015f23bc0233470b747b596f29b264` |
@@ -110,8 +110,8 @@ generation.
   *life* and *alive*. Prompt revision `autonomous-lexical-v1` queued exactly 16
   missing-only jobs; no card text or database atom was entered by hand.
 - Existing accepted content was retained. At audit, 161 independent missing
-  enrichment jobs remained queued; deployment did not replan or regenerate the
-  accepted deck.
+  enrichment jobs remained queued, including the bounded `alive` plan; no
+  existing accepted deck was regenerated.
 
 The LadybugDB traversal projection was rebuilt atomically after the smoke card.
 It contains 286 accepted nodes and 243 accepted edges, fingerprint
@@ -126,6 +126,13 @@ Exactly one Chromium top-level page was left open at the ambient display:
 view with no document scroll or overlap, readable reviewed text, source evidence,
 slide controls, and the card discussion action. The live carousel was on slide
 four of four during capture, confirming automatic slide/card rotation.
+
+A fresh 1920×1080 headless Chromium audit against deployed revision `20c77b9`
+captured Question card `question-115` on Japanese inner slide 3 of 8. Furigana
+occupied a separate annotation band above the large base characters; the full
+sentence, evidence rail, and controls remained visible without overlap, clipping,
+document scroll, or blocked content. The temporary audit image was removed after
+inspection and was not committed.
 
 Direct entry points remain:
 
@@ -149,9 +156,11 @@ not imported by the core service.
 
 - Windows development checkout: 117 unit tests passed; `compileall` and
   JavaScript syntax checks passed.
-- Pi checkout after fast-forward to `dbdd281`: 117 unit tests and `compileall`
-  passed. The runtime image does not install Node.js; JavaScript syntax was
-  therefore checked in the Windows development gate before deployment.
+- Pi checkout after fast-forward to `20c77b9`: 117 full-suite tests passed on
+  the preceding runtime commit; the deployed CSS revision then passed all 10
+  focused web tests and `compileall`. The runtime image does not install Node.js;
+  JavaScript syntax was therefore checked in the Windows development gate before
+  deployment.
 - Live `/api/health`: ready, including all book, morphology, model, knowledge,
   FreeDict correction, and autonomous deck progress status.
 - Real book card: `question-115` was retrieved with source-owned evidence and
