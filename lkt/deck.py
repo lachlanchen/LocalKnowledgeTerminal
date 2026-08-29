@@ -241,6 +241,16 @@ class AutonomousLexicalSeeder:
             if "knowledge" in modes and "word" not in modes
         )
 
+    def _plan_has_pending_work(self, plan: Any) -> bool:
+        statuses = {
+            str(job["job_id"]): str(job["status"])
+            for job in self.knowledge.jobs_for_subject(plan.subject_key)
+        }
+        return any(
+            statuses.get(str(job_id)) in {"queued", "running"}
+            for job_id in plan.jobs.values()
+        )
+
     def run_once(self, seed: str = "") -> DeckSeedResult:
         planned = self._planned_keys()
         progress = self.progress()
@@ -259,6 +269,11 @@ class AutonomousLexicalSeeder:
                 # atoms. Try another repair candidate before new discovery.
                 continue
             else:
+                # A deterministic plan can resolve to previously exhausted
+                # job IDs. Do not report those as newly queued forever or let
+                # one terminally failed word starve Root/Affix and later words.
+                if not self._plan_has_pending_work(plan):
+                    continue
                 return DeckSeedResult(
                     status="queued",
                     mode="lexical",

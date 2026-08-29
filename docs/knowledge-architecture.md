@@ -223,6 +223,10 @@ Autonomous lexical v3 also reuses an already accepted structure split. A failed
 history branch receives one bounded second local-Qwen review with the rejected
 draft and the same exact RAG evidence, so it can correct chronology or remove a
 repeated modern form without redoing any accepted lexical or language atom.
+If a deterministic repair resolves only to terminally failed or completed job
+IDs, the autonomous scheduler skips that exhausted candidate. It never reports
+phantom queued work forever or lets one bad legacy term starve Root/Affix and
+later word investigations.
 The full-screen graph renders relationships as quiet directed arrows; verbose
 edge names stay in card JSON for future inspection instead of overlapping the
 large teaching nodes. Origin-source evidence is ordered before modern lexical

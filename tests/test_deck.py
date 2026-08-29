@@ -3,6 +3,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 from lkt.deck import (
@@ -82,6 +83,34 @@ class _MorphologyModel:
 
 
 class AutonomousDeckTests(unittest.TestCase):
+    def test_lexical_seeder_does_not_treat_exhausted_jobs_as_new_work(self) -> None:
+        class _Knowledge:
+            def jobs_for_subject(self, _subject_key: str) -> list[dict[str, str]]:
+                return [
+                    {"job_id": "failed-origin", "status": "failed"},
+                    {"job_id": "complete-card", "status": "complete"},
+                ]
+
+        seeder = object.__new__(AutonomousLexicalSeeder)
+        seeder.knowledge = _Knowledge()
+        exhausted = SimpleNamespace(
+            subject_key="term:failed",
+            jobs={
+                "expand-origin-branches": "failed-origin",
+                "compose-origin-card": "complete-card",
+            },
+        )
+        self.assertFalse(seeder._plan_has_pending_work(exhausted))
+
+        queued = SimpleNamespace(
+            subject_key="term:queued",
+            jobs={"expand-origin-branches": "new-origin"},
+        )
+        seeder.knowledge.jobs_for_subject = lambda _key: [
+            {"job_id": "new-origin", "status": "queued"}
+        ]
+        self.assertTrue(seeder._plan_has_pending_work(queued))
+
     def test_morphology_seeder_grows_each_polished_book_independently(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
