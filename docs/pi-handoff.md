@@ -266,3 +266,51 @@ not imported by the core service.
   session stopped accepting input. The orphaned `--kiosk` Chromium session was
   removed and the Pi was intentionally left on a normal controllable desktop;
   the duplicate-safe kiosk launcher remains installed for product display use.
+
+## Reboot services and escapable fullscreen deployment
+
+Revisions `270be29`, `4b38e0d`, and `d46315e` are deployed. The display now
+uses Chromium app-mode `--start-fullscreen`, never locked `--kiosk`. A
+display-only Escape handler closes the app window and returns to the normal
+VNC desktop; ordinary browser routes do not inherit that behavior. A physical
+Wayland Escape event was exercised against the live app and the transient
+display process became inactive while the model, web, and worker services
+remained independent. The app was then relaunched and left at a Chromium-
+reported 1920x1080 `fullscreen` window with exactly one page target at the bare
+`http://127.0.0.1:8090/?display` ambient route.
+
+`scripts/install_services.sh` is now the single idempotent service installer.
+It validates and installs all three units and the XDG display entry, enables
+LightDM plus model/web/worker for boot, starts in model → web → worker order,
+waits for the local model, and requires `/api/health` to report `ready`.
+`scripts/update_pi.sh` performs fast-forward-only Git update and the complete
+test gate before a controlled service restart. `scripts/update_pi_tmux.sh`
+runs that path in the durable `lkt-update` session and stores its log outside
+Git. The live deployment itself completed successfully from that tmux session.
+
+Boot wiring was verified without forcing a device reboot: LightDM is enabled
+with the existing `lachlan` graphical auto-login, the XDG autostart entry is
+installed, and `lkt-llm`, `lkt-web`, and `lkt-worker` are enabled and active.
+The installed launcher/autostart SHA-256 values match the checked-out files.
+Invoking the launcher while the app is running kept the page-target count at
+1 → 1. Closing the display does not affect the three system services.
+
+The persistence path was also verified live. Immediately after service
+recovery the atomic queue changed from 84 queued jobs to 83, then continued to
+68 while accepted grammar artifacts accumulated. A separate real-book proof
+used local Qwen plus retrieved evidence to accept Answer card
+`c730803c-f98d-4ed9-b629-2b780eea2f1d` from `answer-133` (page 139, “Don't look
+down on others”). The accepted Answer collection advanced from 30 to 31 and
+the API returned the stored evidence and card. Existing accepted cards remain
+database reads; missing lexical requests become persistent atomic plans; the
+idle coordinator adds only one unseen book or lexical source at a time.
+
+Live revisions and validation on 2026-08-29:
+
+- Source: `d46315e`; service deployment foundation: `4b38e0d`.
+- Model: `Qwen3-4B-Q4_K_M.gguf` through llama.cpp `0.3.0-dev`, Linux aarch64.
+- Knowledge runtime: Python 3.11.2.
+- Pi full suite: 126 tests in 37.537 seconds; `compileall` passed.
+- Windows final display change: 126 tests in 73.730 seconds; `compileall` and
+  JavaScript syntax passed.
+- `/api/health`: `ready`; web, model, worker, LightDM, and WayVNC active.
