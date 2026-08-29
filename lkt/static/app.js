@@ -845,23 +845,23 @@ function graphTextLines(value, maxWidth, fontSize, fontWeight = 650) {
 function graphNodeMetrics(node, isCenter) {
   const term = String(node.form || "—");
   const meaning = String(node.meaning || "");
-  const termFontSize = isCenter ? 22 : 18;
-  const meaningFontSize = isCenter ? 15 : 13.5;
-  const minimumWidth = isCenter ? 238 : 184;
-  const maximumWidth = isCenter ? 380 : 320;
+  const termFontSize = isCenter ? 24 : 20;
+  const meaningFontSize = isCenter ? 17 : 15;
+  const minimumWidth = isCenter ? 300 : 240;
+  const maximumWidth = isCenter ? 480 : 420;
   const contentLength = [...`${term} ${meaning}`].length;
-  const naturalTermWidth = graphTextWidth(term, termFontSize, 950) + (isCenter ? 52 : 28);
-  const densityWidth = minimumWidth + Math.sqrt(Math.max(0, contentLength - 28)) * 10;
+  const naturalTermWidth = graphTextWidth(term, termFontSize, 950) + (isCenter ? 64 : 42);
+  const densityWidth = minimumWidth + Math.sqrt(Math.max(0, contentLength - 24)) * 12;
   const nodeWidth = Math.round(Math.max(
     minimumWidth,
     Math.min(maximumWidth, Math.max(naturalTermWidth, densityWidth)),
   ));
-  const contentWidth = nodeWidth - (isCenter ? 42 : 24);
+  const contentWidth = nodeWidth - (isCenter ? 52 : 36);
   const termLines = graphTextLines(term, contentWidth, termFontSize, 950);
   const meaningLines = graphTextLines(meaning, contentWidth, meaningFontSize, 650);
   const copyHeight = termLines * termFontSize * 1.08
     + (meaningLines ? 7 + meaningLines * meaningFontSize * 1.22 : 0);
-  const nodeHeight = Math.ceil(Math.max(isCenter ? 138 : 106, 37 + copyHeight + 14));
+  const nodeHeight = Math.ceil(Math.max(isCenter ? 164 : 132, 42 + copyHeight + 18));
   return {
     nodeWidth,
     nodeHeight,
@@ -1024,8 +1024,9 @@ function fitGraphView({ wholeGraph = false, animate = false } = {}) {
 function scheduleGraphViewportFit(delay = 90) {
   window.clearTimeout(graphViewportFitTimer);
   graphViewportFitTimer = window.setTimeout(() => {
-    layoutGraphForCanvas();
-    fitGraphView();
+    const focus = graphFocusAreas[graphFocusIndex];
+    layoutGraphForCurrentFocus(focus);
+    fitGraphView({ wholeGraph: focus?.kind === "overview" });
   }, delay);
 }
 
@@ -1054,10 +1055,11 @@ function showGraphFocus(requestedIndex, animate = true) {
     focusNodes.addClass("focus-node");
     overviewCy?.nodes().filter((node) => ids.has(node.id())).addClass("focus-node");
   }
-  fitGraphView({ wholeGraph: focus.kind === "overview", animate });
   text("#graph-focus-headline", focus.headline || focus.label);
   optionalText("#graph-focus-explanation", focus.explanation);
   renderGraphFocusAnnotations(focus);
+  layoutGraphForCurrentFocus(focus);
+  fitGraphView({ wholeGraph: focus.kind === "overview", animate });
   text("#graph-focus-position", `${graphFocusIndex + 1} / ${graphFocusAreas.length}`);
   all("#graph-focus-dots button").forEach((button, index) => {
     button.classList.toggle("active", index === graphFocusIndex);
@@ -1106,6 +1108,57 @@ function layoutGraphForCanvas() {
     overviewCy.nodes().positions((node) => originCy.$id(node.id()).position());
     overviewCy.fit(overviewCy.elements(), 9);
   }
+}
+
+function layoutFocusedGraphForCanvas(focus) {
+  if (!originCy || !focus) return;
+  const requestedIds = Array.isArray(focus.node_ids) ? focus.node_ids : [];
+  const nodes = requestedIds
+    .map((id) => originCy.$id(id))
+    .filter((node) => node.length && !node.hasClass("dimmed"));
+  if (!nodes.length) return;
+  if (nodes.length === 1) {
+    nodes[0].position({ x: 0, y: 0 });
+    return;
+  }
+
+  const canvas = $("#origin-canvas");
+  const aspect = Math.max(.8, canvas.clientWidth / Math.max(1, canvas.clientHeight));
+  const columns = nodes.length <= 3
+    ? nodes.length
+    : Math.min(nodes.length, Math.max(2, Math.ceil(Math.sqrt(nodes.length * aspect))));
+  const gapX = 96;
+  const gapY = 82;
+  const rows = [];
+  for (let start = 0; start < nodes.length; start += columns) {
+    rows.push(nodes.slice(start, start + columns));
+  }
+  const rowHeights = rows.map((row) => Math.max(...row.map((node) => node.data("nodeHeight"))));
+  const totalHeight = rowHeights.reduce((sum, height) => sum + height, 0)
+    + gapY * Math.max(0, rows.length - 1);
+  let rowTop = -totalHeight / 2;
+  rows.forEach((row, rowIndex) => {
+    const rowWidth = row.reduce((sum, node) => sum + node.data("nodeWidth"), 0)
+      + gapX * Math.max(0, row.length - 1);
+    let left = -rowWidth / 2;
+    row.forEach((node) => {
+      const width = node.data("nodeWidth");
+      node.position({
+        x: left + width / 2,
+        y: rowTop + rowHeights[rowIndex] / 2,
+      });
+      left += width + gapX;
+    });
+    rowTop += rowHeights[rowIndex] + gapY;
+  });
+}
+
+function layoutGraphForCurrentFocus(focus = graphFocusAreas[graphFocusIndex]) {
+  if (!focus || focus.kind === "overview") {
+    layoutGraphForCanvas();
+    return;
+  }
+  layoutFocusedGraphForCanvas(focus);
 }
 
 function repelGraphNodes(cy, centerId, iterations = 160) {
