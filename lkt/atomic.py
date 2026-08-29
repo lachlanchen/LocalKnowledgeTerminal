@@ -94,6 +94,23 @@ _GRAMMAR_COLORS = {
     "clause": "grammar-clause",
     "other": "grammar-other",
 }
+_GRAMMAR_ROLE_PARTS_OF_SPEECH = {
+    "subject": {"noun", "pronoun", "phrase", "clause"},
+    "predicate": {"verb", "auxiliary", "phrase", "clause"},
+    "object": {"noun", "pronoun", "phrase", "clause"},
+    "modifier": {
+        "adjective",
+        "adverb",
+        "preposition",
+        "determiner",
+        "numeral",
+        "auxiliary",
+        "phrase",
+        "clause",
+    },
+    "connector": {"conjunction", "particle"},
+    "clause": {"phrase", "clause"},
+}
 
 
 _ORIGIN_LANGUAGE_CODES = {
@@ -220,6 +237,19 @@ def _align_grammar_parts(
     if "".join(str(part["surface"]) for part in aligned) != text:
         raise ValueError("grammar parts do not reconstruct the reviewed text")
     return aligned
+
+
+def _grammar_role_matches(role: str, part_of_speech: str, surface: str) -> bool:
+    """Reject internally contradictory role labels without parsing language."""
+
+    if role == "other":
+        return True
+    allowed = _GRAMMAR_ROLE_PARTS_OF_SPEECH.get(role, set())
+    if part_of_speech not in allowed:
+        return False
+    if role == "connector" and len(surface.strip()) > 32:
+        return False
+    return True
 
 
 def _has_repeated_arabic_content_word(value: str) -> bool:
@@ -1618,6 +1648,10 @@ return text outside the JSON object."""
                 raise ValueError("grammar role is invalid")
             if part_of_speech not in _GRAMMAR_PARTS_OF_SPEECH:
                 raise ValueError("grammar part of speech is invalid")
+            if not _grammar_role_matches(
+                role, part_of_speech, str(item["surface"])
+            ):
+                raise ValueError("grammar role contradicts its part of speech")
             if any(marker in lemma for marker in _ENCODING_DAMAGE):
                 raise ValueError("grammar lemma has encoding damage")
             try:

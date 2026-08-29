@@ -16,6 +16,7 @@ from lkt.atomic import (
     _collapse_repeated_arabic_alternative,
     _explicit_form_evidence_ids,
     _has_repeated_arabic_content_word,
+    _grammar_role_matches,
     _lexically_related,
     _clean_morpheme_meaning,
     _align_grammar_parts,
@@ -414,6 +415,18 @@ class AtomicWorkerTests(unittest.TestCase):
                 "A complete reviewed sentence.",
                 [{"surface": "A complete", "role": "subject"}],
             )
+
+    def test_grammar_roles_reject_semantically_contradictory_labels(self) -> None:
+        self.assertTrue(_grammar_role_matches("subject", "phrase", "you"))
+        self.assertTrue(_grammar_role_matches("predicate", "verb", "consider"))
+        self.assertFalse(_grammar_role_matches("subject", "verb", "you consider"))
+        self.assertFalse(
+            _grammar_role_matches(
+                "connector",
+                "conjunction",
+                "Would you do anything about it? If so, what?",
+            )
+        )
 
     def test_artifact_quality_uses_payload_confidence_only_when_metadata_is_missing(
         self,

@@ -210,7 +210,8 @@ Content enrichment follows the same rule: sentence grammar and investigation
 candidates are separate tasks. `prepare-grammar-parts` makes one bounded Qwen
 call for one reviewed language. The validator aligns the proposed phrases back
 to the original string, rejects omissions or rewrites, links the accepted
-analysis to its source evidence, and records the model/prompt revision. English,
+analysis to its source evidence, rejects incompatible role/part-of-speech pairs,
+and records the model/prompt revision. English,
 Japanese, and Chinese therefore fail and retry independently. The browser reads
 the accepted analysis from the shared card JSON and applies restrained role
 colors directly to the existing sentence/ruby carousel; it does not create a
