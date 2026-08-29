@@ -587,3 +587,13 @@ source was live dictation and may contain recognition errors:
 - Keep the browser, web service, model service, and worker independently
   recoverable. A closed or escaped display must not stop inference or database
   preparation, and a failed draft must never enter the visible loop.
+
+## Configurable ambient mode loop
+
+- Make the default ambient order explicit: Question → Answer → Word Card →
+  Word Origin → Root → Affix, then repeat.
+- Let display settings select exactly one tab or any subset of tabs. Select all
+  six by default and always retain their canonical relative order.
+- Within each selected mode, randomize the saved-card pass by default. Provide
+  a linear option that uses stable saved order. Inner language, sentence, and
+  graph-focus slides remain deterministic and never shuffle.

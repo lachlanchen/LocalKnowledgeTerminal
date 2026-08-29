@@ -41,13 +41,19 @@ yet. They are future references only.
 
 ## Independent modes
 
-The bare terminal opens the accepted Book of Answers carousel first so a stable
-local draw is visible immediately. After the current card finishes every inner
-slide, the ambient journey follows Question → Answer → Word Card → Word Origin
-→ Root → Affix and repeats. These remain separate mode-local collections: the
-journey selects one accepted card from each mode's own non-repeating shuffled
-pass rather than mixing records into one deck. A newly accepted card receives
+The bare terminal opens the accepted Book of Questions carousel first so a
+stable local draw is visible immediately. After the current card finishes every
+inner slide, the ambient journey follows Question → Answer → Word Card → Word
+Origin → Root → Affix and repeats. These remain separate mode-local
+collections: the journey selects one accepted card from each mode's own
+non-repeating shuffled pass rather than mixing records into one deck. A newly
+accepted card receives
 priority within its mode. Model Lab is never part of ambient playback.
+
+Ambient settings may select one mode or any subset of those six modes. The
+default selects all and preserves the canonical cross-mode order. Each mode's
+saved-card pass is random by default or may use stable newest-to-oldest order;
+inner language and focus slides are always deterministic.
 
 Selecting a tab or using a `?mode=` URL disables the cross-mode journey and
 keeps autoplay inside that exact mode. Pointer, touch, keyboard, or focused

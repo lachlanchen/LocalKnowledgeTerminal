@@ -125,9 +125,11 @@ Affix focus views from the same accepted atoms. Existing, queued, attempted, and
 accepted terms are excluded, so this is a missing-only walk rather than a
 regeneration loop.
 
-The bare browser remains Answer-first so a useful cited card appears
-immediately. After a card has completed every inner slide, ambient playback
-continues through Question → Answer → Word Card → Word Origin → Root → Affix.
+The bare browser starts with Question, then continues through Answer → Word
+Card → Word Origin → Root → Affix after each card completes every inner slide.
+Display settings may select any one mode or any subset while preserving that
+canonical order; all six are selected by default. Saved cards are shuffled
+within each selected mode by default, with a stable newest-to-oldest option.
 Each mode owns an independent accepted-only shuffled pass, so crossing tabs does
 not collapse their collections or repeat the same card on every visit. Newly
 accepted cards are placed first in that mode's remaining pass. An explicit tab

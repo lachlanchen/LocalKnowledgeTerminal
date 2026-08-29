@@ -16,8 +16,8 @@
         </a>
 
         <nav class="mode-switch" aria-label="Experience">
-          <button class="mode" data-mode="question"><span>01</span>Question</button>
-          <button class="mode active" data-mode="answer"><span>02</span>Answer</button>
+          <button class="mode active" data-mode="question"><span>01</span>Question</button>
+          <button class="mode" data-mode="answer"><span>02</span>Answer</button>
           <button class="mode" data-mode="knowledge"><span>03</span>Word card</button>
           <button class="mode" data-mode="word"><span>04</span>Word origin</button>
           <button class="mode" data-mode="root"><span>05</span>Root</button>
@@ -212,8 +212,22 @@
             <label><input type="checkbox" value="ar" data-setting-language /><span>AR</span><small>Arabic</small></label>
           </div>
         </section>
+        <section class="settings-section settings-loop-section">
+          <div class="settings-section-copy">
+            <strong>Ambient mode loop</strong>
+            <small id="settings-loop-scope">ALL 6 MODES</small>
+          </div>
+          <div class="settings-mode-options" id="settings-mode-options">
+            <label><input type="checkbox" value="question" data-setting-mode /><span>Question</span></label>
+            <label><input type="checkbox" value="answer" data-setting-mode /><span>Answer</span></label>
+            <label><input type="checkbox" value="knowledge" data-setting-mode /><span>Word Card</span></label>
+            <label><input type="checkbox" value="word" data-setting-mode /><span>Origin</span></label>
+            <label><input type="checkbox" value="root" data-setting-mode /><span>Root</span></label>
+            <label><input type="checkbox" value="affix" data-setting-mode /><span>Affix</span></label>
+          </div>
+        </section>
         <label class="settings-toggle">
-          <span><strong>Random saved cards</strong><small>New cards still appear next. Inner slides always play in order.</small></span>
+          <span><strong>Random cards inside each mode</strong><small>On shuffles each saved deck; off uses stable newest-to-oldest order. Inner slides always play in order.</small></span>
           <input id="random-cards-setting" type="checkbox" role="switch" />
         </label>
         <footer>

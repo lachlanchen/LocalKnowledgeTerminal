@@ -3,7 +3,7 @@
 const $ = (selector) => document.querySelector(selector);
 const all = (selector) => [...document.querySelectorAll(selector)];
 const wait = (milliseconds) => new Promise((resolve) => window.setTimeout(resolve, milliseconds));
-let mode = "answer";
+let mode = "question";
 let activeCardId = null;
 let activeCard = null;
 let visibleView = "empty";
@@ -44,6 +44,7 @@ const DISPLAY_SETTINGS_STORAGE_KEY = "lkt-display-settings-v1";
 const DISPLAY_LANGUAGE_CODES = ["en", "ja", "zh", "fr", "ar"];
 const DEFAULT_DISPLAY_SETTINGS = {
   randomCards: true,
+  ambientModes: [...AMBIENT_MODE_ORDER],
   languages: {
     book: ["en", "ja", "zh"],
     lexical: ["en", "ja", "zh", "fr", "ar"],
@@ -143,6 +144,7 @@ const SOURCE_TITLES = {
 function defaultDisplaySettings() {
   return {
     randomCards: DEFAULT_DISPLAY_SETTINGS.randomCards,
+    ambientModes: [...DEFAULT_DISPLAY_SETTINGS.ambientModes],
     languages: {
       book: [...DEFAULT_DISPLAY_SETTINGS.languages.book],
       lexical: [...DEFAULT_DISPLAY_SETTINGS.languages.lexical],
@@ -163,6 +165,10 @@ function loadDisplaySettings() {
       if (selected.length) defaults.languages[profile] = [...new Set(selected)];
     });
     defaults.randomCards = saved.randomCards !== false;
+    const ambientModes = Array.isArray(saved.ambientModes)
+      ? AMBIENT_MODE_ORDER.filter((cardMode) => saved.ambientModes.includes(cardMode))
+      : [];
+    if (ambientModes.length) defaults.ambientModes = ambientModes;
   } catch (_error) {
     // Private browsing and locked-down kiosk profiles may deny local storage.
   }
@@ -179,6 +185,12 @@ function saveDisplaySettings() {
 
 function languageProfileForMode(cardMode = mode) {
   return ["answer", "question"].includes(cardMode) ? "book" : "lexical";
+}
+
+function activeAmbientModeOrder() {
+  return AMBIENT_MODE_ORDER.filter((cardMode) => (
+    displaySettings.ambientModes.includes(cardMode)
+  ));
 }
 
 function visibleLanguages(cardMode = mode) {
@@ -208,6 +220,15 @@ function syncSettingsControls() {
     input.checked = selected.has(input.value);
     input.closest("label").classList.toggle("unavailable", input.disabled);
   });
+  const ambientModes = new Set(activeAmbientModeOrder());
+  all("[data-setting-mode]").forEach((input) => {
+    input.checked = ambientModes.has(input.value);
+  });
+  const loopCount = ambientModes.size;
+  text(
+    "#settings-loop-scope",
+    loopCount === 6 ? "ALL 6 MODES" : `${loopCount} MODE${loopCount === 1 ? "" : "S"}`,
+  );
   $("#random-cards-setting").checked = displaySettings.randomCards;
 }
 
@@ -219,8 +240,18 @@ function applySettingsControls() {
     $("[data-setting-language][value='en']").checked = true;
   }
   displaySettings.languages[profile] = selected;
+  let ambientModes = all("[data-setting-mode]:checked").map((input) => input.value);
+  if (!ambientModes.length) {
+    const fallbackMode = AMBIENT_MODE_ORDER.includes(mode) ? mode : AMBIENT_MODE_ORDER[0];
+    ambientModes = [fallbackMode];
+    $(`[data-setting-mode][value='${fallbackMode}']`).checked = true;
+  }
+  displaySettings.ambientModes = AMBIENT_MODE_ORDER.filter((cardMode) => (
+    ambientModes.includes(cardMode)
+  ));
   displaySettings.randomCards = $("#random-cards-setting").checked;
   saveDisplaySettings();
+  ambientModeIndex = 0;
   ambientModeDecks.clear();
   if (activeCard?.mode === mode) renderCard(activeCard, false);
   if (mode !== "chat") rebuildModeCarousel(false);
@@ -1957,9 +1988,10 @@ async function acceptedCardsForMode(cardMode) {
 }
 
 async function advanceAmbientMode(activityRevision) {
-  for (let attempt = 0; attempt < AMBIENT_MODE_ORDER.length; attempt += 1) {
-    const nextMode = AMBIENT_MODE_ORDER[ambientModeIndex % AMBIENT_MODE_ORDER.length];
-    ambientModeIndex = (ambientModeIndex + 1) % AMBIENT_MODE_ORDER.length;
+  const enabledModes = activeAmbientModeOrder();
+  for (let attempt = 0; attempt < enabledModes.length; attempt += 1) {
+    const nextMode = enabledModes[ambientModeIndex % enabledModes.length];
+    ambientModeIndex = (ambientModeIndex + 1) % enabledModes.length;
     let cards;
     try {
       cards = await acceptedCardsForMode(nextMode);
@@ -2194,7 +2226,7 @@ $("#settings-button").addEventListener("click", () => {
   else dialog.setAttribute("open", "");
   noteActivity();
 });
-all("[data-setting-language]").forEach((input) => input.addEventListener("change", applySettingsControls));
+all("[data-setting-language], [data-setting-mode]").forEach((input) => input.addEventListener("change", applySettingsControls));
 $("#random-cards-setting").addEventListener("change", applySettingsControls);
 $("#reset-settings").addEventListener("click", resetDisplaySettings);
 $("#settings-dialog").addEventListener("click", (event) => {
@@ -2220,7 +2252,9 @@ document.addEventListener("focusin", () => noteActivity(true));
 window.addEventListener("resize", () => scheduleGraphViewportFit(120), { passive: true });
 
 const initialParameters = new URLSearchParams(location.search);
-const initialMode = MODE_COPY[initialParameters.get("mode")] ? initialParameters.get("mode") : "answer";
+const initialMode = MODE_COPY[initialParameters.get("mode")]
+  ? initialParameters.get("mode")
+  : activeAmbientModeOrder()[0];
 ambientRouting = !initialParameters.has("mode");
 setMode(initialMode);
 if (initialParameters.has("display")) document.body.classList.add("display-mode");
