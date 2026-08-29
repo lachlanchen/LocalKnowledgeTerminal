@@ -8,8 +8,8 @@ indexes, and captured screens are not stored in Git.
 
 | Layer | Verified revision/state |
 |---|---|
-| Pi checkout | `6712508` (`Install the kiosk launcher globally`) |
-| Browser behavior | `f1299e8` (`Cycle accepted modes while ambient`) |
+| Pi checkout | `2fc32cd` (`Give ruby annotations more separation`) |
+| Browser behavior | `2fc32cd` (`Give ruby annotations more separation`) |
 | Model | `Qwen3-4B-Q4_K_M.gguf`, 2,497,280,256 bytes |
 | Model SHA-256 | `7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5` |
 | llama.cpp package | pinned `v0.3.0`, source commit `c1d0e7a004015f23bc0233470b747b596f29b264` |
@@ -135,6 +135,16 @@ sentence, evidence rail, and controls remained visible without overlap, clipping
 document scroll, or blocked content. The temporary audit image was removed after
 inspection and was not committed.
 
+Revision `2fc32cd` widens that band again after the first pass still felt tight:
+it moves the ruby annotation itself away from the base glyph, increases the
+reserved line height, and gives adjacent ruby groups more horizontal air. A new
+live 1920×1080 audit used the accepted Question card “Heat and Help” with one
+book-owned evidence record, 62 Japanese ruby tokens, and 64 Chinese ruby tokens.
+Japanese slide 3 of 8 and Chinese slide 6 of 8 both had zero document or stage
+overflow; their complete text remained inside the sentence stage. The temporary
+capture was removed and the one Chromium target was restored to the bare
+`?display` route.
+
 Deployed revision `f1299e8` adds a true cross-mode ambient journey without
 merging the six collections. A live Chromium protocol audit on the Pi traversed
 these accepted card modes and IDs in order:
@@ -184,10 +194,11 @@ not imported by the core service.
 
 ## Validation performed
 
-- Windows development checkout: 119 unit tests passed; `compileall` and
-  JavaScript syntax checks passed.
-- Pi checkout after fast-forward to `6712508`: 119 full-suite tests passed in
-  48.757 seconds; `compileall`, `bash -n`, and `desktop-file-validate` passed.
+- Windows development checkout at `2fc32cd`: 119 unit tests passed in 73.069
+  seconds; `compileall` and JavaScript syntax checks passed.
+- Pi checkout after fast-forward to `2fc32cd`: 119 full-suite tests passed in
+  49.749 seconds; `compileall` passed. Earlier launcher validation at `6712508`
+  also passed `bash -n` and `desktop-file-validate`.
   The runtime image does not install Node.js; JavaScript syntax was therefore
   checked in the Windows development gate before deployment.
 - Live `/api/health`: ready, including all book, morphology, model, knowledge,
