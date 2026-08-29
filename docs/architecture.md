@@ -39,10 +39,12 @@ remain independent of that background pause.
 
 Autonomous scheduling is based on accepted visible-card counts, not source-book
 percentages. A bounded periodic balance pass selects the least-populated stage
-in Question â†’ Answer â†’ Word Card/Origin/Root/Affix order. Only one lexical
-subject may remain unfinished, and lexical atomic jobs are claimed before
-optional accepted-book grammar enrichment. This lets the slower four-view
-lexical bundle catch up without creating an unbounded preparation queue.
+in Question â†’ Answer â†’ Word Card â†’ Word Origin â†’ Root â†’ Affix order. Word
+Card and Word Origin share one bounded atomic word plan. Root and Affix instead
+draw one unseen primary record from their respective polished book, attach
+relevant cross-book evidence, and run their own local-Qwen graph composition.
+This lets every product catch up without inventing morphology or creating an
+unbounded preparation queue.
 
 The browser exposes two carousel levels over the acquired-knowledge ledger. The
 outer carousel is filtered by mode, so autoplay never changes an Origin into a

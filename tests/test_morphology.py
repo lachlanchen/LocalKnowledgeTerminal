@@ -80,6 +80,18 @@ class MorphologyTests(unittest.TestCase):
             self.assertEqual(index.exact("look"), [])
             self.assertEqual(index.exact("SPECT")[0].headword, "SPECT")
 
+    def test_draw_unseen_reaches_each_real_record_without_repeating(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            index = make_morphology_index(Path(temp))
+            first = index.draw_unseen("daily-cycle", set())
+            self.assertIsNotNone(first)
+            second = index.draw_unseen("daily-cycle", {first.entry_id})
+            self.assertIsNotNone(second)
+            self.assertNotEqual(first.entry_id, second.entry_id)
+            self.assertIsNone(
+                index.draw_unseen("daily-cycle", {first.entry_id, second.entry_id})
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

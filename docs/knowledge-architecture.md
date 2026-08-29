@@ -17,15 +17,18 @@ fingerprint and can be replaced or rebuilt without model inference.
 
 The installed atomic worker owns one bounded periodic balance action. It counts
 accepted cards in Question, Answer, Word Card, Word Origin, Root, and Affix,
-then advances the least-populated product stage. One lexical plan feeds the four
-lexical views, so the scheduler treats those views as a shared bounded action
-and never starts another autonomous lexical subject while one is unfinished.
-A seeded circular scan makes every source record reachable; stable book entry
-and planned-term identities prevent repetition across service restarts.
+then advances the least-populated product stage. Word Card and Word Origin share
+one lexical investigation and never start a second autonomous lexical subject
+while one is unfinished. Root and Affix are first-class book-RAG products: each
+selects one unseen record from its own polished index, retrieves useful support
+from the other morphology index, and asks local Qwen for one evidence-labelled
+connected graph. A seeded circular scan makes every source record reachable;
+stable source identities prevent repetition across service restarts.
 
-Retrieval chooses and owns that exact record. Local Qwen produces only the
-bounded card title/reflection, after which normal composition restores the
-reviewed English, Japanese, and Chinese text from evidence. Publication runs
+Retrieval chooses and owns each exact record. For Answer/Question, local Qwen
+produces only the bounded title/reflection and composition restores reviewed
+translations. For Root/Affix, Qwen organizes retrieved book facts plus clearly
+labelled model knowledge into a reusable multilingual graph. Publication runs
 through the same clean-Unicode, provenance, and card-schema gate as an
 interactive request. Accepted text is acquired into normalized knowledge and
 one exact-source vocabulary investigation is queued. Failed drafts remain

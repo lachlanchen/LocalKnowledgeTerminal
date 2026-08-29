@@ -6,6 +6,7 @@ from typing import Any, Iterable
 
 from .corpus import CorpusIndex
 from .knowledge import KnowledgeStore
+from .morphology import MorphologyIndex
 from .preparation import PreparationPlanner
 from .service import CardService
 from .store import CardStore
@@ -312,21 +313,167 @@ class AutonomousLexicalSeeder:
         return self.run_once(seed)
 
 
+class AutonomousMorphologySeeder:
+    """Grow Root and Affix from their own polished books with local Qwen RAG."""
+
+    MODES = ("root", "affix")
+
+    def __init__(
+        self,
+        service: CardService,
+        store: CardStore,
+        *,
+        modes: Iterable[str] = MODES,
+    ):
+        self.service = service
+        self.store = store
+        self.modes = tuple(
+            dict.fromkeys(
+                mode.strip()
+                for mode in modes
+                if mode.strip() in self.MODES
+                and mode.strip() in service.morphology
+                and mode.strip() in service.rag_engines
+            )
+        )
+        if not self.modes:
+            raise ValueError("autonomous morphology needs a root or affix index")
+
+    def _prepared_record_ids(self) -> dict[str, set[str]]:
+        prepared = {mode: set() for mode in self.modes}
+        corpus_ids = {
+            mode: self.service.morphology[mode].metadata().get("corpus_id", "")
+            for mode in self.modes
+        }
+        for card in self.store.accepted_for_modes(self.modes):
+            mode = str(card.get("mode", ""))
+            evidence = card.get("evidence")
+            if mode not in prepared or not isinstance(evidence, list):
+                continue
+            for item in evidence:
+                if not isinstance(item, dict):
+                    continue
+                if str(item.get("corpus_id", "")) != corpus_ids[mode]:
+                    continue
+                record_id = str(item.get("entry_id", "")).strip()
+                if record_id:
+                    prepared[mode].add(record_id)
+        return prepared
+
+    def progress(self) -> dict[str, Any]:
+        prepared = self._prepared_record_ids()
+        modes: dict[str, dict[str, int | bool]] = {}
+        for mode in self.modes:
+            total = self.service.morphology[mode].count()
+            accepted = min(len(prepared[mode]), total)
+            modes[mode] = {
+                "accepted": accepted,
+                "total": total,
+                "remaining": max(0, total - accepted),
+                "complete": accepted >= total,
+            }
+        accepted_total = sum(int(item["accepted"]) for item in modes.values())
+        source_total = sum(int(item["total"]) for item in modes.values())
+        return {
+            "ready": True,
+            "accepted": accepted_total,
+            "total": source_total,
+            "remaining": max(0, source_total - accepted_total),
+            "complete": accepted_total >= source_total,
+            "modes": modes,
+        }
+
+    def run_once(self, seed: str = "") -> DeckSeedResult:
+        prepared = self._prepared_record_ids()
+        ranked = sorted(
+            self.modes,
+            key=lambda mode: (
+                len(prepared[mode]) / max(1, self.service.morphology[mode].count()),
+                self.modes.index(mode),
+            ),
+        )
+        for mode in ranked:
+            result = self.run_mode(mode, seed)
+            if result.status != "complete":
+                return result
+        return DeckSeedResult(
+            status="complete",
+            mode="morphology",
+            message="every polished Root and Affix record already has a card",
+        )
+
+    def run_mode(self, mode: str, seed: str = "") -> DeckSeedResult:
+        if mode not in self.modes:
+            raise ValueError(f"autonomous morphology mode is unavailable: {mode!r}")
+        prepared = self._prepared_record_ids()[mode]
+        index: MorphologyIndex = self.service.morphology[mode]
+        total = index.count()
+        evidence = index.draw_unseen(
+            seed.strip() or f"{time.time_ns()}:{mode}:{len(prepared)}", prepared
+        )
+        if evidence is None:
+            return DeckSeedResult(
+                status="complete",
+                mode=mode,
+                prepared=len(prepared),
+                total=total,
+                message=f"every polished {mode} record already has an accepted card",
+            )
+
+        # Keep the selected primary book record first and let the mode-local
+        # RAG engine attach only useful companion evidence from the other book.
+        retrieved = self.service.rag_engines[mode].retrieve(evidence.headword)
+        evidence_set = [evidence]
+        seen = {(evidence.corpus_id, evidence.entry_id)}
+        for item in retrieved:
+            key = (item.corpus_id, item.entry_id)
+            if key not in seen:
+                evidence_set.append(item)
+                seen.add(key)
+        try:
+            card = self.service.create_from_evidence(
+                evidence.headword, mode, evidence_set
+            )
+        except Exception as exc:
+            return DeckSeedResult(
+                status="deferred",
+                mode=mode,
+                source_entry_id=evidence.entry_id,
+                prepared=len(prepared),
+                total=total,
+                message=str(exc)[:300],
+            )
+        return DeckSeedResult(
+            status="prepared",
+            mode=mode,
+            source_entry_id=evidence.entry_id,
+            card_id=card.card_id,
+            prepared=min(len(prepared) + 1, total),
+            total=total,
+            message=(
+                f"local Qwen accepted one {mode} graph from its polished book; "
+                "retrieval, draft, normalized JSON, and publication were saved"
+            ),
+        )
+
+
 class BalancedProductSeeder:
     """Grow the six visible product modes as balanced, bounded rounds."""
 
     MODES = ("question", "answer", "knowledge", "word", "root", "affix")
-    LEXICAL_MODES = frozenset(("knowledge", "word", "root", "affix"))
+    LEXICAL_MODES = frozenset(("knowledge", "word"))
 
     def __init__(
         self,
         book: AutonomousDeckSeeder,
         lexical: AutonomousLexicalSeeder,
         store: CardStore,
+        morphology: AutonomousMorphologySeeder | None = None,
     ):
         self.book = book
         self.lexical = lexical
         self.store = store
+        self.morphology = morphology
 
     def counts(self) -> dict[str, int]:
         counts = {mode: 0 for mode in self.MODES}
@@ -349,6 +496,10 @@ class BalancedProductSeeder:
                 continue
             attempted.add(action)
             if action == "lexical":
+                result = self.lexical.run_bounded_once()
+            elif action in {"root", "affix"} and self.morphology is not None:
+                result = self.morphology.run_mode(action)
+            elif action in {"root", "affix"}:
                 result = self.lexical.run_bounded_once()
             elif action in self.book.modes:
                 result = self.book.run_mode(action)

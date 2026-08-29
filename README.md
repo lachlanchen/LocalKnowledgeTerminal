@@ -108,9 +108,11 @@ are checkpointed immediately; one weak language or branch can be retried without
 discarding the rest.
 
 The installed low-priority worker grows all six visible decks as balanced
-rounds: Question, Answer, then one shared lexical plan for Word Card, Word
-Origin, Root, and Affix. It always chooses the least-populated visible mode, so
-the fast reviewed-book path cannot run far ahead of the slower lexical path.
+rounds. Question and Answer draw from their own reviewed books; Word Card and
+Word Origin share one bounded atomic word investigation; Root and Affix each
+draw independently from their own polished dictionary and use the other
+morphology book only as relevant companion RAG. It always chooses the
+least-populated visible mode, so no fast path can run far ahead of another.
 During catch-up it pauses new Question/Answer draws and keeps at most one
 unfinished autonomous lexical subject in flight. The balance check runs at a
 bounded interval even while optional enrichment remains queued; lexical jobs
@@ -118,11 +120,10 @@ are claimed before that book grammar enrichment.
 
 Each unseen source still passes through its normal local-Qwen, RAG, and
 publication gates. Stable source and term identities prevent repeats across
-restarts. Word Card can publish independently; a successful origin composition
-publishes Word Origin and derives its Root and Affix views from the same
-accepted atoms. Only terms with a real atomic plan or accepted card count as
-planned, so vocabulary merely discovered inside a book sentence remains
-eligible for later preparation.
+restarts. Atomic word analysis may derive a Root/Affix view when the word
+genuinely contains one, but independent Root/Affix book walks guarantee that
+those products grow even when a selected word has no productive affix. No
+component is invented merely to balance the tabs.
 
 The bare browser starts with Question, then continues through Answer → Word
 Card → Word Origin → Root → Affix after each card completes every inner slide.

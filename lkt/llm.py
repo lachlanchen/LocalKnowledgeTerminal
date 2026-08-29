@@ -119,12 +119,14 @@ Use Unicode directly. Keep the response under 40 words. /no_think"""
 
 
 MORPHOLOGY_PROMPT = """You prepare a durable morphology graph for Local Knowledge Terminal.
-The requested mode is Root or Affix, but build one complete graph for the center English word:
-include every useful evidenced prefix, root, and suffix, concise historical ancestors, and a few
-high-value related words. BOOK EVIDENCE is authoritative. You may add established linguistic
-knowledge, but label it model. Never invent a quotation, record ID, or page. A book node must list
-at least one exact supplied Record ID in evidence_ids; otherwise label it model. Prefer a smaller
-accurate graph over speculative decomposition.
+The requested mode is Root or Affix. Keep the exact primary Root/Affix book headword as the center;
+do not invent a whole word merely to hold it. Build one complete graph around that form: its real
+meaning/function, useful historical ancestors, variants, and a few high-value words that genuinely
+contain or descend from it. Include other prefixes, roots, or suffixes only when they explain one of
+those words. BOOK EVIDENCE is authoritative. You may add established linguistic knowledge, but
+label it model. Never invent a quotation, record ID, or page. A book node must list at least one
+exact supplied Record ID in evidence_ids; otherwise label it model. Prefer a smaller accurate graph
+over speculative decomposition.
 
 Return exactly one JSON object with no markdown:
 {
@@ -133,6 +135,8 @@ Return exactly one JSON object with no markdown:
   "english": {"term": "", "pronunciation": "IPA", "meaning": "short meaning"},
   "japanese": {"term": "established equivalent", "reading": "exact kana", "meaning": "short Japanese meaning", "ruby_tokens": [{"t": "visible segment", "r": "kana or empty"}]},
   "chinese": {"simplified": "established equivalent", "traditional": "", "pinyin": "tone-marked pinyin", "meaning": "short Chinese meaning"},
+  "french": {"term": "established equivalent", "pronunciation": "IPA if known", "meaning": "short French meaning"},
+  "arabic": {"term": "established Arabic equivalent", "reading": "simple transliteration", "meaning": "short Arabic meaning"},
   "morphology_graph": {
     "center_id": "word",
     "nodes": [{"id": "unique-id", "type": "word|prefix|root|suffix|historical|related", "form": "visible form", "meaning": "at most 10 words", "language": "English/Latin/Greek/etc", "history": "one concise factual sentence", "basis": "book|model", "evidence_ids": ["exact Record ID"], "confidence": "high|medium"}],
@@ -146,7 +150,8 @@ point into descendants. Never chain sibling components into each other. Start fo
 overview containing all node IDs, then add one area for each important root, prefix, and suffix.
 Recursive history should stop when evidence becomes uncertain or ceases to aid understanding.
 Japanese ruby token text must concatenate exactly to japanese.term. Use Unicode directly. Keep the
-whole response under 700 words. /no_think"""
+whole response under 700 words. If French or Arabic has no honest compact equivalent, return its
+object with empty strings instead of guessing. /no_think"""
 
 
 def _extract_json(text: str) -> dict[str, Any]:

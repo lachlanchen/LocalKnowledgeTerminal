@@ -466,7 +466,7 @@ class CardService:
         )
         chinese["ruby_tokens"] = chinese_ruby_tokens(chinese["simplified"])
         extra_languages: dict[str, dict[str, str]] = {}
-        if mode == "knowledge":
+        if mode in {"knowledge", "root", "affix"}:
             extra_languages = {
                 "french": _language(
                     generated.get("french"), ("term", "pronunciation", "meaning")

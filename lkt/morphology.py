@@ -192,6 +192,39 @@ class MorphologyIndex:
         with closing(self._connect()) as connection:
             return int(connection.execute("SELECT count(*) FROM records").fetchone()[0])
 
+    def draw_unseen(
+        self, seed: str, excluded_record_ids: Iterable[str]
+    ) -> Evidence | None:
+        """Draw one real, not-yet-published dictionary record.
+
+        The randomized starting point keeps the idle carousel varied, while a
+        circular scan makes every polished source record reachable and avoids
+        inventing a root or affix merely to balance visible card counts.
+        """
+
+        metadata = self.metadata()
+        excluded = {
+            str(record_id).strip()
+            for record_id in excluded_record_ids
+            if str(record_id).strip()
+        }
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                "SELECT * FROM records ORDER BY source_page, row_id"
+            ).fetchall()
+        if not rows:
+            return None
+        material = f"{metadata.get('corpus_id', '')}\0{seed.strip().casefold()}"
+        start = (
+            int.from_bytes(hashlib.sha256(material.encode("utf-8")).digest()[:8], "big")
+            % len(rows)
+        )
+        for step in range(len(rows)):
+            row = rows[(start + step) % len(rows)]
+            if str(row["record_id"]) not in excluded:
+                return self._evidence([row], str(row["headword"]), metadata)[0]
+        return None
+
     @staticmethod
     def _evidence(
         rows: list[sqlite3.Row], query: str, metadata: dict[str, str]

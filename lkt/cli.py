@@ -16,6 +16,7 @@ from .corpus import CorpusIndex, build_index
 from .deck import (
     AutonomousDeckSeeder,
     AutonomousLexicalSeeder,
+    AutonomousMorphologySeeder,
     BalancedProductSeeder,
     DeckSeedResult,
 )
@@ -520,6 +521,13 @@ def _lexical_seeder(settings: Settings) -> AutonomousLexicalSeeder:
     )
 
 
+def _morphology_seeder(settings: Settings) -> AutonomousMorphologySeeder:
+    return AutonomousMorphologySeeder(
+        _service(settings),
+        CardStore(settings.cards_db),
+    )
+
+
 def command_seed_lexical(args: argparse.Namespace) -> int:
     """Queue one unseen Word Origins headword as a shared atomic plan."""
 
@@ -624,6 +632,7 @@ def command_work_atomic(args: argparse.Namespace) -> int:
                 book_seeder,
                 lexical_seeder,
                 CardStore(settings.cards_db),
+                morphology=_morphology_seeder(settings),
             )
         elif lexical_seeder is not None:
             seeder = lexical_seeder

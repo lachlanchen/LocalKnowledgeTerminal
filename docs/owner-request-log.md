@@ -628,3 +628,15 @@ source was live dictation and may contain recognition errors:
   uncited linguistic claim remains labelled model knowledge; it must not borrow
   a book citation, but absence from a component dictionary is not proof that it
   is false.
+
+## First-class Root and Affix RAG growth
+
+- Do not treat Root and Affix only as leftovers from Word Origin. Each tab must
+  grow independently from its own polished book while still using the other
+  morphology book and local-Qwen knowledge as relevant supporting context.
+- Use the maximum useful local RAG quality without mechanical decomposition:
+  retrieval owns citations, Qwen performs linguistic synthesis, and strict
+  graph, Unicode, and layout gates decide publication.
+- Prepare exactly one missing item at a time, save retrieved evidence, model
+  draft, normalized JSON, and published card, and reuse all accepted results.
+  Never rerun an already accepted primary book record merely to make a tab grow.

@@ -234,11 +234,12 @@ can request deliberate regeneration with the API's `refresh: true` flag.
   the shuffled pass. Preparation state and rejected candidates never enter the
   display deck.
 - Grow Question, Answer, Word Card, Word Origin, Root, and Affix as balanced
-  visible rounds. The lexical seeder chooses one unseen simple Word Origins
-  headword and reuses the same atomic preparation across the four lexical
-  modes. Keep at most one autonomous lexical subject unfinished, let lexical
-  preparation outrank optional book grammar enrichment, and never regenerate a
-  term that already has a real atomic plan or accepted card.
+  visible rounds. Word Card and Word Origin reuse one bounded atomic word
+  investigation. Root and Affix independently walk their respective polished
+  books with cross-book RAG and local Qwen, so they remain complete products
+  rather than forced by-products of a convenient word split. Keep at most one
+  autonomous lexical subject unfinished and never regenerate an accepted
+  primary source record.
 
 ## Engineering and delivery rules
 

@@ -8,6 +8,7 @@ from typing import Any
 from lkt.deck import (
     AutonomousDeckSeeder,
     AutonomousLexicalSeeder,
+    AutonomousMorphologySeeder,
     AutonomousSeedCoordinator,
     BalancedProductSeeder,
     DeckSeedResult,
@@ -19,6 +20,7 @@ from lkt.store import CardStore
 
 from test_card_books import make_card_book, record
 from test_corpus import make_index
+from test_morphology import make_morphology_index
 
 
 class _LocalModel:
@@ -33,7 +35,88 @@ class _LocalModel:
         }
 
 
+class _MorphologyModel:
+    model_name = "local-qwen-test"
+
+    def generate(
+        self, query: str, mode: str, evidence: list[Evidence]
+    ) -> dict[str, Any]:
+        primary_id = evidence[0].entry_id
+        center = query.casefold()
+        return {
+            "title": query,
+            "summary_en": "A book-grounded morphology lesson.",
+            "english": {"term": query, "pronunciation": "test", "meaning": "look"},
+            "japanese": {
+                "term": "見る",
+                "reading": "みる",
+                "meaning": "見ること",
+                "ruby_tokens": [{"t": "見", "r": "み"}, {"t": "る", "r": ""}],
+            },
+            "chinese": {
+                "simplified": "看",
+                "traditional": "看",
+                "pinyin": "kàn",
+                "meaning": "观看",
+            },
+            "morphology_graph": {
+                "center_id": center,
+                "nodes": [
+                    {"id": center, "type": "word", "form": query, "meaning": "look", "basis": "book", "evidence_ids": [primary_id]},
+                    {"id": f"{center}-root", "type": "root", "form": "spect", "meaning": "look", "basis": "book", "evidence_ids": [primary_id]},
+                    {"id": f"{center}-latin", "type": "historical", "form": "specere", "meaning": "to look", "basis": "model", "evidence_ids": []},
+                    {"id": f"{center}-related", "type": "related", "form": "inspect", "meaning": "look into", "basis": "model", "evidence_ids": []},
+                    {"id": f"{center}-prefix", "type": "prefix", "form": "in-", "meaning": "into", "basis": "model", "evidence_ids": []},
+                ],
+                "edges": [
+                    {"source": f"{center}-latin", "target": f"{center}-root", "relationship": "developed-into"},
+                    {"source": f"{center}-root", "target": center, "relationship": "root-of"},
+                    {"source": f"{center}-root", "target": f"{center}-related", "relationship": "root-of"},
+                    {"source": f"{center}-prefix", "target": f"{center}-related", "relationship": "prefix-of"},
+                ],
+                "focus_areas": [
+                    {"id": "overview", "label": "Overview", "kind": "overview", "node_ids": [center, f"{center}-root", f"{center}-latin", f"{center}-related", f"{center}-prefix"], "headline": query, "explanation": "A concise graph."}
+                ],
+            },
+        }
+
+
 class AutonomousDeckTests(unittest.TestCase):
+    def test_morphology_seeder_grows_each_polished_book_independently(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            roots = make_morphology_index(root, "root")
+            affixes = make_morphology_index(root, "affix")
+            cards = CardStore(root / "cards.sqlite3")
+            service = CardService(
+                make_index(root),
+                _MorphologyModel(),
+                cards,
+                morphology={"root": roots, "affix": affixes},
+            )
+            seeder = AutonomousMorphologySeeder(service, cards)
+
+            first = seeder.run_mode("root", "stable-cycle")
+            second = seeder.run_mode("root", "stable-cycle")
+            affix = seeder.run_mode("affix", "stable-cycle")
+
+            self.assertEqual((first.status, second.status, affix.status), ("prepared", "prepared", "prepared"))
+            self.assertNotEqual(first.source_entry_id, second.source_entry_id)
+            self.assertEqual(len(cards.accepted_for_modes(("root",))), 2)
+            self.assertEqual(len(cards.accepted_for_modes(("affix",))), 1)
+            first_card = cards.get(first.card_id)
+            self.assertIsNotNone(first_card)
+            run_id = first_card["extensions"]["preparation_run_id"]
+            self.assertEqual(
+                [item["stage"] for item in cards.preparation_artifacts(run_id)],
+                [
+                    "retrieved-evidence",
+                    "cleaned-model-draft",
+                    "normalized-card",
+                    "published-card",
+                ],
+            )
+
     def test_balances_modes_and_never_repeats_a_source_record(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -239,6 +322,33 @@ class AutonomousDeckTests(unittest.TestCase):
 
         result = BalancedProductSeeder(_Book(), _Lexical(), _Store()).run_once()
         self.assertEqual(result.mode, "question")
+
+    def test_product_seeder_routes_root_and_affix_to_their_own_books(self) -> None:
+        class _Store:
+            def accepted_for_modes(
+                self, _modes: tuple[str, ...]
+            ) -> list[dict[str, str]]:
+                return [
+                    {"mode": mode}
+                    for mode in BalancedProductSeeder.MODES
+                    if mode != "root"
+                ]
+
+        class _Book:
+            modes = ("question", "answer")
+
+        class _Lexical:
+            def run_bounded_once(self) -> DeckSeedResult:
+                raise AssertionError("root must not be routed through a word plan")
+
+        class _Morphology:
+            def run_mode(self, mode: str) -> DeckSeedResult:
+                return DeckSeedResult(status="prepared", mode=mode)
+
+        result = BalancedProductSeeder(
+            _Book(), _Lexical(), _Store(), morphology=_Morphology()
+        ).run_once()
+        self.assertEqual(result.mode, "root")
 
 
 if __name__ == "__main__":
