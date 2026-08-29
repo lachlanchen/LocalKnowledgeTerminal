@@ -467,3 +467,21 @@ source was live dictation and may contain recognition errors:
 - A term already accepted, queued, or attempted is excluded from autonomous
   selection. This is intentionally missing-only: a failed term cannot create an
   endless requeue loop, and existing accepted knowledge is never regenerated.
+
+## Continuity and durable intent
+
+- When work is interrupted by new product thoughts, resume from the last
+  verified checkpoint instead of restarting or discarding accepted work.
+- Re-read and preserve the owner's complete LKT message history as product
+  reference. Record new intent here before relying on temporary conversation
+  context, then continue the established implementation plan.
+- Keep progress incremental, tested, committed, pushed, and deployed. Large
+  stable changes deserve an immediate durable checkpoint so local knowledge,
+  source provenance, and design decisions are not lost.
+
+## Ruby breathing room
+
+- Furigana/pinyin ruby and its base text must not feel compressed together.
+  Reserve a visible annotation gap, give neighboring ruby groups modest
+  horizontal air, and keep the main characters legible without sacrificing the
+  one-screen, no-scroll card boundary.

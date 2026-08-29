@@ -8,14 +8,14 @@ indexes, and captured screens are not stored in Git.
 
 | Layer | Verified revision/state |
 |---|---|
-| LKT runtime code | `19d43bc` (`Complete inner card sequences`) |
+| LKT runtime code | `dbdd281` (`Seed lexical views while idle`) |
 | Model | `Qwen3-4B-Q4_K_M.gguf`, 2,497,280,256 bytes |
 | Model SHA-256 | `7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5` |
 | llama.cpp package | pinned `v0.3.0`, source commit `c1d0e7a004015f23bc0233470b747b596f29b264` |
 | llama-server self-report | `0.3.0-dev`, GNU 12.2.0, Linux aarch64 |
 | Kernel | Raspberry Pi aarch64 `6.6.51+rpt-rpi-2712` |
 | Inference profile | one slot, 3,072-token context, batch 128, micro-batch 64 |
-| Background policy | one low-priority atomic/deck job at a time |
+| Background policy | one low-priority atomic job at a time; alternate book/lexical seeding only at queue idle |
 
 `lkt-web`, `lkt-llm`, and `lkt-worker` were active. The live Python and browser
 code matched the runtime revision above, and the Pi worktree was clean.
@@ -59,6 +59,15 @@ generation.
   memory. At audit, `/api/health` reported 58 of 609 accepted: 30 Answers and
   28 Questions, with 551 remaining. The same compact progress appears in the
   browser header, and the decks were still growing.
+- Missing-only lexical backfill walks 6,944 simple Word Origins headwords. It
+  excludes every term already accepted, queued, or attempted, and queues one
+  shared 16-job atomic plan only after the existing queue becomes idle. The
+  resulting accepted atoms feed independent Word Card, Word Origin, Root, and
+  Affix projections; no mode regenerates the same lexical knowledge.
+- The book and lexical seeders alternate at queue idle. This keeps finite
+  Answer/Question coverage moving without starving the four lexical views.
+  `/api/health` exposes lexical planned, accepted, total, and remaining counts
+  separately from the book deck.
 - Each selected tab loads all its accepted cards, keeps the newest first, and
   shuffles the remainder without replacement for each carousel pass. Lexical
   modes are inquiry/queue driven, then reuse accepted atoms rather than
@@ -95,6 +104,11 @@ generation.
   The `predecessor` Word Origin returned eight graph nodes and six focus areas.
   The served browser bundle contained the 18-second sequencer and morphology
   corner-metadata renderer.
+- The first bounded autonomous lexical smoke selected `alive` from Word Origins
+  entry `entry-0171` (source page 28). Retrieval owns the record describing Old
+  English *on life* and the historical pronunciation relationship between
+  *life* and *alive*. Prompt revision `autonomous-lexical-v1` queued exactly 16
+  missing-only jobs; no card text or database atom was entered by hand.
 - Existing accepted content was retained. At audit, 161 independent missing
   enrichment jobs remained queued; deployment did not replan or regenerate the
   accepted deck.
@@ -133,10 +147,11 @@ not imported by the core service.
 
 ## Validation performed
 
-- Windows development checkout: 114 unit tests passed; `compileall` and
+- Windows development checkout: 117 unit tests passed; `compileall` and
   JavaScript syntax checks passed.
-- Pi checkout after fast-forward to `19d43bc`: 114 unit tests passed in
-  202.404 seconds; `compileall` and JavaScript syntax checks passed.
+- Pi checkout after fast-forward to `dbdd281`: 117 unit tests and `compileall`
+  passed. The runtime image does not install Node.js; JavaScript syntax was
+  therefore checked in the Windows development gate before deployment.
 - Live `/api/health`: ready, including all book, morphology, model, knowledge,
   FreeDict correction, and autonomous deck progress status.
 - Real book card: `question-115` was retrieved with source-owned evidence and

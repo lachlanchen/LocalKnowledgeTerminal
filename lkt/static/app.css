@@ -1169,13 +1169,24 @@ body.display-mode .card-view { border-radius: 0; }
 #japanese-ruby,
 #chinese-term,
 .sentence-stage.language-japanese,
-.sentence-stage.language-chinese { line-height: 2.25; }
+.sentence-stage.language-chinese {
+  line-height: 2.5;
+  letter-spacing: .018em;
+}
 #japanese-ruby ruby,
 #chinese-term ruby,
-.sentence-stage ruby { margin-inline: .11em; }
+.sentence-stage ruby {
+  margin-inline: .15em;
+  ruby-align: center;
+  ruby-position: over;
+}
 #japanese-ruby rt,
 #chinese-term rt,
-.sentence-stage rt { letter-spacing: .055em; }
+.sentence-stage rt {
+  padding-block-end: .18em;
+  line-height: 1.05;
+  letter-spacing: .07em;
+}
 
 /* Idle chrome yields the screen to the current card and returns on activity. */
 .product-frame { transition: grid-template-rows .35s ease; }
