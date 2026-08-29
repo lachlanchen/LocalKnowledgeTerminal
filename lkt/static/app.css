@@ -1097,25 +1097,73 @@ body.display-mode .card-view { border-radius: 0; }
 .graph-node-badge-box { position: absolute; }
 .graph-node-badge-box i {
   position: absolute;
-  top: 5px;
-  max-width: calc(50% - 8px);
+  z-index: 2;
+  top: 6px;
+  max-width: calc(50% - 9px);
   overflow: hidden;
-  border-radius: 7px;
-  padding: 2px 5px;
-  font-size: clamp(6px, .52vw, 8px);
+  border: 1px solid rgba(23, 33, 61, .12);
+  border-radius: 8px;
+  padding: 3px 6px;
+  font-size: clamp(8px, .68vw, 11px);
   font-style: normal;
   font-weight: 900;
   letter-spacing: .07em;
   line-height: 1;
+  box-shadow: 0 2px 5px rgba(23, 33, 61, .1);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.graph-node-type { left: 5px; color: #4e5c78; background: rgba(255, 255, 255, .72); }
-.graph-node-language { right: 5px; color: #65738e; background: rgba(255, 255, 255, .62); }
-.graph-node-badge-box.type-prefix .graph-node-type { color: #087b69; }
-.graph-node-badge-box.type-root .graph-node-type { color: #6c24ca; }
-.graph-node-badge-box.type-suffix .graph-node-type { color: #9b6800; }
-.graph-node-badge-box.type-word .graph-node-type { color: #8e5200; }
+.graph-node-type { left: 6px; color: #31405d; background: #e4eaf6; }
+.graph-node-language { right: 6px; color: #31405d; background: #eef1f7; }
+.graph-node-badge-box.type-prefix .graph-node-type { color: #006a58; background: #bff2e5; }
+.graph-node-badge-box.type-root .graph-node-type { color: #5d19b8; background: #e4d2ff; }
+.graph-node-badge-box.type-suffix .graph-node-type { color: #805600; background: #ffe5a0; }
+.graph-node-badge-box.type-word .graph-node-type { color: #794300; background: #ffd98a; }
+.graph-node-badge-box.type-historical .graph-node-type { color: #214e9b; background: #d7e7ff; }
+.graph-node-badge-box.lang-en .graph-node-language { color: #174fa7; background: #d8e8ff; }
+.graph-node-badge-box.lang-la .graph-node-language { color: #6a21bd; background: #eadbff; }
+.graph-node-badge-box.lang-el .graph-node-language { color: #006f84; background: #cdf4fa; }
+.graph-node-badge-box.lang-fr .graph-node-language { color: #a22d5c; background: #ffe0ec; }
+.graph-node-badge-box.lang-pie .graph-node-language,
+.graph-node-badge-box.lang-gm .graph-node-language { color: #4c5871; background: #e1e5ed; }
+.graph-node-badge-box.lang-ja .graph-node-language { color: #a91f60; background: #ffdce9; }
+.graph-node-badge-box.lang-zh .graph-node-language { color: #a6362a; background: #ffe0d9; }
+.graph-node-badge-box.lang-ar .graph-node-language { color: #08705e; background: #d4f4e9; }
+.graph-node-copy {
+  position: absolute;
+  z-index: 1;
+  inset: 24px 7px 7px;
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 3px;
+  overflow: hidden;
+  text-align: center;
+}
+.graph-node-term {
+  display: -webkit-box;
+  overflow: hidden;
+  color: #ffffff;
+  font: 950 var(--graph-term-size, 13px)/1.03 var(--sans);
+  letter-spacing: -.01em;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  -webkit-text-stroke: .8px #17213d;
+  overflow-wrap: anywhere;
+  paint-order: stroke fill;
+  text-shadow: 0 1px 0 rgba(23, 33, 61, .3);
+}
+.graph-node-meaning {
+  display: -webkit-box;
+  overflow: hidden;
+  color: #263653;
+  font: 650 var(--graph-meaning-size, 9px)/1.14 var(--sans);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow-wrap: anywhere;
+}
 .graph-overview {
   position: absolute;
   z-index: 3;

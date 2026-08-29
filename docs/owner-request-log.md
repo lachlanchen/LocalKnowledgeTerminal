@@ -488,3 +488,13 @@ source was live dictation and may contain recognition errors:
 - The first spacing pass was still too tight. Move the annotation itself away
   from the base glyph, not only the surrounding line box, while retaining
   enough reserved height to prevent clipping.
+
+## Graph node hierarchy and source color
+
+- Make the top-left type and top-right language annotations larger and place
+  them on clear colored backgrounds, roughly half the visual scale of the main
+  node term. Different source languages should have distinct badge colors.
+- Do not join the word/root/affix and explanation with a middle dot. Keep two
+  deliberate rows with different styles: the term is the focal outlined text;
+  the explanation is quieter normal text. Both rows must auto-fit inside the
+  node without overlap.

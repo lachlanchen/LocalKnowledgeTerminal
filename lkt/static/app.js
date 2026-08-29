@@ -755,7 +755,7 @@ function graphStyles(compact = false) {
         "background-color": "#eaf2ff",
         "border-width": 3,
         "border-color": "#1769ff",
-        label: "data(label)",
+        label: "",
         color: "#17213d",
         "font-family": "Inter, Segoe UI, Noto Sans CJK SC, sans-serif",
         "font-size": "data(fontSize)",
@@ -810,11 +810,12 @@ function graphLanguageCode(value) {
 
 function graphLabelMetrics(node, isCenter) {
   const length = `${node.form || ""} ${node.meaning || ""}`.trim().length;
-  const base = isCenter ? 17 : 14;
-  const reduction = length > 125 ? 3.5 : length > 88 ? 2.5 : length > 58 ? 1.25 : 0;
+  const termLength = String(node.form || "").length;
+  const base = isCenter ? 20 : 16;
+  const reduction = termLength > 28 ? 4 : termLength > 18 ? 2.5 : termLength > 11 ? 1 : 0;
   return {
-    fontSize: Math.max(isCenter ? 12 : 10.5, base - reduction),
-    labelWidth: isCenter ? 158 : 126,
+    termFontSize: Math.max(isCenter ? 13 : 11, base - reduction),
+    meaningFontSize: Math.max(8, (isCenter ? 11 : 9.5) - (length > 125 ? 1.5 : length > 75 ? .75 : 0)),
   };
 }
 
@@ -844,14 +845,32 @@ function updateGraphNodeBadges() {
     const width = node.renderedWidth();
     const height = node.renderedHeight();
     const type = String(node.data("type") || "related");
-    const box = element("span", `graph-node-badge-box type-${type}`);
+    const language = graphLanguageCode(node.data("language"));
+    const safeLanguage = language.toLocaleLowerCase().replace(/[^a-z0-9-]/g, "");
+    const box = element(
+      "span",
+      `graph-node-badge-box type-${type}${safeLanguage ? ` lang-${safeLanguage}` : ""}`,
+    );
     box.style.left = `${offsetX + position.x - width / 2}px`;
     box.style.top = `${offsetY + position.y - height / 2}px`;
     box.style.width = `${width}px`;
     box.style.height = `${height}px`;
+    const baseWidth = node.hasClass("center") ? 184 : 146;
+    const scale = Math.max(.72, Math.min(1.22, width / baseWidth));
+    box.style.setProperty("--graph-term-size", `${Math.max(9, node.data("termFontSize") * scale)}px`);
+    box.style.setProperty("--graph-meaning-size", `${Math.max(7.5, node.data("meaningFontSize") * scale)}px`);
     box.append(element("i", "graph-node-type", type.toLocaleUpperCase()));
-    const language = graphLanguageCode(node.data("language"));
     if (language) box.append(element("i", "graph-node-language", language));
+    const copy = element("span", "graph-node-copy");
+    const term = element("strong", "graph-node-term", node.data("form") || "—");
+    term.dir = "auto";
+    copy.append(term);
+    if (node.data("meaning")) {
+      const meaning = element("span", "graph-node-meaning", node.data("meaning"));
+      meaning.dir = "auto";
+      copy.append(meaning);
+    }
+    box.append(copy);
     badges.push(box);
   });
   layer.replaceChildren(...badges);
@@ -978,7 +997,9 @@ function renderOriginGraph(card) {
     return {
       data: {
         id: node.id,
-        label: [node.form || "—", node.meaning].filter(Boolean).join(" · "),
+        label: [node.form || "—", node.meaning].filter(Boolean).join("\n"),
+        form: node.form || "—",
+        meaning: node.meaning || "",
         type: node.type || "related",
         language: node.language || "",
         ...metrics,
