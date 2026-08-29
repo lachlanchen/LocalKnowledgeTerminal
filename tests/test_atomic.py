@@ -16,6 +16,7 @@ from lkt.atomic import (
     _collapse_repeated_arabic_alternative,
     _explicit_form_evidence_ids,
     _has_repeated_arabic_content_word,
+    _align_grammar_draft,
     _grammar_role_matches,
     _lexically_related,
     _clean_morpheme_meaning,
@@ -417,6 +418,69 @@ class AtomicWorkerTests(unittest.TestCase):
                 "A complete reviewed sentence.",
                 [{"surface": "A complete", "role": "subject"}],
             )
+
+    def test_grammar_draft_keeps_exact_prefix_and_discards_prompt_leakage(self) -> None:
+        source = "一步之遥"
+        valid = {
+            "surface": source,
+            "lemma": source,
+            "role": "noun",
+            "part_of_speech": "noun",
+            "confidence": 1,
+        }
+        self.assertEqual(_align_grammar_draft(source, valid), [valid])
+        leaked = {
+            "parts": [
+                valid,
+                {
+                    "surface": "Return exactly one JSON object",
+                    "role": "other",
+                    "part_of_speech": "phrase",
+                    "confidence": 1,
+                },
+            ]
+        }
+        self.assertEqual(_align_grammar_draft(source, leaked), [valid])
+
+    def test_bare_exact_grammar_part_is_normalized_without_another_model_call(self) -> None:
+        reviewed = self._question_card()["english"]["term"]
+
+        class BarePartModel:
+            model_name = "test-qwen-4b"
+
+            def complete_json(
+                self, _system: str, _prompt: str, *, max_tokens: int = 256
+            ) -> dict[str, Any]:
+                return {
+                    "value": {
+                        "surface": reviewed,
+                        "lemma": "",
+                        "role": "noun",
+                        "part_of_speech": "phrase",
+                        "confidence": 0.9,
+                    },
+                    "model": self.model_name,
+                }
+
+        with tempfile.TemporaryDirectory() as temp:
+            store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")
+            acquired = store.acquire_card_book_card(self._question_card())
+            source_id = acquired["language_entity_ids"]["en"]
+            store.enqueue_job(
+                "prepare-grammar-parts",
+                f"content:{source_id}",
+                subject_entity_id=source_id,
+                language="en",
+            )
+            result = PreparationWorker(
+                store, FakeRetriever(), BarePartModel()
+            ).run_once()
+
+            self.assertEqual(result.status, "complete")
+            analysis = store.grammar_for_content(source_id)
+            self.assertEqual(analysis["summary"], "Single phrase expression")
+            self.assertEqual(analysis["parts"][0]["role"], "clause")
+            self.assertTrue(analysis["parts"][0]["features"]["role_normalized"])
 
     def test_grammar_roles_reject_semantically_contradictory_labels(self) -> None:
         self.assertTrue(_grammar_role_matches("subject", "phrase", "you"))

@@ -314,6 +314,54 @@ class PreparationPlannerTests(unittest.TestCase):
                 3,
             )
 
+    def test_missing_only_enrichment_replans_failed_language_without_duplication(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")
+            store.acquire_card_book_card(
+                {
+                    "card_id": "answer-card-repair",
+                    "mode": "answer",
+                    "english": {"term": "Look more closely."},
+                    "japanese": {"term": "もっとよく見て。"},
+                    "chinese": {"simplified": "再仔细看看。"},
+                    "evidence": [
+                        {
+                            "corpus_id": "book-of-answers",
+                            "entry_id": "answer-repair",
+                            "locator": "answers.xhtml",
+                            "excerpt": "Look more closely.",
+                        }
+                    ],
+                }
+            )
+            first = PreparationPlanner(
+                store,
+                model="Qwen3-4B-Q4_K_M",
+                prompt_version="autonomous-content-enrichment-v2",
+            ).plan_card_enrichment(
+                "answer-card-repair", include_investigation=False
+            )
+            while True:
+                claimed = store.claim_next_job(("prepare-grammar-parts",))
+                self.assertIsNotNone(claimed)
+                if claimed["language"] != "en":
+                    self.fail("English should be the first queued language")
+                store.finish_job(claimed["job_id"], error="old validator rejected draft")
+                if claimed["attempts"] >= claimed["max_attempts"]:
+                    break
+
+            repaired = PreparationPlanner(
+                store,
+                model="Qwen3-4B-Q4_K_M",
+                prompt_version="autonomous-content-enrichment-v3",
+            ).plan_card_enrichment(
+                "answer-card-repair",
+                include_investigation=False,
+                missing_only=True,
+            )
+            self.assertEqual(set(repaired.jobs), {"grammar:en"})
+            self.assertNotEqual(repaired.jobs["grammar:en"], first.jobs["grammar:en"])
+
 
 if __name__ == "__main__":
     unittest.main()

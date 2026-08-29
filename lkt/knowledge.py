@@ -1725,6 +1725,7 @@ class KnowledgeStore:
             parameters = allowed
         with closing(self._connect()) as connection:
             connection.execute("BEGIN IMMEDIATE")
+            self._fail_blocked_jobs(connection)
             row = connection.execute(
                 """SELECT job.* FROM preparation_jobs AS job
                    WHERE job.status = 'queued' AND job.attempts < job.max_attempts
@@ -2031,7 +2032,54 @@ class KnowledgeStore:
                    WHERE job_id = ?""",
                 (status, error[:2000], _now(), job_id),
             )
+            if status == "failed":
+                self._fail_blocked_jobs(connection)
             connection.commit()
+
+    @staticmethod
+    def _fail_blocked_jobs(connection: sqlite3.Connection) -> int:
+        """Mark queued descendants of terminal failures as terminal too.
+
+        A declared dependency is required. Leaving its descendants queued makes
+        progress counters lie and creates jobs that can never be claimed. Work
+        through the DAG a layer at a time so transitive descendants receive the
+        same truthful terminal state without consuming model attempts.
+        """
+
+        failed = 0
+        while True:
+            rows = connection.execute(
+                """SELECT job.job_id, prerequisite.job_id AS prerequisite_id,
+                          prerequisite.job_type AS prerequisite_type,
+                          prerequisite.error AS prerequisite_error
+                   FROM preparation_jobs AS job
+                   JOIN job_dependencies AS dependency
+                     ON dependency.job_id = job.job_id
+                   JOIN preparation_jobs AS prerequisite
+                     ON prerequisite.job_id = dependency.depends_on_job_id
+                   WHERE job.status = 'queued' AND prerequisite.status = 'failed'
+                   ORDER BY job.created_at, prerequisite.updated_at,
+                            prerequisite.job_id"""
+            ).fetchall()
+            blocked: dict[str, sqlite3.Row] = {}
+            for row in rows:
+                blocked.setdefault(str(row["job_id"]), row)
+            if not blocked:
+                return failed
+            timestamp = _now()
+            for job_id, row in blocked.items():
+                detail = str(row["prerequisite_error"] or "terminal failure")
+                message = (
+                    "blocked by failed prerequisite "
+                    f"{row['prerequisite_type']} {row['prerequisite_id']}: {detail}"
+                )[:2000]
+                cursor = connection.execute(
+                    """UPDATE preparation_jobs
+                       SET status = 'failed', error = ?, locked_at = '', updated_at = ?
+                       WHERE job_id = ? AND status = 'queued'""",
+                    (message, timestamp, job_id),
+                )
+                failed += int(cursor.rowcount)
 
     def recover_running_jobs(self) -> int:
         """Requeue leases left behind by an interrupted single worker.

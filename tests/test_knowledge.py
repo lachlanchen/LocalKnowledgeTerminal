@@ -318,6 +318,42 @@ class KnowledgeStoreTests(unittest.TestCase):
             self.assertIsNone(store.claim_next_job())
             self.assertEqual(store.status()["counts"]["preparation_jobs"], 1)
 
+    def test_terminal_failure_cascades_through_queued_dependencies(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")
+            first = store.enqueue_job(
+                "retrieve-evidence", "term:fragile", max_attempts=1
+            )
+            second = store.enqueue_job("prepare-meaning", "term:fragile")
+            third = store.enqueue_job("compose-word-card", "term:fragile")
+            store.add_job_dependency(second, first)
+            store.add_job_dependency(third, second)
+
+            self.assertEqual(store.claim_next_job()["job_id"], first)
+            store.finish_job(first, error="source unavailable")
+
+            jobs = {job["job_id"]: job for job in store.jobs_for_subject("term:fragile")}
+            self.assertEqual([jobs[job]["status"] for job in (first, second, third)], ["failed"] * 3)
+            self.assertEqual(jobs[second]["attempts"], 0)
+            self.assertIn("blocked by failed prerequisite", jobs[second]["error"])
+            self.assertIn("blocked by failed prerequisite", jobs[third]["error"])
+
+    def test_claim_cleans_legacy_job_blocked_by_a_failed_dependency(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")
+            first = store.enqueue_job(
+                "retrieve-evidence", "term:legacy", max_attempts=1
+            )
+            self.assertEqual(store.claim_next_job()["job_id"], first)
+            store.finish_job(first, error="old terminal failure")
+            second = store.enqueue_job("prepare-meaning", "term:legacy")
+            store.add_job_dependency(second, first)
+
+            self.assertIsNone(store.claim_next_job())
+            jobs = {job["job_id"]: job for job in store.jobs_for_subject("term:legacy")}
+            self.assertEqual(jobs[second]["status"], "failed")
+            self.assertEqual(jobs[second]["attempts"], 0)
+
     def test_interrupted_worker_lease_is_safely_requeued(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")

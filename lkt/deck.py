@@ -138,7 +138,7 @@ class AutonomousDeckSeeder:
                 PreparationPlanner(
                     self.knowledge,
                     model=self.service.model.model_name,
-                    prompt_version="autonomous-content-enrichment-v2",
+                    prompt_version="autonomous-content-enrichment-v3",
                 ).plan_card_enrichment(card.card_id)
                 message = "local model card accepted and language enrichment queued"
             except Exception as exc:

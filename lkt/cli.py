@@ -190,7 +190,7 @@ def command_sync_card_knowledge(_args: argparse.Namespace) -> int:
     planner = PreparationPlanner(
         knowledge,
         model=settings.llm_model,
-        prompt_version="autonomous-content-enrichment-v2",
+        prompt_version="autonomous-content-enrichment-v3",
     )
     acquired = []
     jobs: set[str] = set()
@@ -198,7 +198,9 @@ def command_sync_card_knowledge(_args: argparse.Namespace) -> int:
         acquired.append(knowledge.acquire_card_book_card(card))
         jobs.update(
             planner.plan_card_enrichment(
-                str(card["card_id"]), include_investigation=False
+                str(card["card_id"]),
+                include_investigation=False,
+                missing_only=True,
             ).jobs.values()
         )
     print(
@@ -862,7 +864,7 @@ def parser() -> argparse.ArgumentParser:
     )
     plan_card_investigations.add_argument("card_id")
     plan_card_investigations.add_argument(
-        "--prompt-version", default="autonomous-content-enrichment-v2"
+        "--prompt-version", default="autonomous-content-enrichment-v3"
     )
     plan_card_investigations.add_argument("--source-fingerprint", default="")
     plan_card_investigations.set_defaults(handler=command_plan_card_investigations)

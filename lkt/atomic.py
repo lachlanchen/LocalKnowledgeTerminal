@@ -239,6 +239,36 @@ def _align_grammar_parts(
     return aligned
 
 
+def _align_grammar_draft(text: str, value: Any) -> list[dict[str, Any]]:
+    """Recover only exact, complete source spans from a small-model draft.
+
+    Qwen occasionally returns one valid part without the requested outer
+    ``parts`` array, or appends prompt text after an already complete span.
+    Neither case needs another inference call: accept the shortest prefix that
+    reconstructs the reviewed text exactly and discard everything after it.
+    Partial, rewritten, or reordered source text still fails closed in
+    ``_align_grammar_parts``.
+    """
+
+    if not isinstance(value, dict):
+        raise ValueError("grammar task did not return an object")
+    raw_parts = value.get("parts")
+    if not isinstance(raw_parts, list):
+        raw_parts = [value] if value.get("surface") else None
+    if not isinstance(raw_parts, list):
+        raise ValueError("grammar task did not return parts")
+
+    last_error: ValueError | None = None
+    for end in range(1, min(len(raw_parts), 8) + 1):
+        try:
+            return _align_grammar_parts(text, raw_parts[:end])
+        except ValueError as exc:
+            last_error = exc
+    if last_error is not None:
+        raise last_error
+    raise ValueError("grammar task did not return parts")
+
+
 def _grammar_role_matches(role: str, part_of_speech: str, surface: str) -> bool:
     """Reject internally contradictory role labels without parsing language."""
 
@@ -1646,7 +1676,9 @@ confidence: number from 0 to 1
 
 Preserve every character once and in order. Use a few meaningful phrases, not
 one part per character. Do not translate, rewrite, explain, add markdown, or
-return text outside the JSON object."""
+return text outside the JSON object. The top-level object must contain
+`summary` and `parts`; never return one bare part. Shape:
+{{"summary":"...","parts":[{{"surface":"...","lemma":"","role":"other","part_of_speech":"phrase","confidence":0.8}}]}}"""
         completion = self.model.complete_json(
             "You segment fixed reviewed text into a few exact grammar phrases.",
             prompt,
@@ -1665,10 +1697,7 @@ return text outside the JSON object."""
             language=language,
             validation_state="candidate",
         )
-        raw_parts = value.get("parts") if isinstance(value, dict) else None
-        if not isinstance(raw_parts, list):
-            raise ValueError("grammar task did not return parts")
-        aligned = _align_grammar_parts(source["text"], raw_parts)
+        aligned = _align_grammar_draft(source["text"], value)
 
         parts: list[dict[str, Any]] = []
         for item in aligned:
@@ -1682,12 +1711,12 @@ return text outside the JSON object."""
                 .replace(" ", "-")
             )
             lemma = re.sub(r"\s+", " ", str(item.get("lemma", ""))).strip()[:80]
-            if model_role not in _GRAMMAR_ROLES:
-                raise ValueError("grammar role is invalid")
             if model_part_of_speech not in _GRAMMAR_PARTS_OF_SPEECH:
                 raise ValueError("grammar part of speech is invalid")
             role, part_of_speech = _normalise_grammar_labels(
-                model_role, model_part_of_speech, str(item["surface"])
+                model_role if model_role in _GRAMMAR_ROLES else "",
+                model_part_of_speech,
+                str(item["surface"]),
             )
             if not _grammar_role_matches(role, part_of_speech, str(item["surface"])):
                 raise ValueError("grammar role contradicts its part of speech")
@@ -1714,12 +1743,15 @@ return text outside the JSON object."""
                         "basis": "bounded-model-segmentation",
                         "model_role": model_role,
                         "model_part_of_speech": model_part_of_speech,
+                        "role_normalized": model_role != role,
                     },
                 }
             )
         summary = re.sub(
             r"\s+", " ", str(value.get("summary", "")) if isinstance(value, dict) else ""
         ).strip()[:180]
+        if not summary and len(parts) == 1:
+            summary = f"Single {parts[0]['part_of_speech']} expression"
         if not summary or any(marker in summary for marker in _ENCODING_DAMAGE):
             raise ValueError("grammar summary is invalid")
         if language == "en" and len(summary.split()) > 14:

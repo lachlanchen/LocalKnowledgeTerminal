@@ -504,7 +504,11 @@ class PreparationPlanner:
         )
 
     def plan_card_enrichment(
-        self, card_id: str, *, include_investigation: bool = True
+        self,
+        card_id: str,
+        *,
+        include_investigation: bool = True,
+        missing_only: bool = False,
     ) -> PreparationPlan:
         """Queue independent vocabulary and EN/JA/ZH grammar tasks for a card."""
 
@@ -530,9 +534,20 @@ class PreparationPlanner:
             jobs["extract-investigation-terms"] = extraction
         for language, content in contents.items():
             assert content is not None
+            subject_key = f"content:{content['entity_id']}"
+            if missing_only:
+                accepted = self.store.grammar_for_content(str(content["entity_id"]))
+                active = any(
+                    job["job_type"] == "prepare-grammar-parts"
+                    and job["language"] == language
+                    and job["status"] in {"queued", "running"}
+                    for job in self.store.jobs_for_subject(subject_key)
+                )
+                if accepted is not None or active:
+                    continue
             jobs[f"grammar:{language}"] = self._job(
                 "prepare-grammar-parts",
-                f"content:{content['entity_id']}",
+                subject_key,
                 str(content["entity_id"]),
                 language=language,
                 priority=30,
