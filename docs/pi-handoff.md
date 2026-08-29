@@ -8,8 +8,8 @@ indexes, and captured screens are not stored in Git.
 
 | Layer | Verified revision/state |
 |---|---|
-| Pi checkout | `32f8f19` (`Expand graphs across the live canvas`) |
-| Browser behavior | `32f8f19` (`Expand graphs across the live canvas`) |
+| Pi checkout | `e3180b8` (`Add local display preferences`) |
+| Browser behavior | `e3180b8` (`Add local display preferences`) |
 | Model | `Qwen3-4B-Q4_K_M.gguf`, 2,497,280,256 bytes |
 | Model SHA-256 | `7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5` |
 | llama.cpp package | pinned `v0.3.0`, source commit `c1d0e7a004015f23bc0233470b747b596f29b264` |
@@ -239,10 +239,10 @@ not imported by the core service.
 
 ## Validation performed
 
-- Windows development checkout at `32f8f19`: 126 unit tests passed in 97.820
+- Windows development checkout at `e3180b8`: 126 unit tests passed in 69.225
   seconds; `compileall`, JavaScript syntax, and diff checks passed.
-- Pi checkout after fast-forward to `32f8f19`: 126 full-suite tests passed in
-  35.922 seconds; `compileall` passed. Earlier launcher validation at `6712508`
+- Pi checkout after fast-forward to `e3180b8`: 126 full-suite tests passed in
+  41.520 seconds; `compileall` passed. Earlier launcher validation at `6712508`
   also passed `bash -n` and `desktop-file-validate`.
   The runtime image does not install Node.js; JavaScript syntax was therefore
   checked in the Windows development gate before deployment.
@@ -254,6 +254,15 @@ not imported by the core service.
   Question only. The temporary read-only audit proxy was removed afterward.
 - Real book card: `question-115` was retrieved with source-owned evidence and
   accepted EN/JA/ZH content.
-- Real origin graph: `predecessor` returned eight nodes and six focus areas.
-- One-page kiosk: visually audited at 1920×1080; exactly one Chromium page left
-  open.
+- Real origin graph: `predecessor` returned five source-owned evidence records,
+  eight nodes, and six focus areas.
+- Morphology layout at 1920×1080: Root used 82.9% of graph width and 81.3% of
+  height; Word Origin used 83.6% and 88.4%. Root, Affix, and Word Origin had no
+  node collisions, no nodes outside the canvas, and no copy outside a node.
+- Live display settings: book defaults EN/JA/ZH, lexical defaults
+  EN/JA/ZH/FR/AR, local persistence, deterministic filtered inner slides, and
+  default-on random saved cards were exercised against the deployed API.
+- Desktop recovery: LightDM and WayVNC were refreshed after a stale kiosk
+  session stopped accepting input. The orphaned `--kiosk` Chromium session was
+  removed and the Pi was intentionally left on a normal controllable desktop;
+  the duplicate-safe kiosk launcher remains installed for product display use.
