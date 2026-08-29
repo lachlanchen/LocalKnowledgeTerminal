@@ -74,6 +74,18 @@ Fullscreen display mode hides all application chrome, and `/?display=1` opens
 the same card document as a kiosk-friendly screen surface. Print CSS and the
 versioned card JSON provide clean boundaries for later e-ink rendering.
 
+### Live Raspberry Pi display
+
+Word Origin uses content-sized nodes, a complete ancestry graph, multilingual
+meaning panels, branch slides, and one-click best-fit reset.
+
+![Live Word Origin graph on the Raspberry Pi](docs/assets/word-origin.png)
+
+Word Card keeps the English word and sound dominant while presenting large,
+stable Japanese and Chinese panels beside the rotating French/Arabic panel.
+
+![Live multilingual Word Card on the Raspberry Pi](docs/assets/word-card.png)
+
 Every generated card receives a new ID and remains in the card ledger. A second,
 normalized `knowledge.sqlite3` database stores accepted terms, senses,
 pronunciations, phoneme/grapheme segments, morphemes, history, translations,

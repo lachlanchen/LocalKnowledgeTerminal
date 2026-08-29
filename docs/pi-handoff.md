@@ -8,8 +8,8 @@ indexes, and captured screens are not stored in Git.
 
 | Layer | Verified revision/state |
 |---|---|
-| Pi checkout | `37d4520` (`Use spare node space for explanations`) |
-| Browser behavior | `37d4520` (`Use spare node space for explanations`) |
+| Pi checkout | `32f8f19` (`Expand graphs across the live canvas`) |
+| Browser behavior | `32f8f19` (`Expand graphs across the live canvas`) |
 | Model | `Qwen3-4B-Q4_K_M.gguf`, 2,497,280,256 bytes |
 | Model SHA-256 | `7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5` |
 | llama.cpp package | pinned `v0.3.0`, source commit `c1d0e7a004015f23bc0233470b747b596f29b264` |
@@ -174,6 +174,22 @@ pairwise node overlap, and every node inside the graph. The Root word-node
 definition was fully visible without ellipsis. Temporary captures were
 inspected and removed.
 
+Revisions `77dbfea` and `32f8f19` replace fixed graph boxes with measured
+content geometry and distribute the semantic rows from the current canvas
+width. The renderer applies bounded collision repulsion, removes term/meaning
+line clamps, refits on card, focus, resize, and fullscreen changes, and exposes
+a **FIT** control that restores the complete best view. A dedicated lower graph
+panel presents Japanese, Chinese, French, and Arabic; Arabic graphemes cycle six
+letter colors while retaining right-to-left rendering.
+
+A live 1920x1080 audit on `32f8f19` used real accepted `predecessor` cards.
+Word Origin occupied 96.2% of its graph width, Root 80.4% width / 88.4% height,
+and Affix 82.1% width / 88.6% height. Every mode had eight visible nodes, four
+multilingual annotations, zero clipped node labels, zero node collisions, and
+zero nodes outside the canvas. FIT, branch focus, normal-window resize, and the
+actual Fullscreen API all retained a complete in-canvas view. The committed
+README captures were taken from this live Pi endpoint rather than mock data.
+
 Deployed revision `f1299e8` adds a true cross-mode ambient journey without
 merging the six collections. A live Chromium protocol audit on the Pi traversed
 these accepted card modes and IDs in order:
@@ -223,10 +239,10 @@ not imported by the core service.
 
 ## Validation performed
 
-- Windows development checkout at `37d4520`: 126 unit tests passed in 81.216
-  seconds; `compileall` and JavaScript syntax checks passed.
-- Pi checkout after fast-forward to `37d4520`: 126 full-suite tests passed in
-  48.532 seconds; `compileall` passed. Earlier launcher validation at `6712508`
+- Windows development checkout at `32f8f19`: 126 unit tests passed in 97.820
+  seconds; `compileall`, JavaScript syntax, and diff checks passed.
+- Pi checkout after fast-forward to `32f8f19`: 126 full-suite tests passed in
+  35.922 seconds; `compileall` passed. Earlier launcher validation at `6712508`
   also passed `bash -n` and `desktop-file-validate`.
   The runtime image does not install Node.js; JavaScript syntax was therefore
   checked in the Windows development gate before deployment.
