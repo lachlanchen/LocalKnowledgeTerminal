@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import sqlite3
 import unicodedata
 import uuid
 from copy import deepcopy
@@ -11,6 +12,7 @@ from typing import Any, Protocol
 
 from .corpus import CorpusIndex
 from .knowledge import KnowledgeStore
+from .jmdict import JapaneseReadingIndex
 from .lexicon import LocalLexiconRag
 from .llm import LlamaCppClient
 from .models import Card, Evidence
@@ -712,12 +714,14 @@ class PreparationWorker:
         model: AtomicModel,
         pronouncer: AtomicPronouncer | None = None,
         card_store: CardStore | None = None,
+        japanese_readings: JapaneseReadingIndex | None = None,
     ):
         self.store = store
         self.retriever = retriever
         self.model = model
         self.pronouncer = pronouncer or EspeakPronouncer()
         self.card_store = card_store
+        self.japanese_readings = japanese_readings
 
     def run_once(self) -> AtomicRunResult | None:
         job_types = list(SUPPORTED_ATOMIC_JOBS)
@@ -1996,6 +2000,7 @@ return text outside the JSON object. The top-level object must contain
             evidence_ids = [str(item) for item in translation.get("evidence_ids", [])]
 
         method: dict[str, Any]
+        revision_model = "deterministic"
         if language == "zh":
             reading = chinese_pinyin(visible_term, str(translation.get("reading", "")))
             ruby = chinese_ruby_tokens(visible_term)
@@ -2012,7 +2017,94 @@ return text outside the JSON object. The top-level object must contain
             system, dialect, confidence = "pinyin", "Mandarin", 1.0
             method = {"engine": "pypinyin", "basis": "accepted translation"}
         elif language == "ja":
-            reading = str(translation.get("reading", "")).strip()
+            supplied_reading = str(translation.get("reading", "")).strip()
+            candidates: list[dict[str, Any]] = []
+            if self.japanese_readings is not None:
+                try:
+                    candidates = self.japanese_readings.lookup(visible_term)
+                except (FileNotFoundError, OSError, sqlite3.Error):
+                    candidates = []
+            allowed_readings = list(
+                dict.fromkeys(str(item["reading"]) for item in candidates)
+            )
+            selected_by = "accepted-translation"
+            if supplied_reading in allowed_readings:
+                reading = supplied_reading
+                selected_by = "exact-dictionary-match"
+            elif len(allowed_readings) == 1:
+                reading = allowed_readings[0]
+                selected_by = "unique-dictionary-reading"
+            elif allowed_readings:
+                meanings = self.store.artifacts_for_subject(
+                    job["subject_key"],
+                    stage="accepted-meaning",
+                    validation_state="accepted",
+                )
+                english_sense = (
+                    str(meanings[-1]["payload"].get("definition", ""))
+                    if meanings
+                    else ""
+                )
+                review_prompt = f"""JAPANESE READING REVIEW
+SOURCE ENGLISH WORD: {source['text']}
+ACCEPTED ENGLISH SENSE: {english_sense}
+JAPANESE FORM: {visible_term}
+JAPANESE MEANING: {translation.get('meaning', '')}
+CURRENT UNVERIFIED READING: {supplied_reading}
+EXACT JMDICT CANDIDATES:
+{json.dumps(candidates, ensure_ascii=False)}
+
+Choose the one exact `reading` whose JMdict gloss best matches the accepted
+sense. Return only {{"reading":"one supplied candidate"}}. Never create a new
+reading and do not rewrite the Japanese form."""
+                completion = self.model.complete_json(
+                    "You select one exact dictionary reading for a fixed Japanese form.",
+                    review_prompt,
+                    max_tokens=64,
+                )
+                value = completion.get("value")
+                reading = (
+                    str(value.get("reading", "")).strip()
+                    if isinstance(value, dict)
+                    else ""
+                )
+                self.store.save_job_artifact(
+                    job["job_id"],
+                    "model-japanese-reading-review",
+                    {
+                        "term": visible_term,
+                        "supplied_reading": supplied_reading,
+                        "allowed_readings": allowed_readings,
+                        "value": value,
+                        "model": completion.get("model", self.model.model_name),
+                        "metrics": completion.get("metrics", {}),
+                    },
+                    language="ja",
+                    validation_state="candidate",
+                )
+                if reading not in allowed_readings:
+                    raise ValueError("Japanese reading review left the JMdict candidates")
+                selected_by = "sense-aligned-local-model-selection"
+                revision_model = str(
+                    completion.get("model", self.model.model_name)
+                )
+            else:
+                reading = supplied_reading
+
+            selected_records = [
+                item for item in candidates if str(item["reading"]) == reading
+            ]
+            for record in selected_records:
+                gloss = "; ".join(str(item) for item in record.get("glosses", [])[:4])
+                jmdict_evidence = self.store.add_evidence(
+                    str(record["corpus_id"]),
+                    str(record["entry_id"]),
+                    source_hash=str(record.get("source_hash", "")),
+                    locator=str(record.get("locator", "")),
+                    excerpt=f"{visible_term}【{reading}】 {gloss}".strip(),
+                    payload=record,
+                )
+                evidence_ids.append(jmdict_evidence)
             segments = [
                 {
                     "grapheme": visible_term,
@@ -2022,8 +2114,30 @@ return text outside the JSON object. The top-level object must contain
                 }
             ]
             system, dialect = "kana", "standard"
-            confidence = float(translation.get("confidence", 0.8))
-            method = {"engine": "accepted translation", "basis": "dictionary + model"}
+            if selected_records:
+                confidence = (
+                    0.95
+                    if selected_by == "sense-aligned-local-model-selection"
+                    else 1.0
+                )
+            else:
+                confidence = min(float(translation.get("confidence", 0.8)), 0.7)
+            method = {
+                "engine": "JMdict" if selected_records else "accepted translation",
+                "basis": "exact local dictionary" if selected_records else "unverified model reading",
+                "selection": selected_by,
+                "candidate_count": len(allowed_readings),
+                **(
+                    {
+                        "release": self.japanese_readings.metadata().get("release", ""),
+                        "source_sha256": self.japanese_readings.metadata().get(
+                            "source_sha256", ""
+                        ),
+                    }
+                    if selected_records and self.japanese_readings is not None
+                    else {}
+                ),
+            }
         else:
             generated = self.pronouncer.pronounce(visible_term, language)
             reading = str(generated["reading"])
@@ -2077,12 +2191,12 @@ return text outside the JSON object. The top-level object must contain
         self.store.record_revision(
             pronunciation_id,
             accepted,
-            model="deterministic",
+            model=revision_model,
             prompt_version=str(job.get("prompt_version", "")),
             reason=f"atomic {language} pronunciation",
             accepted=True,
         )
-        return self.store.save_job_artifact(
+        artifact_id = self.store.save_job_artifact(
             job["job_id"],
             "accepted-pronunciation",
             accepted,
@@ -2090,6 +2204,11 @@ return text outside the JSON object. The top-level object must contain
             validation_state="accepted",
             quality_score=confidence,
         )
+        if language == "ja" and method.get("engine") == "JMdict":
+            self.store.supersede_pronunciation_artifacts(
+                job["subject_key"], language, artifact_id
+            )
+        return artifact_id
 
     def _prepare_grammar_properties(self, job: dict[str, Any]) -> str:
         source = self.store.term_record(str(job["subject_entity_id"]))
@@ -2953,6 +3072,7 @@ def build_worker(
     lexicon: LocalLexiconRag,
     model: LlamaCppClient,
     card_store: CardStore,
+    japanese_readings: JapaneseReadingIndex | None = None,
 ) -> PreparationWorker:
     return PreparationWorker(
         store,
@@ -2960,4 +3080,5 @@ def build_worker(
         model,
         EspeakPronouncer(),
         card_store,
+        japanese_readings,
     )

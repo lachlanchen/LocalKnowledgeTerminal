@@ -45,6 +45,7 @@ LKT_CARDS_DB=${LKT_HOME}/data/cards.sqlite3
 LKT_KNOWLEDGE_DB=${LKT_HOME}/data/knowledge.sqlite3
 LKT_GRAPH_DB=${LKT_HOME}/data/knowledge-graph.lbdb
 LKT_FREEDICT_DB=${LKT_HOME}/data/lexicons/freedict-eng-ara.sqlite3
+LKT_JMDICT_DB=${LKT_HOME}/data/lexicons/jmdict.sqlite3
 LKT_LLM_URL=http://127.0.0.1:8081/v1/chat/completions
 LKT_LLM_MODEL=Qwen3-4B-Q4_K_M
 LKT_REQUEST_TIMEOUT=720

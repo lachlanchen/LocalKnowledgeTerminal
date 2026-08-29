@@ -25,6 +25,7 @@ from .graph import rebuild_ladybug
 from .freedict import build_freedict_index
 from .llm import LlamaCppClient
 from .knowledge import KnowledgeStore
+from .jmdict import JapaneseReadingIndex, build_jmdict_index
 from .lexicon import LocalLexiconRag
 from .morphology import MorphologyIndex, build_morphology_index
 from .preparation import DISPLAY_LANGUAGES, PreparationPlanner
@@ -160,6 +161,75 @@ def command_ingest_freedict(args: argparse.Namespace) -> int:
 
     result = build_freedict_index(Path(args.source), destination, progress)
     print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0
+
+
+def command_ingest_jmdict(args: argparse.Namespace) -> int:
+    settings = _settings()
+    destination = Path(args.database).resolve() if args.database else settings.jmdict_db
+
+    def progress(count: int) -> None:
+        if count % 10_000 == 0:
+            print(f"indexed {count} JMdict form-reading rows", flush=True)
+
+    result = build_jmdict_index(
+        Path(args.source), destination, release=args.release, progress=progress
+    )
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0
+
+
+def command_audit_japanese_readings(args: argparse.Namespace) -> int:
+    """Find only established readings contradicted by an exact JMdict form."""
+
+    settings = _settings()
+    store = KnowledgeStore(settings.knowledge_db)
+    index = JapaneseReadingIndex(settings.jmdict_db)
+    metadata = index.metadata()
+    latest: dict[str, dict[str, Any]] = {}
+    for artifact in store.accepted_pronunciation_artifacts("ja"):
+        latest[str(artifact["subject_key"])] = artifact
+    issues: list[dict[str, Any]] = []
+    queued: list[str] = []
+    planner = PreparationPlanner(
+        store,
+        model=settings.llm_model,
+        prompt_version=f"jmdict-reading-{metadata.get('release', 'pinned')}",
+        source_fingerprint=metadata.get("source_sha256", ""),
+    )
+    for artifact in latest.values():
+        payload = artifact["payload"]
+        term = str(payload.get("term", "")).strip()
+        current = str(payload.get("reading", "")).strip()
+        candidates = index.lookup(term)
+        allowed = list(dict.fromkeys(str(item["reading"]) for item in candidates))
+        if not allowed or current in allowed:
+            continue
+        source = store.term_record(str(artifact["subject_entity_id"]))
+        issue = {
+            "source_term": source["text"],
+            "japanese_term": term,
+            "current_reading": current,
+            "allowed_readings": allowed,
+            "artifact_id": artifact["artifact_id"],
+        }
+        issues.append(issue)
+        if args.apply and len(queued) < max(1, args.limit):
+            plan = planner.plan_pronunciation(str(source["text"]), "ja")
+            queued.extend(plan.jobs.values())
+    print(
+        json.dumps(
+            {
+                "release": metadata.get("release", ""),
+                "audited": len(latest),
+                "incorrect": len(issues),
+                "queued_jobs": len(set(queued)),
+                "issues": issues,
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
     return 0
 
 
@@ -616,6 +686,7 @@ def command_work_atomic(args: argparse.Namespace) -> int:
             settings.llm_url, settings.llm_model, settings.request_timeout
         ),
         CardStore(settings.cards_db),
+        JapaneseReadingIndex(settings.jmdict_db),
     )
     if args.watch:
         stop_event = Event()
@@ -719,6 +790,25 @@ def parser() -> argparse.ArgumentParser:
     freedict.add_argument("source", help="path to the FreeDict eng-ara TEI file")
     freedict.add_argument("--database", help="override destination database")
     freedict.set_defaults(handler=command_ingest_freedict)
+
+    jmdict = commands.add_parser(
+        "ingest-jmdict",
+        help="build the compact exact Japanese form/reading correction index",
+    )
+    jmdict.add_argument("source", help="path to the full jmdict-eng JSON")
+    jmdict.add_argument("--database", help="override destination database")
+    jmdict.add_argument("--release", default="", help="pinned upstream release ID")
+    jmdict.set_defaults(handler=command_ingest_jmdict)
+
+    japanese_audit = commands.add_parser(
+        "audit-japanese-readings",
+        help="report or backfill only accepted readings contradicted by JMdict",
+    )
+    japanese_audit.add_argument(
+        "--apply", action="store_true", help="queue missing-only pronunciation repairs"
+    )
+    japanese_audit.add_argument("--limit", type=int, default=25)
+    japanese_audit.set_defaults(handler=command_audit_japanese_readings)
 
     search = commands.add_parser("search", help="inspect retrieved book evidence")
     search.add_argument("query")

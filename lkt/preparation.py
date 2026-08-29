@@ -263,6 +263,79 @@ class PreparationPlanner:
             },
         )
 
+    def plan_pronunciation(
+        self,
+        text: str,
+        target_language: str,
+        *,
+        source_language: str = "en",
+    ) -> PreparationPlan:
+        """Rebuild one reading from its accepted translation, then recompose."""
+
+        term_id = self.store.upsert_term(source_language, text, status="draft")
+        subject_key = f"term:{term_id}"
+        artifacts = self.store.artifacts_for_subject(
+            subject_key, validation_state="accepted"
+        )
+        translations = [
+            item
+            for item in artifacts
+            if item["stage"] == "accepted-translation"
+            and item["language"] == target_language
+        ]
+        if not translations:
+            raise ValueError(
+                f"no accepted {target_language} translation is available for {text!r}"
+            )
+        pronunciation = self._job(
+            "prepare-pronunciation",
+            subject_key,
+            term_id,
+            language=target_language,
+            priority=60,
+            depends_on=(str(translations[-1]["job_id"]),),
+        )
+        jobs = {f"pronunciation:{target_language}": pronunciation}
+
+        # Recompose only when a complete Word Card already exists. The new
+        # pronunciation job replaces the old dependency; every other accepted
+        # atom is reused without another model call.
+        required = [
+            ("accepted-meaning", source_language),
+            ("accepted-grammar-properties", source_language),
+            *(
+                ("accepted-translation", language)
+                for language in DISPLAY_LANGUAGES
+                if language != source_language
+            ),
+            *(
+                ("accepted-pronunciation", language)
+                for language in DISPLAY_LANGUAGES
+                if language != target_language
+            ),
+        ]
+        dependencies = [pronunciation]
+        missing = False
+        for stage, language in required:
+            matches = [
+                item
+                for item in artifacts
+                if item["stage"] == stage and item["language"] == language
+            ]
+            if not matches:
+                missing = True
+                break
+            dependencies.append(str(matches[-1]["job_id"]))
+        if not missing:
+            jobs["compose-word-card"] = self._job(
+                "compose-word-card",
+                subject_key,
+                term_id,
+                priority=90,
+                depends_on=dependencies,
+            )
+        return PreparationPlan(term_id, subject_key, jobs)
+
     def plan_word_card_view(
         self,
         text: str,

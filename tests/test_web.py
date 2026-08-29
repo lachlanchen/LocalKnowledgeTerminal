@@ -21,14 +21,21 @@ class WebInputTests(unittest.TestCase):
     def test_health_marks_a_missing_correction_index_unready(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             database = Path(temp) / "missing-freedict.sqlite3"
-            status = correction_source_status(SimpleNamespace(freedict_db=database))
+            jmdict = Path(temp) / "missing-jmdict.sqlite3"
+            status = correction_source_status(
+                SimpleNamespace(freedict_db=database, jmdict_db=jmdict)
+            )
             self.assertEqual(
                 status,
                 {
                     "freedict_eng_ara": {
                         "ready": False,
                         "database": str(database.resolve()),
-                    }
+                    },
+                    "jmdict": {
+                        "ready": False,
+                        "database": str(jmdict.resolve()),
+                    },
                 },
             )
 
@@ -36,7 +43,12 @@ class WebInputTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             database = Path(temp) / "damaged-freedict.sqlite3"
             database.write_text("not sqlite", encoding="utf-8")
-            status = correction_source_status(SimpleNamespace(freedict_db=database))
+            status = correction_source_status(
+                SimpleNamespace(
+                    freedict_db=database,
+                    jmdict_db=Path(temp) / "missing-jmdict.sqlite3",
+                )
+            )
             self.assertFalse(status["freedict_eng_ara"]["ready"])
 
     def test_bare_terminal_defaults_to_the_selected_ambient_loop(self) -> None:

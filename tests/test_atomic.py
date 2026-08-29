@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 import tempfile
 import unittest
@@ -28,6 +29,7 @@ from lkt.atomic import (
     _plain_letter_key,
 )
 from lkt.knowledge import KnowledgeStore
+from lkt.jmdict import JapaneseReadingIndex, build_jmdict_index
 from lkt.models import Evidence
 from lkt.preparation import PreparationPlanner
 from lkt.store import CardStore
@@ -1281,6 +1283,262 @@ class AtomicWorkerTests(unittest.TestCase):
             self.assertEqual(chinese["payload"]["system"], "pinyin")
             self.assertEqual(len(chinese["payload"]["segments"]), 2)
             self.assertEqual(store.status()["counts"]["pronunciations"], 2)
+
+    def test_jmdict_repairs_an_incorrect_japanese_reading_without_retranslation(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "jmdict.json"
+            source.write_text(
+                json.dumps(
+                    {
+                        "version": "3.6.2",
+                        "dictDate": "2026-08-24",
+                        "words": [
+                            {
+                                "id": "1600470",
+                                "kanji": [{"common": True, "text": "風俗", "tags": []}],
+                                "kana": [
+                                    {
+                                        "common": True,
+                                        "text": "ふうぞく",
+                                        "tags": [],
+                                        "appliesToKanji": ["*"],
+                                    }
+                                ],
+                                "sense": [
+                                    {
+                                        "partOfSpeech": ["n"],
+                                        "appliesToKanji": ["*"],
+                                        "appliesToKana": ["*"],
+                                        "gloss": [
+                                            {"lang": "eng", "text": "manners and customs"}
+                                        ],
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            jmdict_database = root / "jmdict.sqlite3"
+            build_jmdict_index(
+                source, jmdict_database, release="3.6.2+20260824122934"
+            )
+            store = KnowledgeStore(root / "knowledge.sqlite3")
+            plan = PreparationPlanner(store, model="test").plan_word(
+                "lecher", display_languages=("en", "ja")
+            )
+            worker = PreparationWorker(
+                store,
+                FakeRetriever(),
+                FakeAtomicModel(),
+                FakePronouncer(),
+                None,
+                JapaneseReadingIndex(jmdict_database),
+            )
+            worker.run(2)
+            store.finish_job(plan.jobs["split-morphemes"])
+            store.finish_job(plan.jobs["expand-origin-branches"])
+            meaning = store.artifacts_for_subject(
+                plan.subject_key,
+                stage="accepted-meaning",
+                validation_state="accepted",
+            )[0]["payload"]
+            target_id = store.upsert_term("ja", "風俗", status="accepted")
+            translation_job = plan.jobs["translation:ja"]
+            store.save_job_artifact(
+                translation_job,
+                "accepted-translation",
+                {
+                    "translation_id": "translation-ja",
+                    "target_term_id": target_id,
+                    "language": "ja",
+                    "term": "風俗",
+                    "meaning": "習慣",
+                    "reading": "ふうしょく",
+                    "confidence": 0.8,
+                    "evidence_ids": meaning["evidence_ids"],
+                },
+                language="ja",
+                validation_state="accepted",
+                quality_score=0.8,
+            )
+            store.finish_job(translation_job)
+            legacy_job = store.enqueue_job(
+                "prepare-pronunciation",
+                plan.subject_key,
+                subject_entity_id=plan.subject_entity_id,
+                language="ja",
+                prompt_version="legacy-reading",
+            )
+            legacy_artifact = store.save_job_artifact(
+                legacy_job,
+                "accepted-pronunciation",
+                {
+                    "term": "風俗",
+                    "reading": "ふうしょく",
+                    "language": "ja",
+                    "method": {"engine": "accepted translation"},
+                },
+                language="ja",
+                validation_state="accepted",
+                quality_score=0.7,
+            )
+            store.finish_job(legacy_job)
+
+            worker.run(2)
+            japanese = next(
+                item
+                for item in store.artifacts_for_subject(
+                    plan.subject_key,
+                    stage="accepted-pronunciation",
+                    validation_state="accepted",
+                )
+                if item["language"] == "ja"
+            )
+            self.assertEqual(japanese["payload"]["reading"], "ふうぞく")
+            self.assertEqual(japanese["payload"]["method"]["engine"], "JMdict")
+            self.assertEqual(
+                japanese["payload"]["method"]["selection"],
+                "unique-dictionary-reading",
+            )
+            self.assertEqual(
+                store.artifacts_for_subject(
+                    plan.subject_key, stage="model-japanese-reading-review"
+                ),
+                [],
+            )
+            all_readings = store.artifacts_for_subject(
+                plan.subject_key, stage="accepted-pronunciation"
+            )
+            self.assertEqual(
+                next(
+                    item for item in all_readings
+                    if item["artifact_id"] == legacy_artifact
+                )["validation_state"],
+                "superseded",
+            )
+
+    def test_jmdict_uses_qwen_only_for_an_ambiguous_exact_form(self) -> None:
+        class ReadingReviewModel(FakeAtomicModel):
+            def __init__(self) -> None:
+                self.reading_reviews = 0
+
+            def complete_json(
+                self, system: str, prompt: str, *, max_tokens: int = 256
+            ) -> dict[str, Any]:
+                if "JAPANESE READING REVIEW" in prompt:
+                    self.reading_reviews += 1
+                    self.assert_review_prompt = prompt
+                    return {
+                        "value": {"reading": "けんさ"},
+                        "model": self.model_name,
+                        "metrics": {"completion_tokens": 8},
+                    }
+                return super().complete_json(system, prompt, max_tokens=max_tokens)
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "jmdict.json"
+            source.write_text(
+                json.dumps(
+                    {
+                        "version": "3.6.2",
+                        "dictDate": "2026-08-24",
+                        "words": [
+                            {
+                                "id": "1259880",
+                                "kanji": [{"common": True, "text": "検査"}],
+                                "kana": [
+                                    {"common": True, "text": "けんさ", "appliesToKanji": ["*"]},
+                                    {"common": False, "text": "けんしゃ", "appliesToKanji": ["*"]},
+                                ],
+                                "sense": [
+                                    {
+                                        "partOfSpeech": ["n"],
+                                        "appliesToKanji": ["*"],
+                                        "appliesToKana": ["けんさ"],
+                                        "gloss": [{"lang": "eng", "text": "inspection"}],
+                                    },
+                                    {
+                                        "partOfSpeech": ["n"],
+                                        "appliesToKanji": ["*"],
+                                        "appliesToKana": ["けんしゃ"],
+                                        "gloss": [{"lang": "eng", "text": "reviewer"}],
+                                    },
+                                ],
+                            }
+                        ],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            database = root / "jmdict.sqlite3"
+            build_jmdict_index(source, database, release="test-release")
+            store = KnowledgeStore(root / "knowledge.sqlite3")
+            plan = PreparationPlanner(store, model="test").plan_word(
+                "inspection", display_languages=("en", "ja")
+            )
+            model = ReadingReviewModel()
+            worker = PreparationWorker(
+                store,
+                FakeRetriever(),
+                model,
+                FakePronouncer(),
+                None,
+                JapaneseReadingIndex(database),
+            )
+            worker.run(2)
+            store.finish_job(plan.jobs["split-morphemes"])
+            store.finish_job(plan.jobs["expand-origin-branches"])
+            meaning = store.artifacts_for_subject(
+                plan.subject_key,
+                stage="accepted-meaning",
+                validation_state="accepted",
+            )[0]["payload"]
+            target_id = store.upsert_term("ja", "検査", status="accepted")
+            translation_job = plan.jobs["translation:ja"]
+            store.save_job_artifact(
+                translation_job,
+                "accepted-translation",
+                {
+                    "translation_id": "translation-ja",
+                    "target_term_id": target_id,
+                    "language": "ja",
+                    "term": "検査",
+                    "meaning": "状態を調べること",
+                    "reading": "けんざ",
+                    "confidence": 0.8,
+                    "evidence_ids": meaning["evidence_ids"],
+                },
+                language="ja",
+                validation_state="accepted",
+                quality_score=0.8,
+            )
+            store.finish_job(translation_job)
+
+            worker.run(2)
+
+            japanese = next(
+                item
+                for item in store.artifacts_for_subject(
+                    plan.subject_key,
+                    stage="accepted-pronunciation",
+                    validation_state="accepted",
+                )
+                if item["language"] == "ja"
+            )
+            self.assertEqual(japanese["payload"]["reading"], "けんさ")
+            self.assertEqual(
+                japanese["payload"]["method"]["selection"],
+                "sense-aligned-local-model-selection",
+            )
+            self.assertEqual(model.reading_reviews, 1)
+            self.assertIn('"けんさ"', model.assert_review_prompt)
+            self.assertIn('"けんしゃ"', model.assert_review_prompt)
 
     def test_word_card_is_composed_only_from_accepted_atomic_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

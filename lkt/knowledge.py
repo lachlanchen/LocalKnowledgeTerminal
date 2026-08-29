@@ -1983,6 +1983,61 @@ class KnowledgeStore:
             for row in rows
         ]
 
+    def accepted_pronunciation_artifacts(
+        self, language: str
+    ) -> list[dict[str, Any]]:
+        """Return accepted pronunciation checkpoints for a bounded audit."""
+
+        language = _language(language)
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """SELECT artifact.artifact_id, artifact.job_id, artifact.stage,
+                          artifact.language, artifact.payload, artifact.created_at,
+                          artifact.validation_state, artifact.quality_score,
+                          job.subject_entity_id, job.subject_key
+                   FROM job_artifacts AS artifact
+                   JOIN preparation_jobs AS job ON job.job_id = artifact.job_id
+                   WHERE artifact.stage = 'accepted-pronunciation'
+                     AND artifact.validation_state = 'accepted'
+                     AND artifact.language = ?
+                   ORDER BY artifact.created_at""",
+                (language,),
+            ).fetchall()
+        return [
+            {
+                "artifact_id": row[0],
+                "job_id": row[1],
+                "stage": row[2],
+                "language": row[3],
+                "payload": json.loads(row[4]),
+                "created_at": row[5],
+                "validation_state": row[6],
+                "quality_score": row[7],
+                "subject_entity_id": row[8],
+                "subject_key": row[9],
+            }
+            for row in rows
+        ]
+
+    def supersede_pronunciation_artifacts(
+        self, subject_key: str, language: str, keep_artifact_id: str
+    ) -> int:
+        """Quarantine older readings after a dictionary-verified replacement."""
+
+        language = _language(language)
+        with closing(self._connect()) as connection:
+            cursor = connection.execute(
+                """UPDATE job_artifacts SET validation_state = 'superseded'
+                   WHERE stage = 'accepted-pronunciation'
+                     AND validation_state = 'accepted' AND language = ?
+                     AND artifact_id <> ? AND job_id IN (
+                         SELECT job_id FROM preparation_jobs WHERE subject_key = ?
+                     )""",
+                (language, keep_artifact_id, subject_key.strip()),
+            )
+            connection.commit()
+        return int(cursor.rowcount)
+
     def add_job_dependency(self, job_id: str, depends_on_job_id: str) -> None:
         if job_id == depends_on_job_id:
             raise ValueError("a job cannot depend on itself")

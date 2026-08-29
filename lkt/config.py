@@ -20,6 +20,7 @@ class Settings:
     knowledge_db: Path
     graph_db: Path
     freedict_db: Path
+    jmdict_db: Path
     llm_url: str
     llm_model: str
     host: str
@@ -66,6 +67,12 @@ class Settings:
                 os.environ.get(
                     "LKT_FREEDICT_DB",
                     data_dir / "lexicons" / "freedict-eng-ara.sqlite3",
+                )
+            ).resolve(),
+            jmdict_db=Path(
+                os.environ.get(
+                    "LKT_JMDICT_DB",
+                    data_dir / "lexicons" / "jmdict.sqlite3",
                 )
             ).resolve(),
             llm_url=os.environ.get(

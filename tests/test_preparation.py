@@ -134,6 +134,49 @@ class PreparationPlannerTests(unittest.TestCase):
             claimed = store.claim_next_job(("prepare-pronunciation",))
             self.assertEqual(claimed["job_id"], plan.jobs["pronunciation:ar"])
 
+    def test_pronunciation_repair_reuses_translation_and_recomposes(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")
+            term_id = store.upsert_term("en", "inspection", status="accepted")
+            subject_key = f"term:{term_id}"
+            required = [
+                ("accepted-meaning", "en"),
+                ("accepted-grammar-properties", "en"),
+                *(("accepted-translation", language) for language in ("ja", "zh", "fr", "ar")),
+                *(("accepted-pronunciation", language) for language in ("en", "ja", "zh", "fr", "ar")),
+            ]
+            for index, (stage, language) in enumerate(required):
+                job_id = store.enqueue_job(
+                    f"accepted-source-{index}",
+                    subject_key,
+                    subject_entity_id=term_id,
+                    language=language,
+                    prompt_version="accepted-v1",
+                )
+                store.save_job_artifact(
+                    job_id,
+                    stage,
+                    {"accepted": True},
+                    language=language,
+                    validation_state="accepted",
+                    quality_score=0.9,
+                )
+                store.finish_job(job_id)
+
+            repair = PreparationPlanner(
+                store,
+                model="Qwen3-4B-Q4_K_M",
+                prompt_version="jmdict-reading-test",
+            ).plan_pronunciation("inspection", "ja")
+
+            self.assertEqual(
+                set(repair.jobs), {"pronunciation:ja", "compose-word-card"}
+            )
+            self.assertNotIn("translation:ja", repair.jobs)
+            claimed = store.claim_next_job(("prepare-pronunciation",))
+            self.assertIsNotNone(claimed)
+            self.assertEqual(claimed["job_id"], repair.jobs["pronunciation:ja"])
+
     def test_word_card_view_reuses_only_accepted_atoms(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")

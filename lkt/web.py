@@ -16,6 +16,7 @@ from .corpus import CorpusIndex
 from .deck import AutonomousDeckSeeder, AutonomousLexicalSeeder
 from .freedict import FreeDictRag
 from .intent import route_intent
+from .jmdict import JapaneseReadingIndex
 from .llm import LlamaCppClient, ModelUnavailable
 from .knowledge import KnowledgeStore
 from .morphology import MorphologyIndex
@@ -50,7 +51,14 @@ def correction_source_status(settings: Settings) -> dict[str, dict[str, Any]]:
         status = FreeDictRag(settings.freedict_db).status()
     except (OSError, ValueError, sqlite3.Error):
         status = {"ready": False, "database": str(settings.freedict_db)}
-    return {"freedict_eng_ara": status}
+    jmdict_db = Path(
+        getattr(settings, "jmdict_db", Path("missing-jmdict.sqlite3"))
+    ).resolve()
+    try:
+        japanese = JapaneseReadingIndex(jmdict_db).status()
+    except (OSError, ValueError, sqlite3.Error):
+        japanese = {"ready": False, "database": str(jmdict_db)}
+    return {"freedict_eng_ara": status, "jmdict": japanese}
 
 
 def autonomous_deck_status(

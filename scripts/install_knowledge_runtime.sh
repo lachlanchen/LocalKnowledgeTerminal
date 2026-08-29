@@ -57,6 +57,10 @@ env \
   WN_DATA_DIR="$WN_DATA_DIR" \
   "${VENV_DIR}/bin/python" -m lkt.cli knowledge-status >/dev/null
 
+LKT_HOME="$LKT_HOME" LKT_SOURCE="$SOURCE_DIR" \
+  "$SOURCE_DIR/scripts/install_jmdict.sh"
+
 printf 'Knowledge runtime ready: %s\n' "$VENV_DIR"
 printf 'WordNet data ready: %s\n' "$WN_DATA_DIR"
 printf 'FreeDict English-Arabic index ready: %s\n' "$FREEDICT_DB"
+printf 'JMdict Japanese reading index ready.\n'

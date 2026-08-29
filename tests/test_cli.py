@@ -67,6 +67,27 @@ class AtomicWatchTests(unittest.TestCase):
         self.assertIn("Environment=LKT_MODEL_CONTEXT=3072", unit)
         self.assertIn("Environment=LKT_BATCH_SIZE=128", unit)
 
+    def test_knowledge_runtime_pins_the_full_jmdict_index(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        installer = (root / "scripts" / "install_jmdict.sh").read_text(
+            encoding="utf-8"
+        )
+        runtime = (root / "scripts" / "install_knowledge_runtime.sh").read_text(
+            encoding="utf-8"
+        )
+        pi_installer = (root / "scripts" / "install_pi.sh").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('JMDICT_RELEASE="3.6.2+20260824122934"', installer)
+        self.assertIn(
+            "d9b74539bce7df82491a57ad96a0634a988129db6ca4a362f7221bc5e736871f",
+            installer,
+        )
+        self.assertIn("jmdict-eng-3.6.2+20260824122934.json.tgz", installer)
+        self.assertNotIn("jmdict-eng-common", installer)
+        self.assertIn("scripts/install_jmdict.sh", runtime)
+        self.assertIn("LKT_JMDICT_DB=", pi_installer)
+
     def test_display_autostart_is_bare_duplicate_safe_and_health_gated(self) -> None:
         root = Path(__file__).resolve().parents[1]
         launcher = (root / "scripts" / "open_kiosk.sh").read_text(encoding="utf-8")
