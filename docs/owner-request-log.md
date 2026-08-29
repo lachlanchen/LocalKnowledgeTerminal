@@ -607,3 +607,24 @@ source was live dictation and may contain recognition errors:
 - Do not let saved-card circles consume more page space forever. Keep the full
   database and arrow navigation, while rendering only a bounded nearby dot
   window. Question/Answer language-slide dots remain local to one current card.
+
+## Smart RAG-first lexical history
+
+- Do not mechanically reject a word merely because it has no tidy modern
+  morpheme split. Every selected Word Origins headword has a history worth
+  preparing; synchronic decomposition is optional context, not the admission
+  gate for Word Origin.
+- Use the exact Word Origins record as the historical spine. Add matching
+  records from the polished Root and Affix books when they are relevant, then
+  let the local Qwen model reason over that retrieved context and its own
+  knowledge in small tasks.
+- Never force letter fragments into prefix/root/suffix slots. The local model
+  may return one whole-word lexical base when the evidence does not establish a
+  reliable productive split. A structurally weak first draft receives a second
+  independent, evidence-aware linguistic review instead of an automatic
+  “missing root” rejection.
+- Keep deterministic checks narrow: valid JSON/card shape, exact surface
+  coverage, safe bounded output, and retrieval-owned citations. A plausible
+  uncited linguistic claim remains labelled model knowledge; it must not borrow
+  a book citation, but absence from a component dictionary is not proof that it
+  is false.

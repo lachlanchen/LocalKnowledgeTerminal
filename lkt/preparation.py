@@ -424,6 +424,94 @@ class PreparationPlanner:
         )
         return PreparationPlan(term_id, subject_key, {"compose-origin-card": composition})
 
+    def plan_lexical_history_repair(
+        self,
+        text: str,
+        *,
+        language: str = "en",
+        display_languages: Iterable[str] = DISPLAY_LANGUAGES,
+    ) -> PreparationPlan:
+        """Rebuild failed lexical history while reusing accepted language atoms."""
+
+        term_id = self.store.upsert_term(language, text, status="draft")
+        subject_key = f"term:{term_id}"
+
+        def newest(stage: str, output_language: str = "") -> dict[str, object] | None:
+            artifacts = self.store.artifacts_for_subject(
+                subject_key,
+                stage=stage,
+                validation_state=(
+                    "candidate" if stage == "retrieved-evidence" else "accepted"
+                ),
+            )
+            matches = [
+                artifact
+                for artifact in artifacts
+                if not output_language or artifact["language"] == output_language
+            ]
+            return matches[-1] if matches else None
+
+        retrieval = newest("retrieved-evidence")
+        meaning = newest("accepted-meaning", language)
+        missing: list[str] = []
+        if retrieval is None:
+            missing.append("retrieved-evidence")
+        if meaning is None:
+            missing.append(f"accepted-meaning:{language}")
+
+        language_dependencies: list[str] = []
+        for output_language in dict.fromkeys(display_languages):
+            if output_language != language:
+                translation = newest("accepted-translation", output_language)
+                if translation is None:
+                    missing.append(f"accepted-translation:{output_language}")
+                else:
+                    language_dependencies.append(str(translation["job_id"]))
+            pronunciation = newest("accepted-pronunciation", output_language)
+            if pronunciation is None:
+                missing.append(f"accepted-pronunciation:{output_language}")
+            else:
+                language_dependencies.append(str(pronunciation["job_id"]))
+        if missing:
+            raise ValueError(
+                f"accepted lexical repair atoms are missing for {text!r}: "
+                + ", ".join(missing)
+            )
+        assert retrieval is not None and meaning is not None
+
+        split = self._job(
+            "split-morphemes",
+            subject_key,
+            term_id,
+            language=language,
+            priority=30,
+            depends_on=(str(retrieval["job_id"]), str(meaning["job_id"])),
+        )
+        origin = self._job(
+            "expand-origin-branches",
+            subject_key,
+            term_id,
+            language=language,
+            priority=40,
+            depends_on=(split,),
+        )
+        composition = self._job(
+            "compose-origin-card",
+            subject_key,
+            term_id,
+            priority=90,
+            depends_on=(origin, *language_dependencies),
+        )
+        return PreparationPlan(
+            term_id,
+            subject_key,
+            {
+                "split-morphemes": split,
+                "expand-origin-branches": origin,
+                "compose-origin-card": composition,
+            },
+        )
+
     def plan_content(
         self,
         kind: str,

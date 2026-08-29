@@ -186,7 +186,7 @@ class AutonomousLexicalSeeder:
         knowledge: KnowledgeStore,
         *,
         model: str,
-        prompt_version: str = "autonomous-lexical-v1",
+        prompt_version: str = "autonomous-lexical-v2",
     ):
         self.corpus = corpus
         self.store = store
@@ -222,10 +222,52 @@ class AutonomousLexicalSeeder:
             "modes": list(self.MODES),
         }
 
+    def _missing_origin_queries(self) -> tuple[str, ...]:
+        """Find accepted Word Cards whose failed origin paths may be repairable."""
+
+        modes_by_query: dict[str, set[str]] = {}
+        display_by_query: dict[str, str] = {}
+        for card in self.store.accepted_for_modes(self.MODES):
+            query = str(card.get("query", "")).strip()
+            key = query.casefold()
+            if not key:
+                continue
+            display_by_query.setdefault(key, query)
+            modes_by_query.setdefault(key, set()).add(str(card.get("mode", "")))
+        return tuple(
+            display_by_query[key]
+            for key, modes in modes_by_query.items()
+            if "knowledge" in modes and "word" not in modes
+        )
+
     def run_once(self, seed: str = "") -> DeckSeedResult:
         planned = self._planned_keys()
         progress = self.progress()
         total = int(progress["total"])
+        for repair_query in self._missing_origin_queries():
+            planner = PreparationPlanner(
+                self.knowledge,
+                model=self.model,
+                prompt_version=self.prompt_version,
+                source_fingerprint=self.corpus.metadata().get("source_sha256", ""),
+            )
+            try:
+                plan = planner.plan_lexical_history_repair(repair_query)
+            except ValueError:
+                # Old partial records may predate one of the reusable language
+                # atoms. Try another repair candidate before new discovery.
+                continue
+            else:
+                return DeckSeedResult(
+                    status="queued",
+                    mode="lexical",
+                    prepared=int(progress["planned"]),
+                    total=total,
+                    message=(
+                        f"queued {len(plan.jobs)} missing history jobs for "
+                        f"{repair_query}; accepted language atoms were reused"
+                    ),
+                )
         evidence = self.corpus.draw_unseen_word(
             seed.strip() or f"{time.time_ns()}:lexical:{len(planned)}",
             planned,

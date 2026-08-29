@@ -932,7 +932,10 @@ translations, examples, markdown, or claims absent from the evidence."""
             }
             for record in records
         ]
-        required_shape = explicit_shape or _book_anchored_shape(letters, records)
+        # Only an explicit reviewed-book decomposition fixes a surface shape.
+        # A substring hit from the root index remains RAG context for Qwen; it
+        # must not mechanically turn every leftover letter into an affix.
+        required_shape = explicit_shape
         prompt_shape = [
             {
                 "surface": item["surface"],
@@ -955,7 +958,7 @@ translations, examples, markdown, or claims absent from the evidence."""
             if explicit_shape
             else "evidence_ids: only supplied evidence IDs that explicitly support this part"
         )
-        prompt = f"""MORPHEME SPLIT
+        prompt = f"""MORPHEME SPLIT / LEXICAL STRUCTURE ANALYSIS
 TERM: {source['text']}
 CURRENT EVIDENCE: {json.dumps(context, ensure_ascii=False)}
 {shape_instruction}
@@ -970,18 +973,24 @@ meaning: at most 10 English words
 confidence: number from 0 to 1
 {evidence_instruction}
 
-The concatenated surfaces must reproduce TERM exactly. Include every letter once,
-include at least one root, and do not invent an extra part merely to add detail.
-Use exact COMPONENT HINTS for roots when supplied. A prefix canonical form must
-end in `-`; a suffix canonical form must begin with `-`. Meaning must be one plain
-phrase, never a stringified list. Distinguish productive word structure from deep
-history; history belongs to a later task. Use an empty evidence_ids array for
-model knowledge. Never merge, shorten, rename, or reclassify a required part."""
+The concatenated surfaces must reproduce TERM exactly. Include every letter once
+and identify at least one root or free lexical base. Do not force a split merely
+because letter groups resemble affixes. When the evidence does not establish a
+reliable present-day decomposition, return one whole-TERM part with kind `free`.
+Use exact COMPONENT HINTS when they genuinely describe this word. A prefix
+canonical form must end in `-`; a suffix canonical form must begin with `-`.
+Meaning must be one plain phrase, never a stringified list. Distinguish productive
+word structure from historical ancestry; history belongs to the next RAG task.
+Use an empty evidence_ids array for model knowledge. Never merge, shorten, rename,
+or reclassify a required reviewed-book part."""
         completion = self.model.complete_json(
             (
                 "You fill metadata for a fixed, book-anchored morphology split."
                 if required_shape
-                else "You perform one conservative, reusable morphology split at a time."
+                else (
+                    "You make a conservative linguistic judgment about lexical "
+                    "structure; an unsplit word is a valid answer."
+                )
             ),
             prompt,
             max_tokens=384 if explicit_shape else 320,
@@ -999,8 +1008,65 @@ model knowledge. Never merge, shorten, rename, or reclassify a required part."""
             language=source["language"],
             validation_state="candidate",
         )
+
+        def draft_needs_review(candidate: Any) -> bool:
+            if not isinstance(candidate, dict):
+                return True
+            draft_parts = candidate.get("parts")
+            if not isinstance(draft_parts, list) or not 1 <= len(draft_parts) <= 5:
+                return True
+            if not all(isinstance(item, dict) for item in draft_parts):
+                return True
+            surfaces = "".join(
+                re.sub(r"[^A-Za-z]", "", str(item.get("surface", "")))
+                for item in draft_parts
+            )
+            kinds = {
+                str(item.get("kind", "")).strip().casefold()
+                for item in draft_parts
+            }
+            return (
+                surfaces.casefold() != letters
+                or not kinds.intersection({"root", "free"})
+            )
+
+        if draft_needs_review(value):
+            review_prompt = f"""LINGUISTIC REVIEW OF A LEXICAL STRUCTURE DRAFT
+TERM: {source['text']}
+RETRIEVED WORD-ORIGIN, ROOT, AFFIX, AND DICTIONARY EVIDENCE:
+{json.dumps(context, ensure_ascii=False)}
+FIRST DRAFT: {json.dumps(value, ensure_ascii=False)}
+{shape_instruction}
+
+Independently review the draft using the retrieved evidence and linguistic
+judgment. Return exactly one JSON object with `parts` in the same schema as the
+first task. Correct a wrongly labelled prefix, root, suffix, or free base. Never
+force a decomposition to satisfy a template. If a reliable synchronic split is
+not established, return one whole-TERM `free` part. Every letter must be covered
+exactly once, and the answer must contain a root or free lexical base. Book-backed
+claims may cite only supplied evidence IDs; model knowledge must cite none."""
+            reviewed = self.model.complete_json(
+                "You are the second-pass linguist reviewing RAG evidence, not a string splitter.",
+                review_prompt,
+                max_tokens=384,
+            )
+            value = reviewed.get("value")
+            self.store.save_job_artifact(
+                job["job_id"],
+                "model-morpheme-review-draft",
+                {
+                    "term": source["text"],
+                    "value": value,
+                    "model": reviewed.get("model", self.model.model_name),
+                    "metrics": reviewed.get("metrics", {}),
+                },
+                language=source["language"],
+                validation_state="candidate",
+            )
+            completion = reviewed
+
         raw_parts = value.get("parts") if isinstance(value, dict) else None
-        if not isinstance(raw_parts, list) or not 2 <= len(raw_parts) <= 5:
+        if not isinstance(raw_parts, list) or not 1 <= len(raw_parts) <= 5:
             raise ValueError("morpheme task returned an invalid number of parts")
         cleaned: list[dict[str, Any]] = []
         for item in raw_parts:
@@ -1054,8 +1120,8 @@ model knowledge. Never merge, shorten, rename, or reclassify a required part."""
             source["text"]
         ).casefold():
             raise ValueError("morpheme surfaces do not reproduce the source term")
-        if not any(part["kind"] == "root" for part in cleaned):
-            raise ValueError("morpheme split has no root")
+        if not any(part["kind"] in {"root", "free"} for part in cleaned):
+            raise ValueError("lexical analysis has no root or free base after review")
         if required_shape:
             if [part["surface"].casefold() for part in cleaned] != [
                 str(item["surface"]).casefold() for item in required_shape
@@ -1069,8 +1135,12 @@ model knowledge. Never merge, shorten, rename, or reclassify a required part."""
                         part["evidence_ids"].append(evidence_id)
 
         for part in cleaned:
-            direct = self.retriever.component_evidence(
-                part["canonical_form"], part["kind"]
+            direct = (
+                self.retriever.component_evidence(
+                    part["canonical_form"], part["kind"]
+                )
+                if part["kind"] in {"root", "prefix", "suffix"}
+                else []
             )
             for record in direct:
                 evidence_id = self.store.add_evidence(
@@ -1083,10 +1153,10 @@ model knowledge. Never merge, shorten, rename, or reclassify a required part."""
                 )
                 if evidence_id not in part["evidence_ids"]:
                     part["evidence_ids"].append(evidence_id)
-            if part["kind"] == "root" and not part["evidence_ids"]:
-                raise ValueError(
-                    f"root {part['canonical_form']!r} has no exact component-book evidence"
-                )
+            # A useful local model analysis is allowed to remain uncited. The
+            # next task grounds historical claims in the exact Word Origins
+            # entry; absence from a component dictionary is not evidence that
+            # the linguistic analysis is wrong.
 
         accepted_parts: list[dict[str, Any]] = []
         for ordinal, part in enumerate(cleaned):
@@ -1180,6 +1250,22 @@ model knowledge. Never merge, shorten, rename, or reclassify a required part."""
                 if evidence_id:
                     source_origin_ids.add(evidence_id)
 
+        base_parts = [
+            part for part in parts if str(part.get("kind", "")) in {"root", "free"}
+        ]
+        if not base_parts:
+            raise ValueError("accepted lexical analysis has no root or free base")
+        history_anchor = next(
+            (
+                part
+                for part in base_parts
+                if _plain_letter_key(part.get("surface", ""))
+                == _plain_letter_key(source["text"])
+            ),
+            max(base_parts, key=lambda item: len(str(item.get("surface", "")))),
+        )
+        history_anchor_id = str(history_anchor.get("morpheme_id", ""))
+
         allowed_by_component: dict[str, set[str]] = {}
         context: list[dict[str, Any]] = []
         for part in parts:
@@ -1199,7 +1285,7 @@ model knowledge. Never merge, shorten, rename, or reclassify a required part."""
                     payload=record,
                 )
                 allowed.add(evidence_id)
-            if part.get("kind") == "root":
+            if component_id == history_anchor_id:
                 allowed.update(source_origin_ids)
             allowed_by_component[component_id] = allowed
             evidence = self.store.evidence_records(sorted(allowed))
@@ -1226,12 +1312,12 @@ model knowledge. Never merge, shorten, rename, or reclassify a required part."""
             (
                 item
                 for item in context
-                if item["kind"] == "root" and item["evidence"]
+                if item["kind"] in {"root", "free"} and item["evidence"]
             ),
             None,
         )
         if focus is None:
-            raise ValueError("no cited root is available for origin expansion")
+            raise ValueError("no cited lexical base is available for origin expansion")
         focus_evidence = self.store.evidence_records(
             sorted(allowed_by_component[str(focus["component_id"])])
         )
@@ -1252,7 +1338,6 @@ model knowledge. Never merge, shorten, rename, or reclassify a required part."""
                     for record in focus["evidence"]
                 ],
             }
-        extracted_steps = _book_origin_steps(focus_evidence)
         evidence_instruction = (
             "evidence_ids: always an empty array; exact source provenance is attached "
             "by the system after validation"
@@ -1261,7 +1346,8 @@ model knowledge. Never merge, shorten, rename, or reclassify a required part."""
         )
         prompt = f"""ONE ORIGIN BRANCH
 MODERN WORD: {source['text']}
-FIXED COMPONENT AND EVIDENCE: {json.dumps(prompt_focus, ensure_ascii=False)}
+LEXICAL BASE AND RETRIEVED WORD-ORIGIN EVIDENCE:
+{json.dumps(prompt_focus, ensure_ascii=False)}
 
 Return exactly one JSON object with `component_id` copied exactly and `steps`, an
 array ordered oldest to newest. Use one to three historically useful steps. Each
@@ -1273,34 +1359,23 @@ meaning: at most 10 English words
 confidence: number from 0 to 1
 {evidence_instruction}
 
-The final step develops into the fixed component. A step must never repeat the
-modern word or the fixed component itself. Do not use Modern English as a
+The final step develops into the lexical base or modern word. A step must never
+repeat the modern word or the fixed base itself. Do not use Modern English as a
 historical step, invent dates, or add a sibling component.
 When exact source evidence is supplied, use only historical forms visibly printed
 in that evidence and copy their spelling exactly.
 Book evidence is authoritative. Model knowledge must use an empty evidence_ids
 array. Stop a branch when another step is uncertain. Prefer a small accurate
 graph over a decorative graph."""
-        completion = (
-            {
-                "value": {
-                    "component_id": focus["component_id"],
-                    "steps": extracted_steps,
-                },
-                "model": "deterministic-book-extractor",
-                "metrics": {"model_calls": 0},
-            }
-            if extracted_steps
-            else self.model.complete_json(
-                "You expand exactly one bounded, backwards etymology branch.",
-                prompt,
-                max_tokens=256,
-            )
+        completion = self.model.complete_json(
+            "You reason over RAG evidence to expand one bounded etymology branch.",
+            prompt,
+            max_tokens=256,
         )
         value = completion.get("value")
         self.store.save_job_artifact(
             job["job_id"],
-            "book-origin-draft" if extracted_steps else "model-origin-draft",
+            "model-origin-draft",
             {
                 "term": source["text"],
                 "value": value,
@@ -1318,7 +1393,7 @@ graph over a decorative graph."""
 
         cleaned_branches: list[dict[str, Any]] = []
         total_steps = 0
-        root_has_history = False
+        base_has_history = False
         for part in parts:
             component_id = str(part["morpheme_id"])
             branch = raw_by_component.get(component_id, {})
@@ -1404,8 +1479,8 @@ graph over a decorative graph."""
                     }
                 )
             total_steps += len(steps)
-            root_has_history = root_has_history or (
-                part.get("kind") == "root" and bool(steps)
+            base_has_history = base_has_history or (
+                part.get("kind") in {"root", "free"} and bool(steps)
             )
             cleaned_branches.append(
                 {
@@ -1415,8 +1490,8 @@ graph over a decorative graph."""
                     "steps": steps,
                 }
             )
-        if total_steps < 1 or total_steps > 5 or not root_has_history:
-            raise ValueError("origin task did not establish a bounded root history")
+        if total_steps < 1 or total_steps > 5 or not base_has_history:
+            raise ValueError("origin task did not establish a bounded lexical history")
 
         prior_origins = self.store.artifacts_for_subject(
             job["subject_key"],
@@ -1484,7 +1559,7 @@ graph over a decorative graph."""
             accepted,
             model=str(accepted["model"]),
             prompt_version=str(job.get("prompt_version", "")),
-            reason="bounded recursive origin expansion",
+            reason="book-grounded lexical origin expansion",
             accepted=True,
         )
         return self.store.save_job_artifact(
@@ -2332,7 +2407,7 @@ return text outside the JSON object. The top-level object must contain
                 }
                 for earlier, later in zip(chain, chain[1:])
             )
-            if branch.get("component_kind") == "root":
+            if branch.get("component_kind") in {"root", "free"}:
                 headline = " → ".join(
                     [
                         *(str(step["form"]) for step in steps),
@@ -2344,14 +2419,18 @@ return text outside the JSON object. The top-level object must contain
                 root_focus_areas.append(
                     {
                         "id": f"root-history-{len(root_focus_areas) + 1}",
-                        "label": "Root history",
+                        "label": (
+                            "Root history"
+                            if branch.get("component_kind") == "root"
+                            else "Word history"
+                        ),
                         "kind": "root",
                         "node_ids": [*branch_ids, component_id, center_id],
                         "headline": headline,
                         "explanation": (
-                            "This cited root carries the central history."
+                            "This cited lexical base carries the central history."
                             if branch_ids
-                            else "This accepted root contributes to the modern word."
+                            else "This accepted base contributes to the modern word."
                         ),
                     }
                 )
@@ -2365,7 +2444,7 @@ return text outside the JSON object. The top-level object must contain
                 "kind": "overview",
                 "node_ids": all_ids,
                 "headline": str(source["text"]),
-                "explanation": "One word, its fixed parts, and the cited root history.",
+                "explanation": "One word, its analyzed structure, and cited history.",
             },
             {
                 "id": "parts",
@@ -2373,7 +2452,7 @@ return text outside the JSON object. The top-level object must contain
                 "kind": "overview",
                 "node_ids": [*part_ids, center_id],
                 "headline": " · ".join(str(part["canonical_form"]) for part in parts),
-                "explanation": "Prefix, root, and suffix combine into the modern word.",
+                "explanation": "Only linguistically supported bases and affixes are shown.",
             },
         ]
         focus_areas.extend(root_focus_areas)
@@ -2426,7 +2505,7 @@ return text outside the JSON object. The top-level object must contain
             subtitle=" · ".join(str(part["canonical_form"]) for part in parts),
             summary_en=str(meaning["payload"]["definition"]),
             origin_story=(
-                f"The cited root follows {'; '.join(root_headlines)}."
+                f"The cited lexical history follows {'; '.join(root_headlines)}."
                 if root_headlines
                 else ""
             ),
@@ -2480,9 +2559,14 @@ return text outside the JSON object. The top-level object must contain
             },
         )
         cards = [card]
-        for derived_mode, focus_kinds, policy in (
-            ("root", {"root"}, "accepted-atomic-root-view"),
-            ("affix", {"prefix", "suffix"}, "accepted-atomic-affix-view"),
+        for derived_mode, focus_kinds, part_kinds, policy in (
+            ("root", {"root"}, {"root", "free"}, "accepted-atomic-root-view"),
+            (
+                "affix",
+                {"prefix", "suffix"},
+                {"prefix", "suffix"},
+                "accepted-atomic-affix-view",
+            ),
         ):
             selected_focuses = [
                 deepcopy(area)
@@ -2495,7 +2579,7 @@ return text outside the JSON object. The top-level object must contain
             derived_graph = deepcopy(graph)
             derived_graph["focus_areas"] = selected_focuses
             relevant_parts = [
-                part for part in parts if str(part["kind"]) in focus_kinds
+                part for part in parts if str(part["kind"]) in part_kinds
             ]
             derived_graph["center_id"] = str(relevant_parts[0]["morpheme_id"])
             derived = deepcopy(card)

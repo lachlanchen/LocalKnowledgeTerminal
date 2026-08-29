@@ -243,6 +243,62 @@ class PreparationPlannerTests(unittest.TestCase):
             claimed = store.claim_next_job(("expand-origin-branches",))
             self.assertEqual(claimed["prompt_version"], "origin-v2")
 
+    def test_lexical_history_repair_reuses_accepted_language_atoms(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")
+            term_id = store.upsert_term("en", "lecher", status="accepted")
+            subject_key = f"term:{term_id}"
+
+            def checkpoint(
+                stage: str,
+                language: str = "",
+                validation_state: str = "accepted",
+            ) -> str:
+                job_id = store.enqueue_job(
+                    f"old-{stage}",
+                    subject_key,
+                    subject_entity_id=term_id,
+                    language=language,
+                    prompt_version="old-v1",
+                )
+                store.save_job_artifact(
+                    job_id,
+                    stage,
+                    {"accepted": True},
+                    language=language,
+                    validation_state=validation_state,
+                    quality_score=0.9,
+                )
+                store.finish_job(job_id)
+                return job_id
+
+            checkpoint("retrieved-evidence", validation_state="candidate")
+            checkpoint("accepted-meaning", "en")
+            for language in ("ja", "zh", "fr", "ar"):
+                checkpoint("accepted-translation", language)
+            for language in ("en", "ja", "zh", "fr", "ar"):
+                checkpoint("accepted-pronunciation", language)
+
+            plan = PreparationPlanner(
+                store,
+                model="Qwen3-4B-Q4_K_M",
+                prompt_version="autonomous-lexical-v2",
+                source_fingerprint="books-v2",
+            ).plan_lexical_history_repair("lecher")
+
+            self.assertEqual(
+                set(plan.jobs),
+                {
+                    "split-morphemes",
+                    "expand-origin-branches",
+                    "compose-origin-card",
+                },
+            )
+            claimed = store.claim_next_job(("split-morphemes",))
+            self.assertIsNotNone(claimed)
+            self.assertEqual(claimed["prompt_version"], "autonomous-lexical-v2")
+            self.assertEqual(claimed["source_fingerprint"], "books-v2")
+
     def test_answer_plan_prepares_languages_and_investigation_terms_separately(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")

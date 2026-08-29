@@ -151,13 +151,22 @@ data or lexical filtering changes. The latest raw candidate supersedes—not
 deletes—the older candidate, so downstream work consumes one current evidence
 set while the provenance ledger still explains earlier decisions.
 
-`split-morphemes` asks the local model for one conservative surface-covering
-split, then enforces exact letter coverage, controlled kinds/languages, a root,
-short meanings, and confidence thresholds. Each proposed component is looked up
-again in the polished component book. Direct component evidence upgrades that
-part to `book`; unsupported but plausible structure is capped as `model`. The
-three parts of `inspection`, for example, are stored independently rather than
-flattened into a prose origin story.
+`split-morphemes` is retained as a compatibility name, but its task is a
+RAG-informed lexical-structure judgment rather than a string splitter. Qwen sees
+the retrieved Word Origins, polished Root/Affix, and dictionary context; it may
+return supported prefix/root/suffix parts or one whole-word `free` base when no
+reliable synchronic decomposition is established. A draft with incomplete
+surface coverage or no root/free base receives a second independent linguistic
+review. Deterministic code checks the bounded JSON contract and exact letter
+coverage, not whether every word happens to fit a mechanical template.
+
+Each proposed component is looked up again in the polished component books.
+Direct component evidence upgrades that part to `book`; unsupported but
+plausible structure is retained as explicitly uncited `model` knowledge instead
+of being rejected merely for lacking a dictionary row. The three supported
+parts of `inspection`, for example, remain independently reusable, while a word
+such as `lecher` may safely use one lexical base and continue into its cited
+Old French history.
 
 A decomposition that fails a later factual audit is quarantined rather than
 edited in place: its artifact becomes rejected, term-component edges and
@@ -169,33 +178,42 @@ The raw structured morphology draft is checkpointed as a non-publishable
 candidate before validation. A failed retry therefore remains inspectable, but
 cannot create terms, edges, graph nodes, or cards.
 
-An exact root found in the reviewed root dictionary becomes a surface anchor.
-The model fills small reusable properties around that fixed split; it cannot
-merge, shorten, or relabel the cited root. Deep historical alternations remain a
-separate recursive origin task instead of distorting the visible word structure.
+An exact root found in the reviewed root dictionary becomes strong RAG context,
+not a mechanical substring boundary: Qwen must decide whether it genuinely
+describes the current word. Only a reviewed entry that explicitly prints the
+complete decomposition fixes the ordered surfaces. Deep historical alternations
+remain a separate origin task instead of distorting visible word structure.
 Prefix/suffix hyphen direction and plain-phrase punctuation are deterministic
 display normalizations and are recorded on the accepted atom.
 
-`expand-origin-branches` starts only after a split is accepted. It retrieves
-Word Origins evidence independently for each fixed component, prepares one
-cited root branch per model call with at most three backwards steps, checkpoints
-the raw graph draft, and then
+`expand-origin-branches` starts after the lexical analysis is accepted. It
+selects the evidence-bearing root or free lexical base, attaches the exact
+headword record from Word Origins as the historical spine, retrieves relevant
+component evidence, and prepares one bounded history branch with local Qwen.
+The raw graph draft is checkpointed before the worker
 stores each accepted historical form as its own entity. Historical edges point
 from older form to newer form or component. Only evidence attached to that
 exact component can make a historical node `book`; uncited model knowledge is
-capped at 0.75. At least one root history is required, and a malformed branch
-cannot publish an Origin card.
-An explicit “Latin X … descendant of Indo-European Y” book sentence is parsed
-deterministically before model fallback, avoiding a slow inference call for a
-chain already stated directly by the source. `plan-origin` retries only this
-stage after a validator or extractor revision.
+capped at 0.75. At least one lexical history is required, but a modern root split
+is not. A malformed graph still cannot publish an Origin card.
+Even when a source prints the chain directly, Qwen performs the bounded semantic
+reading; deterministic code only confirms that every claimed book form is
+actually visible in the retrieved record. `plan-origin` retries only this stage
+after a prompt or validator revision.
 
 `compose-origin-card` is also deterministic. It projects the accepted modern
-sense, fixed morphemes, and historical branches into one connected graph, then
-adds a whole-origin view, a word-parts view, and a focused root-history slide.
+sense, analyzed lexical structure, and historical branches into one connected
+graph, then adds a whole-origin view, a supported-parts view, and a focused
+root- or whole-word-history slide.
 It reuses accepted Japanese/Chinese ruby plus French/Arabic atoms and passes the
 same publication gate as every other visible card. `plan-origin-card` can rerun
 this projection without retrieval or inference.
+
+The autonomous lexical v2 scheduler also heals older partial plans. If an
+accepted Word Card exists but its Word Origin view is missing after a terminal
+structure/history failure, it enqueues only a new structure review, origin
+branch, and composition. Existing accepted retrieval, meaning, translation, and
+pronunciation artifacts remain dependencies and are not regenerated.
 The full-screen graph renders relationships as quiet directed arrows; verbose
 edge names stay in card JSON for future inspection instead of overlapping the
 large teaching nodes. Origin-source evidence is ordered before modern lexical

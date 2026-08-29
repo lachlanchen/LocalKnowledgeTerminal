@@ -655,6 +655,172 @@ class AtomicWorkerTests(unittest.TestCase):
                 [],
             )
 
+    def test_word_origin_rag_repairs_a_forced_split_into_an_unsplit_base(self) -> None:
+        class LecherRetriever:
+            def retrieve(self, term: str) -> list[dict[str, Any]]:
+                return [
+                    {
+                        "entry_id": "dictionary-lecher-1",
+                        "corpus_id": "test-dictionary:1.0",
+                        "source_title": "Test Dictionary",
+                        "headword": term,
+                        "part_of_speech": "noun",
+                        "definition": "a person given to lewd behavior",
+                        "source_hash": "dictionary123",
+                        "locator": "sense 1",
+                    },
+                    {
+                        "entry_id": "entry-3622",
+                        "corpus_id": "test-word-origins:1.0",
+                        "source_title": "Test Word Origins",
+                        "headword": term,
+                        "excerpt": (
+                            "Old French lecheor was derived from lechier 'lick', "
+                            "ultimately from Frankish likkon."
+                        ),
+                        "source_hash": "origins123",
+                        "locator": "lecher entry",
+                        "kind": "entry",
+                    },
+                ]
+
+            def component_evidence(self, _form: str, _kind: str) -> list[dict[str, Any]]:
+                return []
+
+            def origin_evidence(self, _form: str) -> list[dict[str, Any]]:
+                return []
+
+        class ReviewingModel:
+            model_name = "test-local-qwen"
+
+            def complete_json(
+                self, _system: str, prompt: str, *, max_tokens: int = 256
+            ) -> dict[str, Any]:
+                if "LINGUISTIC REVIEW" in prompt:
+                    return {
+                        "value": {
+                            "parts": [
+                                {
+                                    "surface": "lecher",
+                                    "canonical_form": "lecher",
+                                    "kind": "free",
+                                    "language": "en",
+                                    "meaning": "whole lexical base",
+                                    "confidence": 0.9,
+                                    "evidence_ids": [],
+                                }
+                            ]
+                        },
+                        "model": self.model_name,
+                    }
+                if "MORPHEME SPLIT" in prompt:
+                    return {
+                        "value": {
+                            "parts": [
+                                {
+                                    "surface": "lech",
+                                    "canonical_form": "lech-",
+                                    "kind": "prefix",
+                                    "language": "en",
+                                    "meaning": "lick",
+                                    "confidence": 0.8,
+                                    "evidence_ids": [],
+                                },
+                                {
+                                    "surface": "er",
+                                    "canonical_form": "-er",
+                                    "kind": "suffix",
+                                    "language": "en",
+                                    "meaning": "person",
+                                    "confidence": 0.8,
+                                    "evidence_ids": [],
+                                },
+                            ]
+                        },
+                        "model": self.model_name,
+                    }
+                if "ONE ORIGIN BRANCH" in prompt:
+                    component_id = re.findall(
+                        r'"component_id": "([^"]+)"', prompt
+                    )[0]
+                    return {
+                        "value": {
+                            "component_id": component_id,
+                            "steps": [
+                                {
+                                    "form": "lechier",
+                                    "language": "fro",
+                                    "period": "Old French",
+                                    "meaning": "lick",
+                                    "confidence": 0.92,
+                                    "evidence_ids": [],
+                                },
+                                {
+                                    "form": "lecheor",
+                                    "language": "fro",
+                                    "period": "Old French derivative",
+                                    "meaning": "lewd person",
+                                    "confidence": 0.92,
+                                    "evidence_ids": [],
+                                },
+                            ],
+                        },
+                        "model": self.model_name,
+                    }
+                evidence_id = re.findall(r'"(evidence-[^"]+)"', prompt)[0]
+                return {
+                    "value": {
+                        "definition": "A person given to lewd behavior.",
+                        "part_of_speech": "noun",
+                        "sense_note": "historical noun",
+                        "confidence": 0.9,
+                        "evidence_ids": [evidence_id],
+                    },
+                    "model": self.model_name,
+                }
+
+        with tempfile.TemporaryDirectory() as temp:
+            store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")
+            plan = PreparationPlanner(store, model="test-local-qwen").plan_word(
+                "lecher", display_languages=("en",)
+            )
+            results = PreparationWorker(
+                store, LecherRetriever(), ReviewingModel(), FakePronouncer()
+            ).run(4)
+
+            self.assertTrue(all(result.status == "complete" for result in results))
+            split = store.artifacts_for_subject(
+                plan.subject_key,
+                stage="accepted-morpheme-split",
+                validation_state="accepted",
+            )[0]
+            self.assertEqual(
+                [(part["surface"], part["kind"]) for part in split["payload"]["parts"]],
+                [("lecher", "free")],
+            )
+            self.assertEqual(
+                len(
+                    store.artifacts_for_subject(
+                        plan.subject_key,
+                        stage="model-morpheme-review-draft",
+                        validation_state="candidate",
+                    )
+                ),
+                1,
+            )
+            origin = store.artifacts_for_subject(
+                plan.subject_key,
+                stage="accepted-origin-branches",
+                validation_state="accepted",
+            )[0]
+            branch = origin["payload"]["branches"][0]
+            self.assertEqual(branch["component_kind"], "free")
+            self.assertEqual(
+                [step["form"] for step in branch["steps"]],
+                ["lechier", "lecheor"],
+            )
+            self.assertTrue(all(step["basis"] == "book" for step in branch["steps"]))
+
     def test_explicit_book_chain_is_extracted_without_model_inference(self) -> None:
         steps = _book_origin_steps(
             [

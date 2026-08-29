@@ -31,8 +31,8 @@ STATIC_DIR = Path(__file__).resolve().parent / "static"
 _PREPARATION_LABELS = {
     "retrieve-evidence": "Reading books and dictionaries",
     "prepare-meaning": "Choosing the central meaning",
-    "split-morphemes": "Separating the word into fixed parts",
-    "expand-origin-branches": "Tracing cited root histories",
+    "split-morphemes": "Reviewing word structure with book evidence",
+    "expand-origin-branches": "Tracing the cited lexical history",
     "prepare-translation": "Preparing one language",
     "prepare-pronunciation": "Aligning pronunciation",
     "prepare-grammar-properties": "Separating grammar properties",
