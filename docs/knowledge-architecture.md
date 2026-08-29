@@ -13,13 +13,15 @@ The graph database is never an independent source of truth. Every projected
 node and edge carries its SQLite ID. A projection has a deterministic source
 fingerprint and can be replaced or rebuilt without model inference.
 
-## Autonomous reviewed-book deck
+## Balanced autonomous product deck
 
-The installed atomic worker owns one additional idle-time action. When no
-claimable preparation job exists, it compares accepted-source coverage for the
-Answer and Question books and selects one unseen record from the less-complete
-mode. A seeded circular scan makes every record reachable; the stable book
-entry ID in each accepted card prevents repetition across service restarts.
+The installed atomic worker owns one bounded periodic balance action. It counts
+accepted cards in Question, Answer, Word Card, Word Origin, Root, and Affix,
+then advances the least-populated product stage. One lexical plan feeds the four
+lexical views, so the scheduler treats those views as a shared bounded action
+and never starts another autonomous lexical subject while one is unfinished.
+A seeded circular scan makes every source record reachable; stable book entry
+and planned-term identities prevent repetition across service restarts.
 
 Retrieval chooses and owns that exact record. Local Qwen produces only the
 bounded card title/reflection, after which normal composition restores the
@@ -29,12 +31,13 @@ interactive request. Accepted text is acquired into normalized knowledge and
 one exact-source vocabulary investigation is queued. Failed drafts remain
 non-visible and the source stays eligible for a later retry.
 
-Only one record is attempted per idle interval. Current Pi undervoltage,
+Only one source is attempted per balance interval. Current Pi undervoltage,
 throttling, or a temperature of 78 C or more returns a `paused` result instead
 of calling the model; preparation resumes automatically after recovery.
 Historical throttle flags do not block healthy work. Word Card and graph modes
-remain demand-driven because their source collections contain thousands of
-records, but every requested pipeline stage is likewise local and resumable.
+also remain available on demand; their autonomous walk stays bounded despite a
+source collection of thousands of records. Every pipeline stage is local and
+resumable.
 
 ## Publication boundary
 

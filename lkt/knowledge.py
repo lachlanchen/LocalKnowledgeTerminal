@@ -1737,7 +1737,10 @@ class KnowledgeStore:
                          WHERE dependency.job_id = job.job_id
                            AND prerequisite.status <> 'complete'
                      )
-                   ORDER BY priority, created_at LIMIT 1""",
+                   ORDER BY
+                       CASE WHEN job.subject_key LIKE 'term:%' THEN 0 ELSE 1 END,
+                       priority, created_at
+                   LIMIT 1""",
                 parameters,
             ).fetchone()
             if row is None:
@@ -2009,11 +2012,25 @@ class KnowledgeStore:
         language = _language(language)
         with closing(self._connect()) as connection:
             rows = connection.execute(
-                """SELECT normalized FROM terms
-                   WHERE language = ? AND kind = 'word'""",
+                """SELECT DISTINCT term.normalized FROM terms AS term
+                   JOIN preparation_jobs AS job
+                     ON job.subject_entity_id = term.entity_id
+                    AND job.subject_key = 'term:' || term.entity_id
+                   WHERE term.language = ? AND term.kind = 'word'""",
                 (language,),
             ).fetchall()
         return {str(row["normalized"]) for row in rows}
+
+    def active_term_preparation_count(self) -> int:
+        """Return the number of lexical subjects still using the atomic worker."""
+
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                """SELECT COUNT(DISTINCT subject_key) FROM preparation_jobs
+                   WHERE subject_key LIKE 'term:%'
+                     AND status IN ('queued', 'running')"""
+            ).fetchone()
+        return int(row[0]) if row else 0
 
     def save_job_artifact(
         self,

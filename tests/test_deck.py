@@ -9,6 +9,7 @@ from lkt.deck import (
     AutonomousDeckSeeder,
     AutonomousLexicalSeeder,
     AutonomousSeedCoordinator,
+    BalancedProductSeeder,
     DeckSeedResult,
 )
 from lkt.knowledge import KnowledgeStore
@@ -183,6 +184,61 @@ class AutonomousDeckTests(unittest.TestCase):
         self.assertEqual(coordinator.run_once().mode, "lexical")
         self.assertEqual(coordinator.run_once().mode, "answer")
         self.assertEqual(coordinator.run_once().mode, "lexical")
+
+    def test_product_seeder_catches_up_lexical_modes_before_growing_books(self) -> None:
+        class _Store:
+            def accepted_for_modes(
+                self, _modes: tuple[str, ...]
+            ) -> list[dict[str, str]]:
+                return [
+                    *({"mode": "question"} for _ in range(28)),
+                    *({"mode": "answer"} for _ in range(31)),
+                    *({"mode": "knowledge"} for _ in range(3)),
+                    *({"mode": "word"} for _ in range(2)),
+                    *({"mode": "root"} for _ in range(2)),
+                    *({"mode": "affix"} for _ in range(2)),
+                ]
+
+        class _Book:
+            modes = ("question", "answer")
+
+            def run_mode(self, mode: str) -> DeckSeedResult:
+                self.fail_mode = mode
+                return DeckSeedResult(status="prepared", mode=mode)
+
+        class _Lexical:
+            def run_bounded_once(self) -> DeckSeedResult:
+                return DeckSeedResult(status="queued", mode="lexical")
+
+        book = _Book()
+        result = BalancedProductSeeder(book, _Lexical(), _Store()).run_once()
+
+        self.assertEqual(result.mode, "lexical")
+        self.assertFalse(hasattr(book, "fail_mode"))
+
+    def test_product_seeder_starts_each_balanced_round_with_question(self) -> None:
+        class _Store:
+            def accepted_for_modes(
+                self, _modes: tuple[str, ...]
+            ) -> list[dict[str, str]]:
+                return [
+                    {"mode": mode}
+                    for mode in BalancedProductSeeder.MODES
+                    for _ in range(4)
+                ]
+
+        class _Book:
+            modes = ("question", "answer")
+
+            def run_mode(self, mode: str) -> DeckSeedResult:
+                return DeckSeedResult(status="prepared", mode=mode)
+
+        class _Lexical:
+            def run_bounded_once(self) -> DeckSeedResult:
+                raise AssertionError("question must be the first balanced mode")
+
+        result = BalancedProductSeeder(_Book(), _Lexical(), _Store()).run_once()
+        self.assertEqual(result.mode, "question")
 
 
 if __name__ == "__main__":

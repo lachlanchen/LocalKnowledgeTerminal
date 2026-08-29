@@ -39,6 +39,7 @@ const ambientModeDecks = new Map();
 const INNER_SLIDE_DWELL_MS = 18000;
 const CARD_MIN_DWELL_MS = 30000;
 const ACCEPTED_DECK_SYNC_MS = 30000;
+const HISTORY_DOT_LIMIT = 18;
 const AMBIENT_MODE_ORDER = ["question", "answer", "knowledge", "word", "root", "affix"];
 const DISPLAY_SETTINGS_STORAGE_KEY = "lkt-display-settings-v1";
 const DISPLAY_LANGUAGE_CODES = ["en", "ja", "zh", "fr", "ar"];
@@ -2030,8 +2031,14 @@ async function advanceAmbientMode(activityRevision) {
 function renderModeDeckDots() {
   const history = $("#history");
   history.replaceChildren();
-  carouselCards.forEach((card, index) => {
+  const halfWindow = Math.floor(HISTORY_DOT_LIMIT / 2);
+  const maxStart = Math.max(0, carouselCards.length - HISTORY_DOT_LIMIT);
+  const start = Math.min(maxStart, Math.max(0, carouselIndex - halfWindow));
+  const visibleCards = carouselCards.slice(start, start + HISTORY_DOT_LIMIT);
+  visibleCards.forEach((card, offset) => {
+    const index = start + offset;
     const button = element("button");
+    button.dataset.carouselIndex = String(index);
     button.title = card.title;
     button.classList.toggle("active", index === carouselIndex);
     button.addEventListener("click", () => {
@@ -2116,7 +2123,18 @@ function updateCarouselChrome() {
   const found = carouselCards.findIndex((card) => card.card_id === activeCardId);
   if (found >= 0) carouselIndex = found;
   text("#carousel-position", carouselCards.length ? `${carouselIndex + 1} / ${carouselCards.length}` : "0 / 0");
-  all("#history button").forEach((button, index) => button.classList.toggle("active", index === carouselIndex));
+  let historyButtons = all("#history button");
+  if (
+    carouselCards.length
+    && !historyButtons.some((button) => Number(button.dataset.carouselIndex) === carouselIndex)
+  ) {
+    renderModeDeckDots();
+    historyButtons = all("#history button");
+  }
+  historyButtons.forEach((button) => button.classList.toggle(
+    "active",
+    Number(button.dataset.carouselIndex) === carouselIndex,
+  ));
   $("#toggle-autoplay").textContent = autoplayEnabled ? "Ⅱ" : "▶";
   $("#toggle-autoplay").title = autoplayEnabled ? "Pause carousel" : "Play carousel";
 }

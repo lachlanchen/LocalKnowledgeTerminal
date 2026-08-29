@@ -16,7 +16,7 @@ from .corpus import CorpusIndex, build_index
 from .deck import (
     AutonomousDeckSeeder,
     AutonomousLexicalSeeder,
-    AutonomousSeedCoordinator,
+    BalancedProductSeeder,
     DeckSeedResult,
 )
 from .device import background_preparation_blocker
@@ -535,6 +535,8 @@ def guarded_deck_seed(seeder: Any) -> DeckSeedResult:
     blocker = background_preparation_blocker()
     if blocker:
         return DeckSeedResult(status="paused", message=blocker)
+    if isinstance(seeder, AutonomousLexicalSeeder):
+        return seeder.run_bounded_once()
     return seeder.run_once()
 
 
@@ -547,11 +549,14 @@ def run_atomic_watch(
     emit: Callable[[Any], None],
     idle_action: Callable[[], Any] | None = None,
     idle_action_interval: float = 120.0,
+    periodic_action: Callable[[], Any] | None = None,
+    periodic_action_interval: float = 120.0,
     preparation_blocker: Callable[[], str] = background_preparation_blocker,
 ) -> int:
     """Run one persisted task at a time while preserving device headroom."""
 
     next_idle_action = monotonic()
+    next_periodic_action = monotonic()
     while not stop_event.is_set():
         # Guard draining the existing queue as well as adding new deck work.
         # A model request can temporarily consume most of a small Pi; checking
@@ -559,6 +564,11 @@ def run_atomic_watch(
         # that starves the browser, VNC, and SSH.
         if preparation_blocker():
             stop_event.wait(idle_seconds)
+            continue
+        if periodic_action is not None and monotonic() >= next_periodic_action:
+            emit(periodic_action())
+            next_periodic_action = monotonic() + max(1.0, periodic_action_interval)
+            stop_event.wait(job_delay)
             continue
         result = worker.run_once()
         if result is None:
@@ -601,12 +611,24 @@ def command_work_atomic(args: argparse.Namespace) -> int:
     )
     if args.watch:
         stop_event = Event()
-        seeders: list[Any] = []
-        if args.autoprepare_lexical_deck:
-            seeders.append(_lexical_seeder(settings))
-        if args.autoprepare_book_deck:
-            seeders.append(_deck_seeder(settings, args.autoprepare_modes))
-        seeder = AutonomousSeedCoordinator(seeders) if seeders else None
+        lexical_seeder = (
+            _lexical_seeder(settings) if args.autoprepare_lexical_deck else None
+        )
+        book_seeder = (
+            _deck_seeder(settings, args.autoprepare_modes)
+            if args.autoprepare_book_deck
+            else None
+        )
+        if lexical_seeder is not None and book_seeder is not None:
+            seeder: Any | None = BalancedProductSeeder(
+                book_seeder,
+                lexical_seeder,
+                CardStore(settings.cards_db),
+            )
+        elif lexical_seeder is not None:
+            seeder = lexical_seeder
+        else:
+            seeder = book_seeder
 
         def stop_worker(_signum: int, _frame: Any) -> None:
             stop_event.set()
@@ -621,8 +643,8 @@ def command_work_atomic(args: argparse.Namespace) -> int:
             emit=lambda result: print(
                 json.dumps(result.__dict__, ensure_ascii=False), flush=True
             ),
-            idle_action=(lambda: guarded_deck_seed(seeder)) if seeder is not None else None,
-            idle_action_interval=max(
+            periodic_action=(lambda: guarded_deck_seed(seeder)) if seeder is not None else None,
+            periodic_action_interval=max(
                 10.0, min(float(args.autoprepare_interval_seconds), 86_400.0)
             ),
         )

@@ -100,9 +100,21 @@ class AutonomousDeckSeeder:
     def run_once(self, seed: str = "") -> DeckSeedResult:
         """Prepare exactly one unseen source record, or report completion."""
 
+        return self._run_once(self.modes, seed)
+
+    def run_mode(self, mode: str, seed: str = "") -> DeckSeedResult:
+        """Prepare one record for a specific visible book mode."""
+
+        if mode not in self.modes:
+            raise ValueError(f"autonomous book mode is unavailable: {mode!r}")
+        return self._run_once((mode,), seed)
+
+    def _run_once(self, modes: Iterable[str], seed: str) -> DeckSeedResult:
+        modes = tuple(modes)
+
         prepared = self._prepared_entry_ids()
         progress = []
-        for order, mode in enumerate(self.modes):
+        for order, mode in enumerate(modes):
             total = self.service.card_books[mode].count()
             done = len(prepared[mode])
             progress.append((done / total if total else 1.0, order, mode, done, total))
@@ -156,14 +168,14 @@ class AutonomousDeckSeeder:
             )
         return DeckSeedResult(
             status="complete",
-            prepared=sum(len(items) for items in prepared.values()),
-            total=sum(self.service.card_books[mode].count() for mode in self.modes),
+            prepared=sum(len(prepared[mode]) for mode in modes),
+            total=sum(self.service.card_books[mode].count() for mode in modes),
             message="every configured book record already has an accepted card",
         )
 
 
 class AutonomousLexicalSeeder:
-    """Queue one unseen lexical plan only after the atomic worker becomes idle."""
+    """Queue one unseen lexical plan for all four lexical product modes."""
 
     MODES = ("knowledge", "word", "root", "affix")
 
@@ -243,6 +255,69 @@ class AutonomousLexicalSeeder:
                 f"queued {len(plan.jobs)} missing-only jobs; one accepted plan "
                 "feeds Word Card, Word Origin, Root, and Affix"
             ),
+        )
+
+    def run_bounded_once(self, seed: str = "") -> DeckSeedResult:
+        """Keep autonomous discovery to one unfinished lexical subject at a time."""
+
+        active = self.knowledge.active_term_preparation_count()
+        if active:
+            return DeckSeedResult(
+                status="busy",
+                mode="lexical",
+                message=f"waiting for {active} active lexical plan to finish",
+            )
+        return self.run_once(seed)
+
+
+class BalancedProductSeeder:
+    """Grow the six visible product modes as balanced, bounded rounds."""
+
+    MODES = ("question", "answer", "knowledge", "word", "root", "affix")
+    LEXICAL_MODES = frozenset(("knowledge", "word", "root", "affix"))
+
+    def __init__(
+        self,
+        book: AutonomousDeckSeeder,
+        lexical: AutonomousLexicalSeeder,
+        store: CardStore,
+    ):
+        self.book = book
+        self.lexical = lexical
+        self.store = store
+
+    def counts(self) -> dict[str, int]:
+        counts = {mode: 0 for mode in self.MODES}
+        for card in self.store.accepted_for_modes(self.MODES):
+            mode = str(card.get("mode", ""))
+            if mode in counts:
+                counts[mode] += 1
+        return counts
+
+    def run_once(self) -> DeckSeedResult:
+        counts = self.counts()
+        attempted: set[str] = set()
+        ranked = sorted(
+            self.MODES,
+            key=lambda mode: (counts[mode], self.MODES.index(mode)),
+        )
+        for mode in ranked:
+            action = "lexical" if mode in self.LEXICAL_MODES else mode
+            if action in attempted:
+                continue
+            attempted.add(action)
+            if action == "lexical":
+                result = self.lexical.run_bounded_once()
+            elif action in self.book.modes:
+                result = self.book.run_mode(action)
+            else:
+                continue
+            if result.status != "complete":
+                return result
+        return DeckSeedResult(
+            status="complete",
+            mode="all",
+            message="every configured autonomous source is already planned",
         )
 
 

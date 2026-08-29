@@ -597,3 +597,13 @@ source was live dictation and may contain recognition errors:
 - Within each selected mode, randomize the saved-card pass by default. Provide
   a linear option that uses stable saved order. Inner language, sentence, and
   graph-focus slides remain deterministic and never shuffle.
+
+## Balanced autonomous growth and bounded indicators
+
+- Grow all six tabs equally in product order instead of preparing Question and
+  Answer far ahead of Word Card, Word Origin, Root, and Affix.
+- Continue lexical discovery while optional book enrichment remains queued,
+  but keep it bounded to one unfinished lexical subject at a time.
+- Do not let saved-card circles consume more page space forever. Keep the full
+  database and arrow navigation, while rendering only a bounded nearby dot
+  window. Question/Answer language-slide dots remain local to one current card.

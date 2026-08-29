@@ -107,23 +107,22 @@ language/pronunciation independently, validate, then compose. Successful stages
 are checkpointed immediately; one weak language or branch can be retried without
 discarding the rest.
 
-The installed low-priority worker also grows the reviewed Book Answer and Book
-Question decks autonomously. When the atomic queue is idle, it chooses exactly
-one source entry that has never produced an accepted card, balances progress
-between the two books, asks the Pi's local Qwen to prepare the small title and
-reflection, publishes only through the normal validation gate, and then queues
-one bounded vocabulary investigation plus independent English, Japanese, and
-Chinese grammar jobs. Stable source entry IDs prevent repeats across restarts.
-It stops after all 318 Answers and 291 Questions are accepted.
+The installed low-priority worker grows all six visible decks as balanced
+rounds: Question, Answer, then one shared lexical plan for Word Card, Word
+Origin, Root, and Affix. It always chooses the least-populated visible mode, so
+the fast reviewed-book path cannot run far ahead of the slower lexical path.
+During catch-up it pauses new Question/Answer draws and keeps at most one
+unfinished autonomous lexical subject in flight. The balance check runs at a
+bounded interval even while optional enrichment remains queued; lexical jobs
+are claimed before that book grammar enrichment.
 
-The same idle coordinator now grows the lexical modes without preloading a
-large queue. On alternating idle turns it selects exactly one simple Word
-Origins headword that has never been planned, records one shared atomic plan,
-then returns control to the one-job worker. Word Card can publish independently;
-a successful origin composition publishes Word Origin and derives its Root and
-Affix focus views from the same accepted atoms. Existing, queued, attempted, and
-accepted terms are excluded, so this is a missing-only walk rather than a
-regeneration loop.
+Each unseen source still passes through its normal local-Qwen, RAG, and
+publication gates. Stable source and term identities prevent repeats across
+restarts. Word Card can publish independently; a successful origin composition
+publishes Word Origin and derives its Root and Affix views from the same
+accepted atoms. Only terms with a real atomic plan or accepted card count as
+planned, so vocabulary merely discovered inside a book sentence remains
+eligible for later preparation.
 
 The bare browser starts with Question, then continues through Answer → Word
 Card → Word Origin → Root → Affix after each card completes every inner slide.
@@ -155,6 +154,11 @@ published result next. The compact status and `/api/health` report both finite
 book coverage and lexical planned/accepted progress without scheduling work.
 Interactive word requests remain immediate and reuse the same persisted atoms
 as autonomous preparation.
+
+The acquired-knowledge footer renders a moving window of at most 18 card dots;
+arrow navigation and the exact `current / total` counter still cover the full
+unbounded saved deck. Question/Answer language dots belong only to the current
+card and are replaced when that card changes.
 
 ```text
  Word Origin ──► best Word Origins entry ─────┐

@@ -353,6 +353,37 @@ class KnowledgeStoreTests(unittest.TestCase):
             self.assertIsNone(store.claim_next_job())
             self.assertEqual(store.status()["counts"]["preparation_jobs"], 1)
 
+    def test_lexical_jobs_are_claimed_before_optional_content_enrichment(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")
+            content = store.enqueue_job(
+                "prepare-grammar-parts", "content:old-card", priority=1
+            )
+            lexical = store.enqueue_job(
+                "prepare-translation", "term:new-word", priority=90
+            )
+
+            self.assertEqual(store.claim_next_job()["job_id"], lexical)
+            store.finish_job(lexical)
+            self.assertEqual(store.claim_next_job()["job_id"], content)
+
+    def test_only_terms_with_a_real_atomic_plan_count_as_planned(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")
+            discovered = store.upsert_term("en", "discovered")
+            planned = store.upsert_term("en", "planned")
+            self.assertEqual(store.planned_term_keys("en"), set())
+
+            store.enqueue_job(
+                "retrieve-evidence",
+                f"term:{planned}",
+                subject_entity_id=planned,
+            )
+
+            self.assertEqual(store.planned_term_keys("en"), {"planned"})
+            self.assertNotIn("discovered", store.planned_term_keys("en"))
+            self.assertEqual(store.active_term_preparation_count(), 1)
+
     def test_terminal_failure_cascades_through_queued_dependencies(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")

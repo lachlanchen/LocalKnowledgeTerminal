@@ -37,6 +37,13 @@ memory before draining every queued job as well as before adding optional deck
 work, and pauses below 1.5 GiB. Interactive requests and already persisted cards
 remain independent of that background pause.
 
+Autonomous scheduling is based on accepted visible-card counts, not source-book
+percentages. A bounded periodic balance pass selects the least-populated stage
+in Question â†’ Answer â†’ Word Card/Origin/Root/Affix order. Only one lexical
+subject may remain unfinished, and lexical atomic jobs are claimed before
+optional accepted-book grammar enrichment. This lets the slower four-view
+lexical bundle catch up without creating an unbounded preparation queue.
+
 The browser exposes two carousel levels over the acquired-knowledge ledger. The
 outer carousel is filtered by mode, so autoplay never changes an Origin into a
 Question. Answer and Question also have an inner language carousel. It renders
