@@ -705,7 +705,10 @@ class AtomicWorkerTests(unittest.TestCase):
                                     "canonical_form": "lecher",
                                     "kind": "free",
                                     "language": "en",
-                                    "meaning": "whole lexical base",
+                                    "meaning": (
+                                        "person given to lewd behavior in historical French "
+                                        "and English usage"
+                                    ),
                                     "confidence": 0.9,
                                     "evidence_ids": [],
                                 }

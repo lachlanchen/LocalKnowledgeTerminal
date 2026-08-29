@@ -1082,7 +1082,10 @@ claims may cite only supplied evidence IDs; model knowledge must cite none."""
                 raise ValueError("morpheme surface or kind is invalid")
             if language not in {"en", "la"}:
                 raise ValueError("morpheme language is not en or la")
-            if not supplied_canonical or not meaning or len(meaning.split()) > 10:
+            # The prompt aims for ten words, but a sound compact gloss should
+            # not be discarded over a harmless few-word overrun. Presentation
+            # remains bounded while linguistic judgment wins over word counting.
+            if not supplied_canonical or not meaning or len(meaning.split()) > 16:
                 raise ValueError("morpheme canonical form or meaning is invalid")
             if not re.fullmatch(r"[A-Za-z][A-Za-z -]*", meaning):
                 raise ValueError("morpheme meaning is not a plain English phrase")

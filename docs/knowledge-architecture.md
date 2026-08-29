@@ -158,7 +158,9 @@ return supported prefix/root/suffix parts or one whole-word `free` base when no
 reliable synchronic decomposition is established. A draft with incomplete
 surface coverage or no root/free base receives a second independent linguistic
 review. Deterministic code checks the bounded JSON contract and exact letter
-coverage, not whether every word happens to fit a mechanical template.
+coverage, not whether every word happens to fit a mechanical template. Prompt
+targets remain deliberately concise, while the validator tolerates a small
+word-count overrun rather than rejecting an otherwise sound gloss.
 
 Each proposed component is looked up again in the polished component books.
 Direct component evidence upgrades that part to `book`; unsupported but
