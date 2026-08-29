@@ -346,7 +346,9 @@ autostart directory and installs `scripts/open_kiosk.sh` as
 for the local health endpoint and opens exactly
 one dedicated Chromium profile at `http://127.0.0.1:8090/?display`. Running the
 launcher again is harmless: it detects that profile and does not open another
-window. Explicit mode URLs remain available for deliberate VNC use.
+window. Chromium starts as a normal fullscreen app rather than a locked kiosk,
+so **Esc** leaves fullscreen and returns to the controllable Pi desktop. Explicit
+mode URLs remain available for deliberate VNC use.
 
 ## Data and copyright
 

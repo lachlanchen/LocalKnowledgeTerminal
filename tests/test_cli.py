@@ -67,7 +67,7 @@ class AtomicWatchTests(unittest.TestCase):
         self.assertIn("Environment=LKT_MODEL_CONTEXT=3072", unit)
         self.assertIn("Environment=LKT_BATCH_SIZE=128", unit)
 
-    def test_kiosk_autostart_is_bare_duplicate_safe_and_health_gated(self) -> None:
+    def test_display_autostart_is_bare_duplicate_safe_and_health_gated(self) -> None:
         root = Path(__file__).resolve().parents[1]
         launcher = (root / "scripts" / "open_kiosk.sh").read_text(encoding="utf-8")
         desktop = (root / "desktop" / "lkt-kiosk.desktop").read_text(
@@ -80,6 +80,10 @@ class AtomicWatchTests(unittest.TestCase):
         self.assertIn("http://127.0.0.1:8090/api/health", launcher)
         self.assertLess(launcher.index("pgrep -f"), launcher.index('exec "$BROWSER"'))
         self.assertIn('--user-data-dir="$PROFILE_DIR"', launcher)
+        self.assertIn("--start-fullscreen", launcher)
+        self.assertIn('--app="$LKT_KIOSK_URL"', launcher)
+        self.assertIn("--disable-extensions", launcher)
+        self.assertNotIn("--kiosk", launcher)
         self.assertIn("--remote-debugging-address=127.0.0.1", launcher)
         self.assertNotIn("?mode=", launcher)
         self.assertIn("Exec=/usr/local/bin/lkt-open-kiosk", desktop)

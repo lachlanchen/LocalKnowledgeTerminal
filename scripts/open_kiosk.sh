@@ -39,13 +39,14 @@ fi
 
 exec "$BROWSER" \
   --ozone-platform="$OZONE_PLATFORM" \
-  --kiosk \
+  --start-fullscreen \
   --no-first-run \
   --no-default-browser-check \
   --disable-session-crashed-bubble \
   --disable-translate \
+  --disable-extensions \
   --noerrdialogs \
   --remote-debugging-address=127.0.0.1 \
   --remote-debugging-port=9222 \
   --user-data-dir="$PROFILE_DIR" \
-  "$LKT_KIOSK_URL"
+  --app="$LKT_KIOSK_URL"

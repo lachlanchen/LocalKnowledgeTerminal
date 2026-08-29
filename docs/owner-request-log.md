@@ -568,3 +568,22 @@ source was live dictation and may contain recognition errors:
 - This is recorded future direction, not a claim that a Reader tab exists now.
   Select and normalize a real sequential book corpus before implementing the
   UI or generalizing current book adapters.
+
+## Reboot ownership and background preparation
+
+- After every normal Pi boot and graphical auto-login, open exactly one bare
+  ambient LKT window in fullscreen. It must be ordinary escapable fullscreen,
+  not Chromium's locked kiosk mode; **Esc** returns to the usable VNC desktop.
+- The frontend is a database reader. It renders accepted saved cards, loops
+  their independent decks, and periodically notices newly accepted cards
+  without regenerating the currently displayed item.
+- A system daemon owns local-Qwen preparation after reboot. It drains one
+  persisted atomic job at a time, retrieves book/dictionary evidence locally,
+  validates the result, and commits only accepted artifacts/cards to SQLite.
+- Existing accepted atoms and cards are reused. Only when a source item or
+  required artifact is absent may the worker schedule missing-only RAG/model
+  preparation; after the queue becomes idle, it selects exactly one new unseen
+  source, saves its plan, and continues across restarts.
+- Keep the browser, web service, model service, and worker independently
+  recoverable. A closed or escaped display must not stop inference or database
+  preparation, and a failed draft must never enter the visible loop.
