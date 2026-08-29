@@ -314,3 +314,26 @@ Live revisions and validation on 2026-08-29:
 - Windows final display change: 126 tests in 73.730 seconds; `compileall` and
   JavaScript syntax passed.
 - `/api/health`: `ready`; web, model, worker, LightDM, and WayVNC active.
+
+## Configurable ambient loop deployment
+
+Revisions `b90c016` and `fc7b564` are deployed. The bare display now starts on
+Question and advances exactly Question → Answer → Word Card → Word Origin →
+Root → Affix. The cursor is initialized after the visible first mode, so the
+first timed transition is Answer rather than a second Question card.
+
+The live 1920x1080 settings dialog exposed six independent mode checkboxes and
+fit at 600x629 px with no internal overflow. The following browser-level cases
+were exercised and then reset:
+
+- all six selected, canonical order, Random on (default);
+- Root alone, reported as `1 MODE`;
+- Question + Word Origin + Affix, retained in canonical order;
+- Random off, preserving stable newest → middle → oldest card order.
+
+After restoring defaults, one actual ambient transition changed Question to
+Answer card `c730803c-f98d-4ed9-b629-2b780eea2f1d`, then pointed to Word Card.
+The page was reloaded and left on Question with all six modes selected, Random
+on, cursor next at Answer, one Chromium target, and a 1920x1080 fullscreen
+window. `/api/health` remained ready and the background queue continued down
+to 53 jobs during the web-only tmux deployments.
