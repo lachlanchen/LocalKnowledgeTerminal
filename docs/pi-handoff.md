@@ -8,7 +8,8 @@ indexes, and captured screens are not stored in Git.
 
 | Layer | Verified revision/state |
 |---|---|
-| LKT runtime code | `f1299e8` (`Cycle accepted modes while ambient`) |
+| Pi checkout | `6712508` (`Install the kiosk launcher globally`) |
+| Browser behavior | `f1299e8` (`Cycle accepted modes while ambient`) |
 | Model | `Qwen3-4B-Q4_K_M.gguf`, 2,497,280,256 bytes |
 | Model SHA-256 | `7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5` |
 | llama.cpp package | pinned `v0.3.0`, source commit `c1d0e7a004015f23bc0233470b747b596f29b264` |
@@ -153,6 +154,16 @@ accepted card is inserted first for its mode. Explicit tabs and `?mode=` URLs
 remain mode-local. Pointer, touch, key, or focus activity restarts the current
 card's full dwell before cross-mode motion can resume. Model Lab is excluded.
 
+The `LXDE-pi-labwc` desktop now owns a validated XDG autostart entry at
+`~/.config/autostart/lkt-kiosk.desktop`. It launches the repository-controlled
+script installed as `/usr/local/bin/lkt-open-kiosk`, waits for `/api/health`,
+selects Wayland in the current session, and opens the bare `?display` URL with a
+dedicated profile. The profile is also its duplicate lock: invoking the launcher
+while the kiosk was open kept the Chromium page-target count at exactly 1 → 1.
+The installed launcher and desktop entry matched their repository SHA-256 values
+and had modes `0755` and `0644`. No logout or reboot was forced during the audit;
+the validated autostart entry takes effect on the next normal graphical login.
+
 Direct entry points remain:
 
 - Answer/default: `http://127.0.0.1:8090/?display`
@@ -173,12 +184,12 @@ not imported by the core service.
 
 ## Validation performed
 
-- Windows development checkout: 118 unit tests passed; `compileall` and
+- Windows development checkout: 119 unit tests passed; `compileall` and
   JavaScript syntax checks passed.
-- Pi checkout after fast-forward to `f1299e8`: 118 full-suite tests passed in
-  49.590 seconds and `compileall` passed. The runtime image does not install
-  Node.js; JavaScript syntax was therefore checked in the Windows development
-  gate before deployment.
+- Pi checkout after fast-forward to `6712508`: 119 full-suite tests passed in
+  48.757 seconds; `compileall`, `bash -n`, and `desktop-file-validate` passed.
+  The runtime image does not install Node.js; JavaScript syntax was therefore
+  checked in the Windows development gate before deployment.
 - Live `/api/health`: ready, including all book, morphology, model, knowledge,
   FreeDict correction, and autonomous deck progress status.
 - Accelerated Chromium used the deployed browser code with the Pi's real
