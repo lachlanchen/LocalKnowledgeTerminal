@@ -209,6 +209,21 @@ can request deliberate regeneration with the API's `refresh: true` flag.
   and never regenerates the complete deck.
 - Outer arrows navigate saved cards; inner arrows navigate sentence or graph
   focus slides. Keep both levels available and visually distinct.
+- Saved-card order may be shuffled once per pass. Within a card, inner slides
+  remain ordered by language (complete English, then Japanese, then Chinese),
+  with the optional Explore/word-teaching slide last. Hold each inner slide for
+  18 seconds and do not advance the outer card until the sequence completes.
+- Use visually distinct, restrained transitions: lateral motion for an inner
+  slide and a subtle fade/scale for an outer card. Respect reduced-motion user
+  preferences.
+- Poll the selected mode's accepted deck without changing the current screen.
+  Place newly published cards immediately after the active card, then continue
+  the shuffled pass. Preparation state and rejected candidates never enter the
+  display deck.
+- Answer and Question have a finite autonomous source seeder. A future lexical
+  seeder must choose one unseen corpus term at a time and reuse the same
+  accepted atomic preparation across Word Card, Word Origin, Root, and Affix;
+  it must not regenerate complete existing cards.
 
 ## Engineering and delivery rules
 

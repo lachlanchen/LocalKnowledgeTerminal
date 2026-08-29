@@ -27,8 +27,13 @@ let allSavedCards = [];
 let sentenceSlides = [];
 let sentenceSlideIndex = 0;
 let sentenceSlideTimer = null;
+let graphFocusTimer = null;
 let chromeTimer = null;
 let ambientRouting = false;
+
+const INNER_SLIDE_DWELL_MS = 18000;
+const CARD_MIN_DWELL_MS = 30000;
+const ACCEPTED_DECK_SYNC_MS = 30000;
 
 const ALTERNATE_LANGUAGES = {
   french: { label: "FRANÇAIS · PRONONCIATION", className: "french" },
@@ -380,6 +385,12 @@ function fitSentenceSlide() {
   }
 }
 
+function restartTransition(node, className) {
+  node.classList.remove(className);
+  void node.offsetWidth;
+  node.classList.add(className);
+}
+
 function showSentenceSlide(requestedIndex) {
   if (!sentenceSlides.length) return;
   sentenceSlideIndex = (requestedIndex + sentenceSlides.length) % sentenceSlides.length;
@@ -407,6 +418,7 @@ function showSentenceSlide(requestedIndex) {
     stage.replaceChildren(panel);
     text("#sentence-position", `${sentenceSlideIndex + 1} / ${sentenceSlides.length}`);
     all("#sentence-dots button").forEach((button, index) => button.classList.toggle("active", index === sentenceSlideIndex));
+    restartTransition(stage, "inner-slide-enter");
     return;
   }
   const content = element("p", "sentence-text");
@@ -424,6 +436,7 @@ function showSentenceSlide(requestedIndex) {
   }
   text("#sentence-position", `${sentenceSlideIndex + 1} / ${sentenceSlides.length}`);
   all("#sentence-dots button").forEach((button, index) => button.classList.toggle("active", index === sentenceSlideIndex));
+  restartTransition(stage, "inner-slide-enter");
   window.requestAnimationFrame(fitSentenceSlide);
 }
 
@@ -441,12 +454,25 @@ function renderSentenceCarousel(card) {
     const button = element("button");
     button.type = "button";
     button.title = `Slide ${index + 1}`;
-    button.addEventListener("click", () => showSentenceSlide(index));
+    button.addEventListener("click", () => {
+      window.clearInterval(sentenceSlideTimer);
+      showSentenceSlide(index);
+      scheduleCarousel();
+    });
     return button;
   }));
   showSentenceSlide(0);
   if (sentenceSlides.length > 1) {
-    sentenceSlideTimer = window.setInterval(() => showSentenceSlide(sentenceSlideIndex + 1), 9000);
+    sentenceSlideTimer = window.setInterval(
+      () => {
+        if (sentenceSlideIndex >= sentenceSlides.length - 1) {
+          window.clearInterval(sentenceSlideTimer);
+          return;
+        }
+        showSentenceSlide(sentenceSlideIndex + 1);
+      },
+      INNER_SLIDE_DWELL_MS,
+    );
   }
 }
 
@@ -921,6 +947,7 @@ function renderOriginGraph(card) {
   const overview = $("#graph-overview");
   originCy?.destroy();
   overviewCy?.destroy();
+  window.clearInterval(graphFocusTimer);
   originCy = null;
   overviewCy = null;
   clearGraphNodeBadges();
@@ -1016,7 +1043,11 @@ function renderOriginGraph(card) {
     const button = element("button");
     button.type = "button";
     button.title = area.label || `Area ${index + 1}`;
-    button.addEventListener("click", () => showGraphFocus(index));
+    button.addEventListener("click", () => {
+      window.clearInterval(graphFocusTimer);
+      showGraphFocus(index);
+      scheduleCarousel();
+    });
     return button;
   }));
   $("#graph-focus-controls").classList.toggle("hidden", graphFocusAreas.length < 2);
@@ -1027,6 +1058,18 @@ function renderOriginGraph(card) {
     if (index >= 0) showGraphFocus(index);
   });
   showGraphFocus(0);
+  if (graphFocusAreas.length > 1) {
+    graphFocusTimer = window.setInterval(
+      () => {
+        if (graphFocusIndex >= graphFocusAreas.length - 1) {
+          window.clearInterval(graphFocusTimer);
+          return;
+        }
+        showGraphFocus(graphFocusIndex + 1);
+      },
+      INNER_SLIDE_DWELL_MS,
+    );
+  }
 }
 
 function showAlternate(card, requestedIndex = alternateIndex) {
@@ -1056,9 +1099,13 @@ function startAlternateLoop(card) {
   const count = Object.values(card.extra_languages || {}).filter((value) => value?.term).length;
   if (card.mode !== "knowledge" || count < 2) return;
   alternateTimer = window.setInterval(() => {
+    if (alternateIndex >= count - 1) {
+      window.clearInterval(alternateTimer);
+      return;
+    }
     alternateIndex += 1;
     showAlternate(card, alternateIndex);
-  }, 9000);
+  }, INNER_SLIDE_DWELL_MS);
 }
 
 function renderCard(card, refreshHistory = true) {
@@ -1147,6 +1194,7 @@ function renderCard(card, refreshHistory = true) {
     evidence.append(section);
   });
   show("card");
+  restartTransition(cardView, "card-switch-enter");
   updateCarouselChrome();
   if (refreshHistory) loadHistory();
 }
@@ -1363,6 +1411,22 @@ function shuffledModeDeck(cards) {
   return deck;
 }
 
+function renderModeDeckDots() {
+  const history = $("#history");
+  history.replaceChildren();
+  carouselCards.forEach((card, index) => {
+    const button = element("button");
+    button.title = card.title;
+    button.classList.toggle("active", index === carouselIndex);
+    button.addEventListener("click", () => {
+      carouselIndex = index;
+      renderCard(card, false);
+      scheduleCarousel();
+    });
+    history.append(button);
+  });
+}
+
 function rebuildModeCarousel(openLatest = false) {
   const history = $("#history");
   carouselCards = mode === "chat" ? [] : allSavedCards.filter((card) => card.mode === mode);
@@ -1377,19 +1441,55 @@ function rebuildModeCarousel(openLatest = false) {
   }
   const found = carouselCards.findIndex((card) => card.card_id === activeCardId);
   carouselIndex = openLatest || found < 0 ? 0 : found;
-  carouselCards.forEach((card, index) => {
-    const button = element("button");
-    button.title = card.title;
-    button.classList.toggle("active", index === carouselIndex);
-    button.addEventListener("click", () => {
-      carouselIndex = index;
-      renderCard(card, false);
-    });
-    history.append(button);
-  });
+  renderModeDeckDots();
   if (openLatest || found < 0) renderCard(carouselCards[carouselIndex], false);
   updateCarouselChrome();
   scheduleCarousel();
+}
+
+async function syncAcceptedDeck() {
+  if (mode === "chat" || visibleView !== "card" || activeCard?.mode !== mode) return;
+  const requestedMode = mode;
+  try {
+    const response = await fetch(
+      "/api/cards?mode=" + encodeURIComponent(requestedMode) + "&limit=1000",
+    );
+    const cards = await response.json();
+    if (!response.ok || !Array.isArray(cards) || mode !== requestedMode) return;
+    const current = carouselCards[carouselIndex];
+    const acceptedIds = new Set(cards.map((card) => card.card_id));
+    const knownIds = new Set(carouselCards.map((card) => card.card_id));
+    const newlyAccepted = cards.filter((card) => !knownIds.has(card.card_id));
+    const removedCount = carouselCards.filter((card) => !acceptedIds.has(card.card_id)).length;
+    allSavedCards = cards;
+    if (!newlyAccepted.length && !removedCount) return;
+
+    const newIds = new Set(newlyAccepted.map((card) => card.card_id));
+    const existingPass = current
+      ? [
+        ...carouselCards.slice(carouselIndex + 1),
+        ...carouselCards.slice(0, carouselIndex),
+      ]
+      : carouselCards;
+    const remaining = existingPass.filter((card) => (
+      acceptedIds.has(card.card_id)
+      && card.card_id !== current?.card_id
+      && !newIds.has(card.card_id)
+    ));
+    carouselCards = current
+      ? [current, ...newlyAccepted, ...remaining]
+      : shuffledModeDeck(cards);
+    carouselIndex = current ? 0 : -1;
+    renderModeDeckDots();
+    updateCarouselChrome();
+    if (!current && carouselCards.length) {
+      carouselIndex = 0;
+      renderCard(carouselCards[0], false);
+      scheduleCarousel();
+    }
+  } catch (_error) {
+    // Keep the current accepted deck untouched while the service is unavailable.
+  }
 }
 
 function updateCarouselChrome() {
@@ -1405,14 +1505,30 @@ function navigateCards(step) {
   if (!carouselCards.length || visibleView === "loading") return;
   carouselIndex = (carouselIndex + step + carouselCards.length) % carouselCards.length;
   renderCard(carouselCards[carouselIndex], false);
+  scheduleCarousel();
+}
+
+function activeInnerSlideCount() {
+  if (["answer", "question"].includes(mode)) return Math.max(1, sentenceSlides.length);
+  if (["word", "root", "affix"].includes(mode)) return Math.max(1, graphFocusAreas.length);
+  if (mode === "knowledge") {
+    return Math.max(
+      1,
+      Object.entries(activeCard?.extra_languages || {})
+        .filter(([language, value]) => ALTERNATE_LANGUAGES[language] && value?.term)
+        .length,
+    );
+  }
+  return 1;
 }
 
 function scheduleCarousel() {
-  if (autoplayTimer) clearInterval(autoplayTimer);
+  if (autoplayTimer) clearTimeout(autoplayTimer);
   if (!autoplayEnabled) return;
-  autoplayTimer = setInterval(() => {
+  const dwell = Math.max(CARD_MIN_DWELL_MS, activeInnerSlideCount() * INNER_SLIDE_DWELL_MS);
+  autoplayTimer = setTimeout(() => {
     if (mode !== "chat" && carouselCards.length > 1) navigateCards(1);
-  }, 30000);
+  }, dwell);
 }
 
 async function toggleFullscreen() {
@@ -1452,10 +1568,26 @@ $("#clear-chat").addEventListener("click", resetChat);
 $("#discuss-card").addEventListener("click", discussCurrentCard);
 $("#previous-card").addEventListener("click", () => navigateCards(-1));
 $("#next-card").addEventListener("click", () => navigateCards(1));
-$("#previous-sentence-slide").addEventListener("click", () => showSentenceSlide(sentenceSlideIndex - 1));
-$("#next-sentence-slide").addEventListener("click", () => showSentenceSlide(sentenceSlideIndex + 1));
-$("#previous-graph-focus").addEventListener("click", () => showGraphFocus(graphFocusIndex - 1));
-$("#next-graph-focus").addEventListener("click", () => showGraphFocus(graphFocusIndex + 1));
+$("#previous-sentence-slide").addEventListener("click", () => {
+  window.clearInterval(sentenceSlideTimer);
+  showSentenceSlide(sentenceSlideIndex - 1);
+  scheduleCarousel();
+});
+$("#next-sentence-slide").addEventListener("click", () => {
+  window.clearInterval(sentenceSlideTimer);
+  showSentenceSlide(sentenceSlideIndex + 1);
+  scheduleCarousel();
+});
+$("#previous-graph-focus").addEventListener("click", () => {
+  window.clearInterval(graphFocusTimer);
+  showGraphFocus(graphFocusIndex - 1);
+  scheduleCarousel();
+});
+$("#next-graph-focus").addEventListener("click", () => {
+  window.clearInterval(graphFocusTimer);
+  showGraphFocus(graphFocusIndex + 1);
+  scheduleCarousel();
+});
 $("#toggle-autoplay").addEventListener("click", () => {
   autoplayEnabled = !autoplayEnabled;
   updateCarouselChrome();
@@ -1483,3 +1615,4 @@ loadHistory();
 renderLabStarters();
 loadObservations();
 setInterval(loadHealth, 30000);
+setInterval(syncAcceptedDeck, ACCEPTED_DECK_SYNC_MS);

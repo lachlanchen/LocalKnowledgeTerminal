@@ -445,3 +445,22 @@ source was live dictation and may contain recognition errors:
 - New annotations and histories remain local-Qwen output grounded by retrieved
   books/dictionaries, saved as bounded reusable JSON atoms. Rendering code may
   validate and lay out those atoms but must not hand-author runtime knowledge.
+- A mode's saved cards may remain shuffled, but every card's inner sequence is
+  deterministic and must finish before the next card: all English sentence
+  slides, then all Japanese slides, then all Chinese slides, followed by the
+  existing final Explore/word-teaching slide when available.
+- Hold each inner slide for 18 seconds (twice the earlier 9 seconds). Derive the
+  outer card dwell from the complete inner-slide count so no language or final
+  teaching slide is cut off by an independent card timer.
+- Distinguish navigation levels through motion as well as controls: inner
+  sentence slides use a quiet lateral transition, while a new saved card uses a
+  restrained whole-card fade/scale transition.
+- The visible deck periodically reads only accepted cards. Do not interrupt the
+  card currently being read; insert newly published cards directly after it so
+  the newest ready result receives next priority, then resume the shuffled
+  unseen deck. Never surface queued, running, rejected, or dirty candidates.
+- Background completion is currently autonomous for the finite Answer and
+  Question books. Lexical corpus enumeration for Word Card/Origin/Root/Affix is
+  desired but remains a separate missing-only seeder; do not describe it as
+  implemented until it can select bounded unseen terms and reuse one accepted
+  atomic word plan across all four derived views.
