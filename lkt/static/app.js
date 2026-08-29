@@ -40,11 +40,23 @@ const INNER_SLIDE_DWELL_MS = 18000;
 const CARD_MIN_DWELL_MS = 30000;
 const ACCEPTED_DECK_SYNC_MS = 30000;
 const AMBIENT_MODE_ORDER = ["question", "answer", "knowledge", "word", "root", "affix"];
+const DISPLAY_SETTINGS_STORAGE_KEY = "lkt-display-settings-v1";
+const DISPLAY_LANGUAGE_CODES = ["en", "ja", "zh", "fr", "ar"];
+const DEFAULT_DISPLAY_SETTINGS = {
+  randomCards: true,
+  languages: {
+    book: ["en", "ja", "zh"],
+    lexical: ["en", "ja", "zh", "fr", "ar"],
+  },
+};
 
 const ALTERNATE_LANGUAGES = {
   french: { label: "FRANÇAIS · PRONONCIATION", className: "french" },
   arabic: { label: "العربية · النطق", className: "arabic" },
 };
+const ALTERNATE_LANGUAGE_CODES = { french: "fr", arabic: "ar" };
+
+let displaySettings = loadDisplaySettings();
 
 const MODE_COPY = {
   word: {
@@ -127,6 +139,100 @@ const SOURCE_TITLES = {
   root: "New Oriental English Root Dictionary",
   affix: "English Affix Dictionary",
 };
+
+function defaultDisplaySettings() {
+  return {
+    randomCards: DEFAULT_DISPLAY_SETTINGS.randomCards,
+    languages: {
+      book: [...DEFAULT_DISPLAY_SETTINGS.languages.book],
+      lexical: [...DEFAULT_DISPLAY_SETTINGS.languages.lexical],
+    },
+  };
+}
+
+function loadDisplaySettings() {
+  const defaults = defaultDisplaySettings();
+  try {
+    const saved = JSON.parse(localStorage.getItem(DISPLAY_SETTINGS_STORAGE_KEY) || "null");
+    if (!saved || typeof saved !== "object") return defaults;
+    ["book", "lexical"].forEach((profile) => {
+      const allowed = profile === "book" ? ["en", "ja", "zh"] : DISPLAY_LANGUAGE_CODES;
+      const selected = Array.isArray(saved.languages?.[profile])
+        ? saved.languages[profile].filter((code) => allowed.includes(code))
+        : [];
+      if (selected.length) defaults.languages[profile] = [...new Set(selected)];
+    });
+    defaults.randomCards = saved.randomCards !== false;
+  } catch (_error) {
+    // Private browsing and locked-down kiosk profiles may deny local storage.
+  }
+  return defaults;
+}
+
+function saveDisplaySettings() {
+  try {
+    localStorage.setItem(DISPLAY_SETTINGS_STORAGE_KEY, JSON.stringify(displaySettings));
+  } catch (_error) {
+    // The active page still keeps the preferences for this session.
+  }
+}
+
+function languageProfileForMode(cardMode = mode) {
+  return ["answer", "question"].includes(cardMode) ? "book" : "lexical";
+}
+
+function visibleLanguages(cardMode = mode) {
+  return new Set(displaySettings.languages[languageProfileForMode(cardMode)]);
+}
+
+function languageEnabled(code, cardMode = mode) {
+  return visibleLanguages(cardMode).has(code);
+}
+
+function availableAlternateLanguages(card) {
+  const visible = visibleLanguages(card?.mode);
+  return Object.entries(card?.extra_languages || {})
+    .filter(([language, value]) => (
+      ALTERNATE_LANGUAGES[language]
+      && visible.has(ALTERNATE_LANGUAGE_CODES[language])
+      && value?.term
+    ));
+}
+
+function syncSettingsControls() {
+  const profile = languageProfileForMode();
+  const selected = new Set(displaySettings.languages[profile]);
+  text("#settings-language-scope", profile === "book" ? "QUESTION + ANSWER" : "WORD CARDS + GRAPHS");
+  all("[data-setting-language]").forEach((input) => {
+    input.disabled = profile === "book" && ["fr", "ar"].includes(input.value);
+    input.checked = selected.has(input.value);
+    input.closest("label").classList.toggle("unavailable", input.disabled);
+  });
+  $("#random-cards-setting").checked = displaySettings.randomCards;
+}
+
+function applySettingsControls() {
+  const profile = languageProfileForMode();
+  let selected = all("[data-setting-language]:checked:not(:disabled)").map((input) => input.value);
+  if (!selected.length) {
+    selected = ["en"];
+    $("[data-setting-language][value='en']").checked = true;
+  }
+  displaySettings.languages[profile] = selected;
+  displaySettings.randomCards = $("#random-cards-setting").checked;
+  saveDisplaySettings();
+  ambientModeDecks.clear();
+  if (activeCard?.mode === mode) renderCard(activeCard, false);
+  if (mode !== "chat") rebuildModeCarousel(false);
+  syncSettingsControls();
+}
+
+function resetDisplaySettings() {
+  displaySettings = defaultDisplaySettings();
+  saveDisplaySettings();
+  syncSettingsControls();
+  applySettingsControls();
+}
 
 function show(name) {
   const views = {
@@ -330,20 +436,22 @@ function buildSentenceSlides(card) {
   const slides = [];
   const englishText = card.english.term || card.title;
   const englishGrammar = grammarAnalysis(card, "en", englishText);
-  if (englishGrammar) {
-    grammarChunks(englishGrammar.parts, 165).forEach((grammarParts) => {
-      slides.push({
-        language: "english",
-        label: "ENGLISH",
-        term: grammarParts.map((part) => part.surface).join(""),
-        tokens: [],
-        grammarParts,
+  if (languageEnabled("en", card.mode)) {
+    if (englishGrammar) {
+      grammarChunks(englishGrammar.parts, 165).forEach((grammarParts) => {
+        slides.push({
+          language: "english",
+          label: "ENGLISH",
+          term: grammarParts.map((part) => part.surface).join(""),
+          tokens: [],
+          grammarParts,
+        });
       });
-    });
-  } else {
-    splitText(englishText, 165).forEach((term) => {
-      slides.push({ language: "english", label: "ENGLISH", term, tokens: [] });
-    });
+    } else {
+      splitText(englishText, 165).forEach((term) => {
+        slides.push({ language: "english", label: "ENGLISH", term, tokens: [] });
+      });
+    }
   }
   const japaneseTokens = Array.isArray(card.japanese.ruby_tokens) ? card.japanese.ruby_tokens : [];
   const japaneseGrammar = grammarAnalysis(card, "ja", card.japanese.term);
@@ -351,12 +459,14 @@ function buildSentenceSlides(card) {
     annotateRubyGrammar(japaneseTokens, japaneseGrammar, card.japanese.term),
     64,
   );
-  if (japaneseChunks.length) {
-    japaneseChunks.forEach((tokens) => slides.push({ language: "japanese", label: "日本語 · FURIGANA", term: "", tokens }));
-  } else {
-    splitText(card.japanese.term, 64).forEach((term) => {
-      slides.push({ language: "japanese", label: "日本語 · FURIGANA", term, tokens: [], reading: card.japanese.reading });
-    });
+  if (languageEnabled("ja", card.mode)) {
+    if (japaneseChunks.length) {
+      japaneseChunks.forEach((tokens) => slides.push({ language: "japanese", label: "日本語 · FURIGANA", term: "", tokens }));
+    } else {
+      splitText(card.japanese.term, 64).forEach((term) => {
+        slides.push({ language: "japanese", label: "日本語 · FURIGANA", term, tokens: [], reading: card.japanese.reading });
+      });
+    }
   }
   const chineseTokens = Array.isArray(card.chinese.ruby_tokens) ? card.chinese.ruby_tokens : [];
   const chineseGrammar = grammarAnalysis(card, "zh", card.chinese.simplified);
@@ -364,12 +474,14 @@ function buildSentenceSlides(card) {
     annotateRubyGrammar(chineseTokens, chineseGrammar, card.chinese.simplified),
     48,
   );
-  if (chineseChunks.length) {
-    chineseChunks.forEach((tokens) => slides.push({ language: "chinese", label: "中文 · PINYIN", term: "", tokens }));
-  } else {
-    splitText(card.chinese.simplified, 48).forEach((term) => {
-      slides.push({ language: "chinese", label: "中文 · PINYIN", term, tokens: [], reading: card.chinese.pinyin });
-    });
+  if (languageEnabled("zh", card.mode)) {
+    if (chineseChunks.length) {
+      chineseChunks.forEach((tokens) => slides.push({ language: "chinese", label: "中文 · PINYIN", term: "", tokens }));
+    } else {
+      splitText(card.chinese.simplified, 48).forEach((term) => {
+        slides.push({ language: "chinese", label: "中文 · PINYIN", term, tokens: [], reading: card.chinese.pinyin });
+      });
+    }
   }
   const investigationTerms = Array.isArray(card.extensions?.investigation_terms)
     ? card.extensions.investigation_terms.slice(0, 3)
@@ -970,7 +1082,7 @@ function renderGraphFocusAnnotations(focus) {
     ["ZH", explicit?.zh?.term || activeCard?.chinese?.simplified, explicit?.zh?.meaning || activeCard?.chinese?.meaning],
     ["FR", explicit?.fr?.term || activeCard?.extra_languages?.french?.term, explicit?.fr?.meaning || activeCard?.extra_languages?.french?.meaning],
     ["AR", explicit?.ar?.term || activeCard?.extra_languages?.arabic?.term, explicit?.ar?.meaning || activeCard?.extra_languages?.arabic?.meaning],
-  ].filter(([, term]) => term);
+  ].filter(([language, term]) => term && languageEnabled(language.toLocaleLowerCase(), activeCard?.mode));
   container.replaceChildren(...values.map(([language, value, meaning]) => {
     const item = element("span", `graph-focus-annotation language-${language.toLocaleLowerCase()}`);
     item.append(element("small", "", language));
@@ -1409,13 +1521,29 @@ function renderOriginGraph(card) {
   }
 }
 
+function updateKnowledgeLanguageGrid(card, alternateEnabled = false) {
+  const grid = $("#language-grid");
+  const count = [
+    languageEnabled("ja", card.mode),
+    languageEnabled("zh", card.mode),
+    alternateEnabled,
+  ].filter(Boolean).length;
+  [1, 2, 3].forEach((value) => grid.classList.toggle(`visible-languages-${value}`, count === value));
+}
+
+function applyCardLanguageVisibility(card) {
+  $("#word-card-hero").classList.toggle("hidden", card.mode === "knowledge" && !languageEnabled("en", card.mode));
+  $(".japanese-block").classList.toggle("hidden", !languageEnabled("ja", card.mode));
+  $(".chinese-block").classList.toggle("hidden", !languageEnabled("zh", card.mode));
+}
+
 function showAlternate(card, requestedIndex = alternateIndex) {
   const block = $("#alternate-block");
-  const available = Object.entries(card.extra_languages || {})
-    .filter(([language, value]) => ALTERNATE_LANGUAGES[language] && value?.term);
+  const available = availableAlternateLanguages(card);
   const enabled = card.mode === "knowledge" && available.length > 0;
   block.classList.toggle("hidden", !enabled);
   $("#language-grid").classList.toggle("has-alternate", enabled);
+  updateKnowledgeLanguageGrid(card, enabled);
   if (!enabled) return;
 
   alternateIndex = requestedIndex % available.length;
@@ -1433,7 +1561,7 @@ function startAlternateLoop(card) {
   window.clearInterval(alternateTimer);
   alternateIndex = 0;
   showAlternate(card, 0);
-  const count = Object.values(card.extra_languages || {}).filter((value) => value?.term).length;
+  const count = availableAlternateLanguages(card).length;
   if (card.mode !== "knowledge" || count < 2) return;
   alternateTimer = window.setInterval(() => {
     if (alternateIndex >= count - 1) {
@@ -1492,6 +1620,7 @@ function renderCard(card, refreshHistory = true) {
       affix: "Affix book + root book + model context",
     }[card.mode] || "Book evidence attached",
   );
+  applyCardLanguageVisibility(card);
   renderOriginGraph(card);
   startAlternateLoop(card);
   renderSentenceCarousel(card);
@@ -1554,6 +1683,7 @@ function setMode(nextMode, preserveView = false) {
     button.textContent = copy.examples[index];
   });
   if (ambientRouting) applyAmbientComposer();
+  syncSettingsControls();
   if (preserveView) return;
   if (mode === "chat") {
     show("chat");
@@ -1746,6 +1876,7 @@ async function loadHistory() {
 
 function shuffledModeDeck(cards) {
   const deck = [...cards];
+  if (!displaySettings.randomCards) return deck;
   // Keep the newest accepted card visible on refresh, then traverse every
   // other accepted card once in a shuffled order before the mode repeats.
   for (let index = deck.length - 1; index > 1; index -= 1) {
@@ -1757,9 +1888,11 @@ function shuffledModeDeck(cards) {
 
 function shuffledAmbientPass(cards, previousCardId = "") {
   const deck = [...cards];
-  for (let index = deck.length - 1; index > 0; index -= 1) {
-    const swapIndex = Math.floor(Math.random() * (index + 1));
-    [deck[index], deck[swapIndex]] = [deck[swapIndex], deck[index]];
+  if (displaySettings.randomCards) {
+    for (let index = deck.length - 1; index > 0; index -= 1) {
+      const swapIndex = Math.floor(Math.random() * (index + 1));
+      [deck[index], deck[swapIndex]] = [deck[swapIndex], deck[index]];
+    }
   }
   if (deck.length > 1 && deck[0].card_id === previousCardId) deck.push(deck.shift());
   return deck.map((card) => card.card_id);
@@ -1966,9 +2099,7 @@ function activeInnerSlideCount() {
   if (mode === "knowledge") {
     return Math.max(
       1,
-      Object.entries(activeCard?.extra_languages || {})
-        .filter(([language, value]) => ALTERNATE_LANGUAGES[language] && value?.term)
-        .length,
+      availableAlternateLanguages(activeCard).length,
     );
   }
   return 1;
@@ -2056,6 +2187,19 @@ $("#toggle-autoplay").addEventListener("click", () => {
   scheduleCarousel();
 });
 $("#fullscreen-button").addEventListener("click", toggleFullscreen);
+$("#settings-button").addEventListener("click", () => {
+  syncSettingsControls();
+  const dialog = $("#settings-dialog");
+  if (typeof dialog.showModal === "function") dialog.showModal();
+  else dialog.setAttribute("open", "");
+  noteActivity();
+});
+all("[data-setting-language]").forEach((input) => input.addEventListener("change", applySettingsControls));
+$("#random-cards-setting").addEventListener("change", applySettingsControls);
+$("#reset-settings").addEventListener("click", resetDisplaySettings);
+$("#settings-dialog").addEventListener("click", (event) => {
+  if (event.target === event.currentTarget) event.currentTarget.close();
+});
 document.addEventListener("fullscreenchange", () => {
   if (!document.fullscreenElement && !new URLSearchParams(location.search).has("display")) {
     document.body.classList.remove("display-mode");

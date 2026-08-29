@@ -41,8 +41,8 @@ button { cursor: pointer; }
 .system-state { display: flex; align-items: center; gap: 7px; color: #89a098; font-size: 8px; letter-spacing: .08em; text-transform: uppercase; }
 .pulse { width: 6px; height: 6px; border-radius: 50%; background: #d9a345; }
 .system-state.ready .pulse { background: #7fc68f; box-shadow: 0 0 0 4px rgba(127,198,143,.11); }
-.fullscreen-button { width: 34px; height: 34px; border: 1px solid rgba(255,255,255,.18); background: transparent; color: #c6d2cd; font-size: 17px; }
-.fullscreen-button:hover { border-color: rgba(255,255,255,.5); color: white; }
+.header-icon-button { width: 34px; height: 34px; border: 1px solid rgba(255,255,255,.18); background: transparent; color: #c6d2cd; font-size: 17px; }
+.header-icon-button:hover { border-color: rgba(255,255,255,.5); color: white; }
 
 .stage { position: relative; min-height: 0; padding: 18px; overflow: hidden; background: var(--canvas); }
 .empty-state, .loading-state, .error-state { display: grid; grid-template-columns: minmax(180px, 26%) 1fr; align-items: center; width: 100%; height: 100%; padding: clamp(35px, 7vw, 110px); border: 1px solid var(--line); background: var(--paper); }
@@ -397,7 +397,7 @@ body { background: var(--canvas); }
 .mode[data-mode="chat"].active span { color: #5b49ff; }
 .system-state { color: #bec9ef; font-size: 9px; }
 .system-state.ready .pulse { background: #36e6a2; box-shadow: 0 0 0 5px rgba(54, 230, 162, .18); }
-.fullscreen-button { border-color: #5368a9; border-radius: 11px; color: #ffffff; }
+.header-icon-button { border-color: #5368a9; border-radius: 11px; color: #ffffff; }
 
 .stage { padding: 16px; background: var(--canvas); }
 .empty-state, .loading-state, .error-state {
@@ -770,6 +770,8 @@ body.display-mode .card-view { border-radius: 0; }
   min-height: 0;
   align-items: stretch;
 }
+.mode-knowledge .language-grid.visible-languages-1 { grid-template-columns: minmax(0, 1fr); }
+.mode-knowledge .language-grid.visible-languages-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .mode-knowledge .english-block { display: none; }
 .mode-knowledge .language-block,
 .mode-knowledge .language-block:first-child,
@@ -1330,3 +1332,106 @@ body.chrome-collapsed:not(.display-mode) .stage { padding: 4px 7px; }
 .mode-word .graph-focus-copy strong,
 .mode-root .graph-focus-copy strong,
 .mode-affix .graph-focus-copy strong { font-size: clamp(21px, 1.65vw, 28px); }
+
+/* Local display preferences stay outside the card JSON contract. */
+.settings-dialog {
+  width: min(600px, calc(100vw - 30px));
+  max-height: calc(100vh - 30px);
+  border: 0;
+  border-radius: 24px;
+  padding: 0;
+  overflow: hidden;
+  background: #ffffff;
+  color: #17213d;
+  box-shadow: 0 28px 90px rgba(7, 18, 57, .32);
+}
+.settings-dialog::backdrop { background: rgba(10, 18, 48, .62); backdrop-filter: blur(5px); }
+.settings-dialog > form { display: grid; gap: 0; }
+.settings-dialog > form > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 25px 27px 21px;
+  background: linear-gradient(135deg, #17213d, #24366d);
+  color: #ffffff;
+}
+.settings-dialog > form > header span { color: #ffcf3d; font-size: 10px; font-weight: 900; letter-spacing: .18em; }
+.settings-dialog h2 { margin: 7px 0 0; font: 700 clamp(24px, 3vw, 34px)/1.05 var(--sans); letter-spacing: -.025em; }
+.settings-close {
+  width: 38px;
+  height: 38px;
+  flex: 0 0 auto;
+  border: 1px solid rgba(255,255,255,.28);
+  border-radius: 12px;
+  background: rgba(255,255,255,.08);
+  color: #ffffff;
+  font-size: 24px;
+  line-height: 1;
+}
+.settings-section { display: grid; gap: 18px; padding: 23px 27px 25px; border-bottom: 1px solid #dfe5f2; }
+.settings-section-copy { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
+.settings-section-copy strong { font-size: 17px; }
+.settings-section-copy small { color: #1769ff; font-size: 10px; font-weight: 900; letter-spacing: .11em; }
+.settings-language-options { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 9px; }
+.settings-language-options label {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  min-height: 76px;
+  place-content: center;
+  border: 2px solid #dbe2f0;
+  border-radius: 14px;
+  background: #f7f9fd;
+  text-align: center;
+  transition: border-color .18s ease, background .18s ease, transform .18s ease;
+}
+.settings-language-options label:has(input:checked) { border-color: #1769ff; background: #eaf2ff; transform: translateY(-2px); }
+.settings-language-options label.unavailable { opacity: .38; cursor: not-allowed; transform: none; }
+.settings-language-options input { position: absolute; opacity: 0; pointer-events: none; }
+.settings-language-options span { color: #17213d; font-size: 18px; font-weight: 900; }
+.settings-language-options small { margin-top: 3px; color: #71809e; font-size: 9px; font-weight: 700; }
+.settings-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 21px 27px;
+  background: #fff8dc;
+}
+.settings-toggle span, .settings-toggle strong, .settings-toggle small { display: block; }
+.settings-toggle strong { font-size: 16px; }
+.settings-toggle small { max-width: 400px; margin-top: 4px; color: #68748d; font-size: 11px; line-height: 1.35; }
+.settings-toggle input {
+  appearance: none;
+  width: 54px;
+  height: 30px;
+  flex: 0 0 auto;
+  border: 2px solid #adb8cc;
+  border-radius: 999px;
+  background: #dce2ec;
+  transition: background .18s ease, border-color .18s ease;
+}
+.settings-toggle input::after {
+  display: block;
+  width: 22px;
+  height: 22px;
+  margin: 2px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 2px 6px rgba(23,33,61,.22);
+  content: "";
+  transition: transform .18s ease;
+}
+.settings-toggle input:checked { border-color: #00a98f; background: #00a98f; }
+.settings-toggle input:checked::after { transform: translateX(24px); }
+.settings-dialog footer { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 18px 27px 22px; }
+.settings-dialog footer button { min-height: 42px; border-radius: 12px; padding: 0 18px; font-weight: 850; }
+.settings-reset { border: 1px solid #d5ddeb; background: #ffffff; color: #586784; }
+.settings-done { min-width: 110px; border: 0; background: #1769ff; color: #ffffff; }
+
+@media (max-width: 620px) {
+  .settings-dialog { width: calc(100vw - 18px); }
+  .settings-language-options { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .settings-language-options label { min-height: 62px; }
+}

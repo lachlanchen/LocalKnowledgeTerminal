@@ -29,7 +29,8 @@
           <div class="system-state" id="system-state">
             <span class="pulse"></span><span id="state-label">Starting…</span>
           </div>
-          <button class="fullscreen-button" id="fullscreen-button" type="button" title="Fullscreen display">⛶</button>
+          <button class="header-icon-button settings-button" id="settings-button" type="button" title="Display settings" aria-haspopup="dialog" aria-controls="settings-dialog">⚙</button>
+          <button class="header-icon-button fullscreen-button" id="fullscreen-button" type="button" title="Fullscreen display">⛶</button>
         </div>
       </header>
 
@@ -192,6 +193,35 @@
         </section>
       </footer>
     </div>
+    <dialog class="settings-dialog" id="settings-dialog" aria-labelledby="settings-title">
+      <form method="dialog">
+        <header>
+          <div><span>DISPLAY</span><h2 id="settings-title">Keep each card focused.</h2></div>
+          <button class="settings-close" id="settings-close" type="submit" value="close" aria-label="Close settings">×</button>
+        </header>
+        <section class="settings-section">
+          <div class="settings-section-copy">
+            <strong>Visible languages</strong>
+            <small id="settings-language-scope">QUESTION + ANSWER</small>
+          </div>
+          <div class="settings-language-options" id="settings-language-options">
+            <label><input type="checkbox" value="en" data-setting-language /><span>EN</span><small>English</small></label>
+            <label><input type="checkbox" value="ja" data-setting-language /><span>JA</span><small>Japanese</small></label>
+            <label><input type="checkbox" value="zh" data-setting-language /><span>ZH</span><small>Chinese</small></label>
+            <label><input type="checkbox" value="fr" data-setting-language /><span>FR</span><small>French</small></label>
+            <label><input type="checkbox" value="ar" data-setting-language /><span>AR</span><small>Arabic</small></label>
+          </div>
+        </section>
+        <label class="settings-toggle">
+          <span><strong>Random saved cards</strong><small>New cards still appear next. Inner slides always play in order.</small></span>
+          <input id="random-cards-setting" type="checkbox" role="switch" />
+        </label>
+        <footer>
+          <button class="settings-reset" id="reset-settings" type="button">Use defaults</button>
+          <button class="settings-done" type="submit" value="done">Done</button>
+        </footer>
+      </form>
+    </dialog>
     <script src="/assets/vendor/cytoscape-3.34.0.min.js" defer></script>
     <script src="/assets/app.js" defer></script>
   </body>
