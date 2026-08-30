@@ -1359,7 +1359,7 @@ class AtomicWorkerTests(unittest.TestCase):
             self.assertEqual(len(artifact["payload"]["dictionary_evidence_ids"]), 1)
             self.assertEqual(len(artifact["payload"]["evidence_ids"]), 2)
 
-    def test_sole_freedict_candidate_replaces_repaired_cyrillic_meaning(self) -> None:
+    def test_local_rag_repairs_cyrillic_meaning_for_sole_freedict_candidate(self) -> None:
         class SerendipityRetriever(FakeRetriever):
             def retrieve(self, term: str) -> list[dict[str, Any]]:
                 return [
@@ -1381,10 +1381,18 @@ class AtomicWorkerTests(unittest.TestCase):
         class CyrillicMeaningModel(FakeAtomicModel):
             def __init__(self) -> None:
                 self.arabic_calls = 0
+                self.rag_repair_prompt = ""
 
             def complete_json(
                 self, system: str, prompt: str, *, max_tokens: int = 256
             ) -> dict[str, Any]:
+                if "ARABIC RAG MEANING-ONLY REPAIR" in prompt:
+                    self.arabic_calls += 1
+                    self.rag_repair_prompt = prompt
+                    return {
+                        "value": {"meaning": "اكتشاف مفيد يحدث بالمصادفة"},
+                        "model": self.model_name,
+                    }
                 if (
                     "TARGET LANGUAGE: Arabic" in prompt
                     or "ARABIC SCRIPT REPAIR" in prompt
@@ -1410,7 +1418,15 @@ class AtomicWorkerTests(unittest.TestCase):
             results = PreparationWorker(store, SerendipityRetriever(), model).run(3)
 
             self.assertEqual(results[-1].status, "complete")
-            self.assertEqual(model.arabic_calls, 2)
+            self.assertEqual(model.arabic_calls, 3)
+            for expected in (
+                "ACCEPTED ENGLISH SENSE: A careful examination to assess condition or quality.",
+                'EXACT RETRIEVED ARABIC CANDIDATE: "موهبة الإكتشاف"',
+                "RETRIEVED CANDIDATE EVIDENCE IDS:",
+                'OFFENDING NON-ARABIC TOKENS: ["события"]',
+                'OFFENDING SCRIPTS: ["CYRILLIC"]',
+            ):
+                self.assertIn(expected, model.rag_repair_prompt)
             artifact = store.artifacts_for_subject(
                 plan.subject_key,
                 stage="accepted-translation",
@@ -1418,18 +1434,93 @@ class AtomicWorkerTests(unittest.TestCase):
             )[0]
             payload = artifact["payload"]
             self.assertEqual(payload["term"], "موهبة الإكتشاف")
-            self.assertEqual(payload["meaning"], payload["term"])
+            self.assertEqual(payload["meaning"], "اكتشاف مفيد يحدث بالمصادفة")
             self.assertEqual(
                 payload["normalizations"],
                 [
                     "repaired-arabic-script",
-                    "replaced-mixed-script-arabic-meaning-with-sole-freedict-candidate",
+                    "repaired-mixed-script-arabic-meaning-with-local-rag",
                 ],
             )
             self.assertEqual(len(payload["dictionary_evidence_ids"]), 1)
             self.assertIn(
                 payload["dictionary_evidence_ids"][0], payload["evidence_ids"]
             )
+
+    def test_local_rag_repair_rejects_repeated_cyrillic_meaning(self) -> None:
+        class SerendipityRetriever(FakeRetriever):
+            def retrieve(self, term: str) -> list[dict[str, Any]]:
+                return [
+                    *super().retrieve(term),
+                    {
+                        "entry_id": "freedict-serendipity",
+                        "corpus_id": "freedict-eng-ara:0.6.3",
+                        "source_title": "FreeDict English-Arabic 0.6.3",
+                        "headword": term,
+                        "definition": "",
+                        "translations": {"ar": ["موهبة الإكتشاف"]},
+                        "source_hash": "freedict-serendipity",
+                        "locator": f"headword {term}",
+                        "kind": "bilingual-dictionary",
+                        "translation_scope": "exact-headword",
+                    },
+                ]
+
+        class StillMixedMeaningModel(FakeAtomicModel):
+            def __init__(self) -> None:
+                self.saw_rag_repair_prompt = False
+
+            def complete_json(
+                self, system: str, prompt: str, *, max_tokens: int = 256
+            ) -> dict[str, Any]:
+                mixed = "الظهور المفاجئ ل события مفيدة بشكل عشوائي"
+                if "ARABIC RAG MEANING-ONLY REPAIR" in prompt:
+                    self.saw_rag_repair_prompt = True
+                    return {
+                        "value": {"meaning": mixed},
+                        "model": self.model_name,
+                    }
+                if (
+                    "TARGET LANGUAGE: Arabic" in prompt
+                    or "ARABIC SCRIPT REPAIR" in prompt
+                ):
+                    return {
+                        "value": {
+                            "term": "موهبة الإكتشاف",
+                            "meaning": mixed,
+                            "reading": "mawhibat al-iktishaf",
+                            "confidence": 0.91,
+                        },
+                        "model": self.model_name,
+                    }
+                return super().complete_json(system, prompt, max_tokens=max_tokens)
+
+        with tempfile.TemporaryDirectory() as temp:
+            store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")
+            plan = PreparationPlanner(store, model="test-qwen-4b").plan_word_card(
+                "serendipity", display_languages=("en", "ar")
+            )
+            model = StillMixedMeaningModel()
+            results = PreparationWorker(store, SerendipityRetriever(), model).run(3)
+
+            self.assertEqual(results[-1].status, "retry")
+            self.assertTrue(model.saw_rag_repair_prompt)
+            self.assertEqual(
+                store.artifacts_for_subject(
+                    plan.subject_key,
+                    stage="accepted-translation",
+                    validation_state="accepted",
+                ),
+                [],
+            )
+            rejected = store.artifacts_for_subject(
+                plan.subject_key,
+                stage="rejected-translation",
+                validation_state="rejected",
+            )
+            self.assertEqual(len(rejected), 1)
+            self.assertFalse(rejected[0]["reusable"])
+            self.assertIn("события", rejected[0]["payload"]["raw"])
 
     def test_mixed_arabic_meaning_does_not_fallback_to_non_freedict_candidate(self) -> None:
         class OtherDictionaryRetriever(FakeRetriever):

@@ -3396,16 +3396,74 @@ End immediately after the JSON object.""",
                     normalizations.append(
                         "removed-source-headword-from-arabic-meaning"
                     )
+        diagnostic_value: Any = value
         if (
             language == "ar"
             and sole_freedict_arabic_candidate
             and translated == sole_freedict_arabic_candidate
             and not is_arabic_script_text(translated_meaning)
         ):
-            translated_meaning = sole_freedict_arabic_candidate
-            normalizations.append(
-                "replaced-mixed-script-arabic-meaning-with-sole-freedict-candidate"
+            rejected_meaning = translated_meaning
+            offending_tokens = list(
+                dict.fromkeys(
+                    token
+                    for token in re.findall(
+                        r"[^\W\d_]+(?:[-'][^\W\d_]+)*", rejected_meaning
+                    )
+                    if any(
+                        character.isalpha()
+                        and not unicodedata.name(character, "UNKNOWN").startswith(
+                            "ARABIC"
+                        )
+                        for character in token
+                    )
+                )
             )
+            offending_scripts = sorted(
+                {
+                    unicodedata.name(character, "UNKNOWN").split(" ", 1)[0]
+                    for token in offending_tokens
+                    for character in token
+                    if character.isalpha()
+                    and not unicodedata.name(character, "UNKNOWN").startswith(
+                        "ARABIC"
+                    )
+                }
+            )
+            meaning_repair = self.model.complete_json(
+                "Repair only the Arabic meaning using the supplied retrieved lexical evidence.",
+                f"""ARABIC RAG MEANING-ONLY REPAIR
+ACCEPTED ENGLISH SENSE: {meaning['definition']}
+EXACT RETRIEVED ARABIC CANDIDATE: {json.dumps(sole_freedict_arabic_candidate, ensure_ascii=False)}
+RETRIEVED CANDIDATE EVIDENCE IDS: {json.dumps(freedict_candidate_evidence[sole_freedict_arabic_candidate], ensure_ascii=False)}
+REJECTED MIXED-SCRIPT MEANING: {json.dumps(rejected_meaning, ensure_ascii=False)}
+OFFENDING NON-ARABIC TOKENS: {json.dumps(offending_tokens, ensure_ascii=False)}
+OFFENDING SCRIPTS: {json.dumps(offending_scripts, ensure_ascii=False)}
+
+Return exactly one compact JSON object with only this key:
+meaning: a concise Modern Standard Arabic definition of the accepted English
+sense, written entirely in Arabic script, at most 18 words
+
+Do not return, rewrite, or transliterate the term or reading. Do not copy any
+offending token. Return no IDs, alternatives, markdown, labels, or explanation.
+End immediately after the JSON object.""",
+                max_tokens=96,
+            )
+            meaning_repair_value = meaning_repair.get("value")
+            diagnostic_value = meaning_repair_value
+            completion = meaning_repair
+            if (
+                isinstance(meaning_repair_value, dict)
+                and set(meaning_repair_value) == {"meaning"}
+            ):
+                repaired_meaning = re.sub(
+                    r"\s+", " ", str(meaning_repair_value.get("meaning", ""))
+                ).strip()
+                translated_meaning = repaired_meaning
+                if is_arabic_script_text(repaired_meaning):
+                    normalizations.append(
+                        "repaired-mixed-script-arabic-meaning-with-local-rag"
+                    )
         if not translated or len(translated) > 160:
             raise ValueError("translation term is empty or too long")
         if not translated_meaning or len(translated_meaning) > 320:
@@ -3429,7 +3487,7 @@ End immediately after the JSON object.""",
             )
             raw = completion.get("raw", "")
             if not isinstance(raw, str) or not raw:
-                raw = json.dumps(value, ensure_ascii=False)
+                raw = json.dumps(diagnostic_value, ensure_ascii=False)
             metrics = completion.get("metrics", {})
             bounded_metrics = (
                 {
