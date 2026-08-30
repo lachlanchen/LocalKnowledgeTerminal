@@ -108,11 +108,19 @@ button { cursor: pointer; }
 .book-icon { display: grid; place-items: center; width: 37px; height: 43px; background: var(--ink); color: #eef3e9; font: 700 10px var(--serif); }
 .evidence-head p { margin: 0 0 4px; color: var(--mode-accent); font-size: 9px; font-weight: 800; letter-spacing: .14em; }
 .evidence-head strong { font: 500 clamp(17px, 1.4vw, 21px) var(--serif); }
+#evidence-list { display: flex; min-height: 0; flex: 1 1 auto; flex-direction: column; overflow: hidden; }
 .evidence { padding: 18px 0; border-bottom: 1px solid var(--line); }
 .evidence h4 { margin: 0; color: var(--ink); font: 500 19px/1.3 var(--serif); }
-.evidence .page { display: block; margin: 7px 0 11px; color: var(--mode-accent); font-size: 10px; font-weight: 700; letter-spacing: .07em; }
+.evidence-meta { display: block; margin: 7px 0 11px; overflow-wrap: anywhere; color: var(--mode-accent); font-size: 10px; font-weight: 700; letter-spacing: .04em; }
 .evidence blockquote { margin: 0; color: #58685f; font: 13px/1.6 var(--serif); }
-.evidence .section { display: block; margin-top: 9px; color: #89948e; font-size: 7px; letter-spacing: .1em; text-transform: uppercase; }
+.evidence-list-multiple .evidence { min-height: 0; flex: 1 1 0; overflow: hidden; padding-block: 10px; }
+.evidence-list-multiple .evidence h4 { font-size: 16px; line-height: 1.2; }
+.evidence-list-multiple .evidence-meta { margin-block: 4px 6px; font-size: 9px; line-height: 1.25; }
+.evidence-list-multiple .evidence blockquote { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 4; font-size: 12px; line-height: 1.4; }
+.evidence-list-many .evidence { padding-block: 7px; }
+.evidence-list-many .evidence h4 { font-size: 14px; }
+.evidence-list-many .evidence-meta { margin-block: 3px 4px; font-size: 8px; }
+.evidence-list-many .evidence blockquote { -webkit-line-clamp: 2; font-size: 11px; line-height: 1.3; }
 .evidence-actions { margin-top: auto; padding-top: 24px; }
 .grounded-seal { display: flex; gap: 10px; color: #728178; }
 .grounded-seal > span { display: grid; place-items: center; width: 24px; height: 24px; border: 1px solid #7c9e83; border-radius: 50%; color: #527357; font-size: 11px; }
@@ -965,10 +973,6 @@ body.display-mode .card-view { border-radius: 0; }
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 7;
 }
-.mode-answer .evidence .section,
-.mode-question .evidence .section,
-.mode-word .evidence .section { display: none; }
-
 @media (max-height: 850px) {
   .mode-word .card-main,
   .mode-knowledge .card-main,

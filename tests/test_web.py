@@ -190,6 +190,19 @@ class WebInputTests(unittest.TestCase):
         self.assertIn("if (ambientRouting) {\n      advanceAmbientMode(userActivityRevision);", script)
         self.assertIn('document.addEventListener("pointerdown", () => noteActivity(true)', script)
 
+    def test_browser_renders_all_bounded_evidence_with_recorded_metadata(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        script = (root / "lkt" / "static" / "app.js").read_text(encoding="utf-8")
+        style = (root / "lkt" / "static" / "app.css").read_text(encoding="utf-8")
+        self.assertIn("evidenceItems.forEach((item) => {", script)
+        self.assertNotIn("(card.evidence || []).slice(0, 1)", script)
+        self.assertIn("metadata.push(pagesLabel(item.pages));", script)
+        self.assertIn("metadata.push(`Section · ${item.section}`);", script)
+        self.assertIn("metadata.push(`Locator · ${item.locator}`);", script)
+        self.assertNotIn("Source location recorded by corpus", script)
+        self.assertIn("#evidence-list { display: flex; min-height: 0;", style)
+        self.assertIn(".evidence-list-many .evidence", style)
+
     def test_old_cards_receive_chinese_ruby_without_database_migration(self) -> None:
         card = {"chinese": {"simplified": "中国", "pinyin": "zhōng guó"}}
         rendered = renderable_card(card)

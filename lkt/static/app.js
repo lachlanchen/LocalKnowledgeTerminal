@@ -716,10 +716,12 @@ function pagesLabel(pages) {
   return `${pages.length > 1 ? "Pages" : "Page"} ${pages.join(", ")}`;
 }
 
-function locatorLabel(item) {
-  if (item.pages && item.pages.length) return pagesLabel(item.pages);
-  if (item.locator) return item.locator.replace(/^.*\//, "Digital source · ");
-  return "Source location recorded by corpus";
+function evidenceMetadata(item) {
+  const metadata = [];
+  if (item.pages && item.pages.length) metadata.push(pagesLabel(item.pages));
+  if (item.section) metadata.push(`Section · ${item.section}`);
+  if (item.locator) metadata.push(`Locator · ${item.locator}`);
+  return metadata;
 }
 
 function renderLegacyOriginGraph(card) {
@@ -1688,13 +1690,22 @@ function renderCard(card, refreshHistory = true) {
       || "Local library",
   );
   text("#narrative-label", copy.narrative);
-  (card.evidence || []).slice(0, 1).forEach((item) => {
+  const evidenceItems = Array.isArray(card.evidence) ? card.evidence : [];
+  evidence.classList.toggle("evidence-list-multiple", evidenceItems.length > 1);
+  evidence.classList.toggle("evidence-list-many", evidenceItems.length > 2);
+  evidenceItems.forEach((item) => {
     const section = element("section", "evidence");
     section.append(element("h4", "", item.headword));
-    section.append(element("span", "page", locatorLabel(item)));
-    const excerpt = item.excerpt?.length > 320 ? `${item.excerpt.slice(0, 317)}…` : item.excerpt;
-    section.append(element("blockquote", "", `“${excerpt}”`));
-    if (item.section) section.append(element("span", "section", item.section));
+    const metadata = evidenceMetadata(item);
+    if (metadata.length) {
+      const metadataLabel = metadata.join(" · ");
+      const metadataElement = element("span", "evidence-meta", metadataLabel);
+      metadataElement.title = metadataLabel;
+      section.append(metadataElement);
+    }
+    const excerpt = item.excerpt || "";
+    const boundedExcerpt = excerpt.length > 320 ? `${excerpt.slice(0, 317)}…` : excerpt;
+    if (boundedExcerpt) section.append(element("blockquote", "", `“${boundedExcerpt}”`));
     evidence.append(section);
   });
   show("card");
