@@ -517,6 +517,22 @@ def _derived_origin_view_specs(
     return tuple(specs)
 
 
+def _affix_origin_story(parts: list[dict[str, Any]]) -> str:
+    """Describe only accepted affix parts without overstating provenance."""
+
+    affixes = [
+        part for part in parts if str(part.get("kind", "")) in {"prefix", "suffix"}
+    ]
+    if not affixes:
+        return ""
+    details = "; ".join(
+        f"{part['canonical_form']} as “{part['meaning']}”" for part in affixes
+    )
+    if all(part.get("evidence_ids") for part in affixes):
+        return f"Cited affix evidence supports {details}."
+    return f"Accepted affix analysis gives {details}."
+
+
 def _plain_letter_key(value: Any) -> str:
     """Compare historical forms without punctuation or accent differences."""
 
@@ -584,19 +600,81 @@ def _origin_cross_reference_targets(value: Any) -> tuple[str, ...]:
 
 
 def _origin_source_record_matches(term: Any, record: dict[str, Any]) -> bool:
-    """Accept a Word Origins record that owns the headword or names its subentry."""
+    """Accept only target-owned, cross-referenced, or explicit origin statements."""
 
     source_key = _plain_letter_key(term)
-    excerpt = record.get("excerpt", "")
-    return bool(
-        source_key
-        and str(record.get("kind", "")) == "entry"
-        and not _origin_cross_reference_targets(excerpt)
-        and (
-            _plain_letter_key(record.get("headword", "")) == source_key
-            or source_key in _text_form_keys(excerpt)
-        )
+    excerpt = re.sub(r"\s+", " ", str(record.get("excerpt", ""))).strip()
+    if not source_key or str(record.get("kind", "")) != "entry":
+        return False
+
+    cross_reference_keys = {
+        _plain_letter_key(target)
+        for target in _origin_cross_reference_targets(excerpt)
+    }
+    headword_key = _plain_letter_key(record.get("headword", ""))
+    if headword_key == source_key:
+        return not cross_reference_keys
+    if source_key in cross_reference_keys:
+        return True
+
+    words = re.findall(r"[A-Za-z]+", str(term))
+    if not words:
+        return False
+    target = r"\b" + r"[\s'-]+".join(re.escape(word) for word in words) + r"\b"
+    follows_target = (
+        rf"{target}(?:\s*\[\d+\])?\s+"
+        r"(?:(?:is|was|were)\s+)?"
+        r"(?:comes?|came|derives?|derived|originates?|originated|descends?|"
+        r"descended|developed|borrowed|coined|formed|taken|adapted|adopted|"
+        r"goes|went)\b"
     )
+    leads_to_target = (
+        r"\b(?:source of|gave rise to|yielded|produced|became|developed into|"
+        r"borrowed as|coined as|known in English as|whence)\s+"
+        rf"(?:the\s+)?(?:modern\s+)?(?:English\s+)?{target}"
+    )
+    named_subentry = rf"(?:^|[.;:]\s+){target}\s*\[\d+\]"
+    return any(
+        re.search(pattern, excerpt, flags=re.IGNORECASE)
+        for pattern in (follows_target, leads_to_target, named_subentry)
+    )
+
+
+def _origin_source_evidence_supported(
+    term: Any, records: list[dict[str, Any]]
+) -> bool:
+    """Require an owned statement or a resolved exact-headword cross-reference."""
+
+    entries = [
+        record
+        for record in records
+        if isinstance(record, dict) and str(record.get("kind", "")) == "entry"
+    ]
+    if any(_origin_source_record_matches(term, record) for record in entries):
+        return True
+
+    source_key = _plain_letter_key(term)
+    frontier = {source_key} if source_key else set()
+    visited: set[str] = set()
+    for _depth in range(3):
+        next_frontier: set[str] = set()
+        for record in entries:
+            headword_key = _plain_letter_key(record.get("headword", ""))
+            if headword_key not in frontier or headword_key in visited:
+                continue
+            targets = {
+                _plain_letter_key(target)
+                for target in _origin_cross_reference_targets(record.get("excerpt", ""))
+                if _plain_letter_key(target)
+            }
+            if not targets:
+                return True
+            next_frontier.update(targets)
+        visited.update(frontier)
+        frontier = next_frontier - visited
+        if not frontier:
+            break
+    return False
 
 
 def _normalize_origin_draft(
@@ -729,6 +807,40 @@ def _collapse_repeated_arabic_alternative(value: str) -> str:
         r"\1",
         value,
     )
+
+
+def _strip_exact_latin_headword(value: str, source_term: str) -> str:
+    """Remove only a standalone copy of the supplied Latin source headword.
+
+    A small local model sometimes appends the English headword to an otherwise
+    Arabic definition. Do not generalize this into a Latin-token scrubber:
+    unknown Latin words must survive here so the strict script validator can
+    reject the draft.
+    """
+
+    headword = re.sub(r"\s+", " ", str(source_term)).strip()
+    if not re.fullmatch(r"[A-Za-z]+(?:[ '\-][A-Za-z]+)*", headword):
+        return str(value)
+    token = rf"(?<![^\W\d_]){re.escape(headword)}(?![^\W\d_])"
+    cleaned = str(value)
+    for opening, closing in (
+        ("(", ")"),
+        ("[", "]"),
+        ("{", "}"),
+        ('"', '"'),
+        ("'", "'"),
+        ("\u201c", "\u201d"),
+        ("\u2018", "\u2019"),
+    ):
+        cleaned = re.sub(
+            rf"{re.escape(opening)}\s*{token}\s*{re.escape(closing)}",
+            " ",
+            cleaned,
+            flags=re.IGNORECASE,
+        )
+    cleaned = re.sub(token, " ", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return re.sub(r"\s+([\u060c\u061b\u061f,.!?;:])", r"\1", cleaned)
 
 
 class WordEvidenceRetriever:
@@ -1416,11 +1528,14 @@ claims may cite only supplied evidence IDs; model knowledge must cite none."""
             raise ValueError("accepted morpheme split has no parts")
 
         source_origin_ids: set[str] = set()
+        source_origin_records: list[dict[str, Any]] = []
         retrievals = self.store.artifacts_for_subject(
             job["subject_key"], stage="retrieved-evidence"
         )
         if retrievals:
             for record in retrievals[-1]["payload"].get("records", []):
+                if isinstance(record, dict):
+                    source_origin_records.append(record)
                 if not _origin_source_record_matches(source["text"], record):
                     continue
                 evidence_id = str(record.get("knowledge_evidence_id", ""))
@@ -1450,9 +1565,14 @@ claims may cite only supplied evidence IDs; model knowledge must cite none."""
             allowed = {
                 str(item) for item in part.get("evidence_ids", []) if str(item)
             }
-            for record in self.retriever.origin_evidence(
+            origin_records = self.retriever.origin_evidence(
                 str(part.get("canonical_form", ""))
-            ):
+            )
+            if component_id == history_anchor_id:
+                source_origin_records.extend(
+                    record for record in origin_records if isinstance(record, dict)
+                )
+            for record in origin_records:
                 evidence_id = self.store.add_evidence(
                     str(record.get("corpus_id", "")),
                     str(record.get("entry_id", "")),
@@ -1483,6 +1603,18 @@ claims may cite only supplied evidence IDs; model knowledge must cite none."""
                         for record in evidence
                     ],
                 }
+            )
+
+        if (
+            str(history_anchor.get("kind", "")) == "free"
+            and _plain_letter_key(history_anchor.get("canonical_form", ""))
+            == _plain_letter_key(source["text"])
+            and not _origin_source_evidence_supported(
+                source["text"], source_origin_records
+            )
+        ):
+            raise ValueError(
+                "free-word origin lacks exact, cross-referenced, or explicit target evidence"
             )
 
         focus = next(
@@ -2616,7 +2748,7 @@ reading and do not rewrite the Japanese form."""
             },
             japanese={
                 "term": str(japanese["term"]),
-                "reading": str(japanese["reading"]),
+                "reading": str(pronunciation_values["ja"]["reading"]),
                 "meaning": str(japanese["meaning"]),
                 "ruby_tokens": ruby("ja"),
             },
@@ -2938,7 +3070,7 @@ reading and do not rewrite the Japanese form."""
             },
             japanese={
                 "term": str(japanese["term"]),
-                "reading": str(japanese["reading"]),
+                "reading": str(pronunciations["ja"]["reading"]),
                 "meaning": str(japanese["meaning"]),
                 "ruby_tokens": ruby("ja"),
             },
@@ -3004,6 +3136,8 @@ reading and do not rewrite the Japanese form."""
                 str(part["canonical_form"]) for part in relevant_parts
             )
             derived.subtitle = f"{derived_mode.upper()} · {source['text']}"
+            if derived_mode == "affix":
+                derived.origin_story = _affix_origin_story(relevant_parts)
             derived.created_at = datetime.now(UTC).isoformat()
             derived.model = "accepted atomic knowledge"
             derived.extensions = deepcopy(card.extensions)
@@ -3171,6 +3305,12 @@ End immediately after the JSON object."""
                 if translated != sole_arabic_candidate:
                     translated = sole_arabic_candidate
                     normalizations.append("selected-sole-arabic-dictionary-candidate")
+            cleaned_meaning = _strip_exact_latin_headword(
+                translated_meaning, str(term["text"])
+            )
+            if cleaned_meaning != translated_meaning:
+                translated_meaning = cleaned_meaning
+                normalizations.append("removed-source-headword-from-arabic-meaning")
         if language == "ar" and (
             not is_arabic_script_text(translated)
             or not is_arabic_script_text(translated_meaning)
@@ -3211,6 +3351,18 @@ End immediately after the JSON object.""",
                     normalizations.append(
                         "selected-sole-arabic-dictionary-candidate"
                     )
+            cleaned_meaning = _strip_exact_latin_headword(
+                translated_meaning, str(term["text"])
+            )
+            if cleaned_meaning != translated_meaning:
+                translated_meaning = cleaned_meaning
+                if (
+                    "removed-source-headword-from-arabic-meaning"
+                    not in normalizations
+                ):
+                    normalizations.append(
+                        "removed-source-headword-from-arabic-meaning"
+                    )
         if not translated or len(translated) > 160:
             raise ValueError("translation term is empty or too long")
         if not translated_meaning or len(translated_meaning) > 320:
@@ -3229,10 +3381,59 @@ End immediately after the JSON object.""",
             raise ValueError("Japanese translation has no Japanese script")
         if language == "zh" and not re.search(r"[\u3400-\u9fff]", translated):
             raise ValueError("Chinese translation has no Han characters")
+
+        def reject_arabic_script(field: str) -> None:
+            error = (
+                f"Arabic translation {field} contains mixed or non-Arabic script"
+            )
+            raw = completion.get("raw", "")
+            if not isinstance(raw, str) or not raw:
+                raw = json.dumps(value, ensure_ascii=False)
+            metrics = completion.get("metrics", {})
+            bounded_metrics = (
+                {
+                    key: metrics[key]
+                    for key in (
+                        "elapsed_seconds",
+                        "prompt_tokens",
+                        "completion_tokens",
+                        "tokens_per_second",
+                    )
+                    if key in metrics
+                }
+                if isinstance(metrics, dict)
+                else {}
+            )
+            self.store.save_job_artifact(
+                job["job_id"],
+                "rejected-translation",
+                {
+                    "source_term": str(term["text"])[:160],
+                    "language": language,
+                    "error": error,
+                    "candidate": {
+                        "term": translated[:320],
+                        "meaning": translated_meaning[:640],
+                        "reading": reading[:320],
+                    },
+                    "normalizations": normalizations[:8],
+                    "raw": raw[:4_000],
+                    "model": str(
+                        completion.get("model", self.model.model_name)
+                    )[:200],
+                    "metrics": bounded_metrics,
+                },
+                language=language,
+                reusable=False,
+                validation_state="rejected",
+                quality_score=0.0,
+            )
+            raise ValueError(error)
+
         if language == "ar" and not is_arabic_script_text(translated):
-            raise ValueError("Arabic translation term contains mixed or non-Arabic script")
+            reject_arabic_script("term")
         if language == "ar" and not is_arabic_script_text(translated_meaning):
-            raise ValueError("Arabic translation meaning contains mixed or non-Arabic script")
+            reject_arabic_script("meaning")
         if language == "ar":
             cleaned_meaning = _collapse_repeated_arabic_alternative(
                 translated_meaning

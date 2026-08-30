@@ -10,6 +10,7 @@ from typing import Any
 from lkt.atomic import (
     PreparationWorker,
     WordEvidenceRetriever,
+    _affix_origin_story,
     _artifact_quality,
     _book_anchored_shape,
     _book_decomposition_shape,
@@ -21,6 +22,7 @@ from lkt.atomic import (
     _origin_cross_reference_targets,
     _normalize_origin_draft,
     _origin_source_record_matches,
+    _origin_source_evidence_supported,
     _has_repeated_arabic_content_word,
     _align_grammar_draft,
     _grammar_role_matches,
@@ -754,6 +756,29 @@ class AtomicWorkerTests(unittest.TestCase):
         )
         self.assertFalse(
             _origin_source_record_matches(
+                "arrange",
+                {
+                    "kind": "entry",
+                    "headword": "tactic",
+                    "excerpt": (
+                        "Greek tássein meant 'put in order', hence 'arrange in "
+                        "battle formation'. From this was derived taktós."
+                    ),
+                },
+            )
+        )
+        self.assertTrue(
+            _origin_source_record_matches(
+                "arrange",
+                {
+                    "kind": "entry",
+                    "headword": "array",
+                    "excerpt": "English arrange was borrowed from Old French arengier.",
+                },
+            )
+        )
+        self.assertFalse(
+            _origin_source_record_matches(
                 "aardvark",
                 {
                     "kind": "entry",
@@ -810,6 +835,75 @@ class AtomicWorkerTests(unittest.TestCase):
         self.assertEqual(
             [record["entry_id"] for record in records],
             ["aardvark", "earth", "farrow"],
+        )
+
+        self.assertTrue(
+            _origin_source_evidence_supported(
+                "aardvark",
+                [
+                    {
+                        "kind": "entry",
+                        "headword": record["headword"],
+                        "excerpt": record["excerpt"],
+                    }
+                    for record in records
+                ],
+            )
+        )
+        self.assertFalse(
+            _origin_source_evidence_supported(
+                "arrange",
+                [
+                    {
+                        "kind": "entry",
+                        "headword": "tactic",
+                        "excerpt": (
+                            "Greek tássein meant 'put in order', hence 'arrange in "
+                            "battle formation'."
+                        ),
+                    }
+                ],
+            )
+        )
+
+    def test_affix_origin_story_is_mode_specific_and_provenance_cautious(self) -> None:
+        self.assertEqual(
+            _affix_origin_story(
+                [
+                    {
+                        "canonical_form": "in-",
+                        "kind": "prefix",
+                        "meaning": "into",
+                        "evidence_ids": [],
+                    },
+                    {
+                        "canonical_form": "-ion",
+                        "kind": "suffix",
+                        "meaning": "process",
+                        "evidence_ids": ["evidence-ion"],
+                    },
+                ]
+            ),
+            "Accepted affix analysis gives in- as “into”; -ion as “process”.",
+        )
+        self.assertEqual(
+            _affix_origin_story(
+                [
+                    {
+                        "canonical_form": "pre-",
+                        "kind": "prefix",
+                        "meaning": "before",
+                        "evidence_ids": ["evidence-pre"],
+                    },
+                    {
+                        "canonical_form": "-or",
+                        "kind": "suffix",
+                        "meaning": "one who",
+                        "evidence_ids": ["evidence-or"],
+                    },
+                ]
+            ),
+            "Cited affix evidence supports pre- as “before”; -or as “one who”.",
         )
 
     def test_old_english_code_is_normalized_without_dropping_history(self) -> None:
@@ -1217,7 +1311,7 @@ class AtomicWorkerTests(unittest.TestCase):
                     return {
                         "value": {
                             "term": "موهبة الاكتشاف",
-                            "meaning": "قدرة على اكتشاف أشياء قيمة بالمصادفة",
+                            "meaning": "قدرة على اكتشاف أشياء قيمة بالمصادفة (serendipity)",
                             "reading": "mawhibat al-iktishaf",
                             "confidence": 0.91,
                         },
@@ -1252,8 +1346,15 @@ class AtomicWorkerTests(unittest.TestCase):
             )[0]
             self.assertEqual(artifact["payload"]["term"], "موهبة الإكتشاف")
             self.assertEqual(
+                artifact["payload"]["meaning"],
+                "قدرة على اكتشاف أشياء قيمة بالمصادفة",
+            )
+            self.assertEqual(
                 artifact["payload"]["normalizations"],
-                ["selected-sole-arabic-dictionary-candidate"],
+                [
+                    "selected-sole-arabic-dictionary-candidate",
+                    "removed-source-headword-from-arabic-meaning",
+                ],
             )
             self.assertEqual(len(artifact["payload"]["dictionary_evidence_ids"]), 1)
             self.assertEqual(len(artifact["payload"]["evidence_ids"]), 2)
@@ -1334,17 +1435,25 @@ class AtomicWorkerTests(unittest.TestCase):
             def complete_json(
                 self, system: str, prompt: str, *, max_tokens: int = 256
             ) -> dict[str, Any]:
-                if "TARGET LANGUAGE: Arabic" not in prompt:
+                if not (
+                    "TARGET LANGUAGE: Arabic" in prompt
+                    or "ARABIC SCRIPT REPAIR" in prompt
+                ):
                     return super().complete_json(system, prompt, max_tokens=max_tokens)
                 return {
                     "value": {
-                        "term": "انBREAKTHROUGH",
-                        "meaning": "إنجاز مهم",
-                        "reading": "breakthrough",
+                        "term": "معاينة",
+                        "meaning": "فحص inspection official دقيق",
+                        "reading": "mu'ayana",
                         "usage_note": "",
                         "confidence": 0.9,
                     },
                     "model": self.model_name,
+                    "raw": "r" * 5_000,
+                    "metrics": {
+                        "elapsed_seconds": 12.5,
+                        "completion_tokens": 68,
+                    },
                 }
 
         with tempfile.TemporaryDirectory() as temp:
@@ -1362,6 +1471,19 @@ class AtomicWorkerTests(unittest.TestCase):
                 ),
                 [],
             )
+            rejected = store.artifacts_for_subject(
+                plan.subject_key,
+                stage="rejected-translation",
+                validation_state="rejected",
+            )
+            self.assertEqual(len(rejected), 1)
+            self.assertFalse(rejected[0]["reusable"])
+            self.assertEqual(len(rejected[0]["payload"]["raw"]), 4_000)
+            self.assertEqual(
+                rejected[0]["payload"]["candidate"]["meaning"],
+                "فحص official دقيق",
+            )
+            self.assertNotIn("evidence_ids", rejected[0]["payload"])
 
     def test_mixed_arabic_draft_gets_one_bounded_script_repair(self) -> None:
         class RepairingArabicModel(FakeAtomicModel):
@@ -1835,6 +1957,7 @@ class AtomicWorkerTests(unittest.TestCase):
                 "fr": ("inspection", "examen officiel ou formel", "\u025b\u0303sp\u025bksj\u02c8\u0254\u0303"),
                 "ar": ("\u0645\u0639\u0627\u064a\u0646\u0629", "\u0641\u062d\u0635 \u0631\u0633\u0645\u064a \u0644\u0634\u064a\u0621 \u0645\u0639\u064a\u0646", "mu\u0295\u02c8a\u02d0jan\u02cca"),
             }
+            wrong_japanese_translation_reading = "\u305b\u3093\u3048\u308b"
             for language, (term, translated_meaning, reading) in language_values.items():
                 translation_job = plan.jobs[f"translation:{language}"]
                 store.save_job_artifact(
@@ -1845,7 +1968,11 @@ class AtomicWorkerTests(unittest.TestCase):
                         "target_term_id": f"term-{language}",
                         "term": term,
                         "meaning": translated_meaning,
-                        "reading": reading if language in {"ja", "zh", "ar"} else "",
+                        "reading": (
+                            wrong_japanese_translation_reading
+                            if language == "ja"
+                            else reading if language in {"zh", "ar"} else ""
+                        ),
                         "confidence": 0.9,
                         "evidence_ids": [evidence_id],
                     },
@@ -2002,6 +2129,15 @@ class AtomicWorkerTests(unittest.TestCase):
             card = cards.recent(1)[0]
             self.assertEqual(card["mode"], "knowledge")
             self.assertEqual(card["english"]["meaning"], meaning["definition"])
+            self.assertEqual(card["japanese"]["reading"], "\u3057\u3093\u3055")
+            self.assertEqual(
+                card["japanese"]["ruby_tokens"],
+                [{"t": "\u5be9\u67fb", "r": "\u3057\u3093\u3055"}],
+            )
+            self.assertNotIn(
+                wrong_japanese_translation_reading,
+                json.dumps(card, ensure_ascii=False),
+            )
             self.assertEqual(card["extra_languages"]["french"]["term"], "inspection")
             self.assertNotIn("morphology_graph", card["extensions"])
             origin_result = worker.run_once()
@@ -2010,6 +2146,16 @@ class AtomicWorkerTests(unittest.TestCase):
             self.assertEqual(
                 set(cards_by_mode), {"knowledge", "word", "root", "affix"}
             )
+            for composed_card in cards_by_mode.values():
+                self.assertEqual(composed_card["japanese"]["reading"], "\u3057\u3093\u3055")
+                self.assertEqual(
+                    composed_card["japanese"]["ruby_tokens"],
+                    [{"t": "\u5be9\u67fb", "r": "\u3057\u3093\u3055"}],
+                )
+                self.assertNotIn(
+                    wrong_japanese_translation_reading,
+                    json.dumps(composed_card, ensure_ascii=False),
+                )
             origin_card = cards_by_mode["word"]
             graph = origin_card["extensions"]["morphology_graph"]
             self.assertEqual(len(graph["nodes"]), 6)
@@ -2027,6 +2173,14 @@ class AtomicWorkerTests(unittest.TestCase):
                 ["prefix", "suffix"],
             )
             self.assertEqual(affix_graph["center_id"], "m-in")
+            self.assertEqual(
+                cards_by_mode["affix"]["origin_story"],
+                "Accepted affix analysis gives in- as “into”; -ion as “process”.",
+            )
+            self.assertEqual(
+                cards_by_mode["root"]["origin_story"],
+                origin_card["origin_story"],
+            )
 
     def test_book_origin_metadata_does_not_require_a_model_completion(self) -> None:
         from lkt.atomic import _origin_generation_metadata
