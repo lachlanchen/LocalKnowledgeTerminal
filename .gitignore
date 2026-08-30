@@ -17,6 +17,7 @@ __pycache__/
 
 # Incomplete/reference checkouts are not product dependencies.
 /upstream/
+/.agentlink/private/
 
 .env
 .env.*

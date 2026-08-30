@@ -1,8 +1,13 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
-from lkt.device import memory_pressure_blocker, pi_power_blocker
+from lkt.device import (
+    background_preparation_blocker,
+    memory_pressure_blocker,
+    pi_power_blocker,
+)
 
 
 class DeviceReadinessTests(unittest.TestCase):
@@ -28,6 +33,27 @@ class DeviceReadinessTests(unittest.TestCase):
             ),
             "",
         )
+
+    def test_resident_four_b_model_keeps_a_one_gib_interactive_reserve(self) -> None:
+        self.assertEqual(
+            memory_pressure_blocker(
+                "MemTotal:       8245248 kB\nMemAvailable:   1493072 kB\n"
+            ),
+            "",
+        )
+
+    def test_memory_is_checked_when_thermal_telemetry_is_unavailable(self) -> None:
+        with (
+            patch("lkt.device.shutil.which", return_value=None),
+            patch(
+                "lkt.device.Path.read_text",
+                side_effect=[
+                    OSError("no thermal zone"),
+                    "MemTotal:       8192000 kB\nMemAvailable:    524288 kB\n",
+                ],
+            ),
+        ):
+            self.assertIn("memory", background_preparation_blocker())
 
 
 if __name__ == "__main__":

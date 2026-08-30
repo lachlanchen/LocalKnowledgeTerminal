@@ -11,6 +11,8 @@ from lkt.service import (
     _morphology_graph,
     _origin_graph,
     _ruby_tokens_for_term,
+    _usable_morphology_graph,
+    _usable_morphology_languages,
 )
 from lkt.store import CardStore
 
@@ -34,9 +36,9 @@ class FakeModel:
             "memory_hook": "Count beads across languages.",
             "related_terms": [{"term": "calculate", "note": "a related action"}],
             "origin_graph": [
-                {"stage": "Greek", "form": "abax", "meaning": "counting board", "basis": "book"},
+                {"stage": "Greek", "form": "abax", "meaning": "counting board", "basis": "book", "evidence_ids": [evidence[0].entry_id]},
                 {"stage": "Latin", "form": "abacus", "meaning": "calculation board", "basis": "model"},
-                {"stage": "English", "form": "abacus", "meaning": "bead frame", "basis": "book"},
+                {"stage": "English", "form": "abacus", "meaning": "bead frame", "basis": "book", "evidence_ids": [evidence[0].entry_id]},
             ],
             "french": {"term": "boulier", "pronunciation": "/bu.lje/", "meaning": "cadre de calcul"},
             "arabic": {"term": "مِعْداد", "reading": "miʿdād", "meaning": "أداة حساب"},
@@ -45,6 +47,89 @@ class FakeModel:
 
 
 class ServiceTests(unittest.TestCase):
+    def test_service_caps_model_evidence_and_preserves_primary_record(self) -> None:
+        class CapturingModel(FakeModel):
+            def __init__(self) -> None:
+                self.seen: list[Evidence] = []
+
+            def generate(
+                self, query: str, mode: str, evidence: list[Evidence]
+            ) -> dict[str, Any]:
+                self.seen = list(evidence)
+                return super().generate(query, mode, evidence)
+
+        with tempfile.TemporaryDirectory() as temp:
+            model = CapturingModel()
+            service = CardService(
+                make_index(Path(temp)),
+                model,
+                CardStore(Path(temp) / "cards.sqlite3"),
+                max_evidence=4,
+            )
+            evidence = [
+                Evidence(
+                    entry_id=f"answer-{index}",
+                    headword=f"Answer {index}",
+                    section="Answers",
+                    date_label="",
+                    pages=(index,),
+                    excerpt=f"Reviewed answer {index}",
+                    corpus_id="test-answers",
+                )
+                for index in range(7)
+            ]
+            card = service.create_from_evidence("Answer 0", "answer", evidence)
+
+        self.assertEqual(len(model.seen), 4)
+        self.assertEqual(model.seen[0].entry_id, "answer-0")
+        self.assertEqual(len(card.evidence), 4)
+
+    def test_staged_morphology_rejects_stale_invalid_arabic(self) -> None:
+        self.assertFalse(
+            _usable_morphology_languages(
+                {
+                    "english": {"term": "MORG", "meaning": "death"},
+                    "japanese": {"term": "死", "reading": "し", "meaning": "死"},
+                    "chinese": {
+                        "simplified": "死",
+                        "pinyin": "sǐ",
+                        "meaning": "死亡",
+                    },
+                    "french": {"term": "mort", "meaning": "décès"},
+                    "arabic": {"term": "morg", "meaning": "death"},
+                }
+            )
+        )
+
+    def test_reusable_morphology_graph_requires_complete_retrieval_provenance(self) -> None:
+        evidence = [Evidence("root-spect", "SPECT", "Root", "", (1,), "look")]
+        nodes = [
+            {"id": "spect", "type": "root", "form": "SPECT", "meaning": "look", "basis": "book", "evidence_ids": ["root-spect"]},
+            *(
+                {"id": word, "type": "word", "form": word, "meaning": "related", "basis": "model", "evidence_ids": []}
+                for word in ("inspect", "respect", "prospect", "spectator", "retrospect", "introspection")
+            ),
+        ]
+        draft = {
+            "title": "SPECT",
+            "summary_en": "look or see",
+            "morphology_graph": {
+                "center_id": "spect",
+                "nodes": nodes,
+                "edges": [
+                    {"source": "spect", "target": node["id"], "relationship": "root-of"}
+                    for node in nodes[1:]
+                ],
+                "focus_areas": [
+                    {"kind": "overview", "node_ids": [node["id"] for node in nodes]},
+                    {"kind": "root", "node_ids": ["spect", "inspect"]},
+                ],
+            },
+        }
+        self.assertTrue(_usable_morphology_graph(draft, evidence))
+        nodes[0]["evidence_ids"] = ["invented-record"]
+        self.assertFalse(_usable_morphology_graph(draft, evidence))
+
     def test_morphology_stages_survive_a_later_language_failure(self) -> None:
         class StagedModel:
             model_name = "test-staged-qwen"
@@ -80,6 +165,8 @@ class ServiceTests(unittest.TestCase):
                             ("respect", "look back"),
                             ("prospect", "look forward"),
                             ("spectator", "one who watches"),
+                            ("retrospect", "look back"),
+                            ("introspection", "look within"),
                         )
                     ),
                 ]
@@ -97,7 +184,8 @@ class ServiceTests(unittest.TestCase):
                                     "relationship": "root-of",
                                 }
                                 for word in (
-                                    "inspect", "respect", "prospect", "spectator"
+                                    "inspect", "respect", "prospect", "spectator",
+                                    "retrospect", "introspection"
                                 )
                             ],
                             "focus_areas": [
@@ -222,6 +310,50 @@ class ServiceTests(unittest.TestCase):
             set(graph["focus_areas"][0]["node_ids"]), {"inspect", "spect", "in"}
         )
 
+    def test_legacy_origin_book_basis_requires_retrieved_evidence_id(self) -> None:
+        evidence = [Evidence("entry-1", "word", "", "", (1,), "source")]
+        graph = _origin_graph(
+            [
+                {"id": "valid", "parent": "", "form": "word", "basis": "book", "evidence_ids": ["entry-1"]},
+                {"id": "invalid", "parent": "valid", "form": "older", "basis": "book", "evidence_ids": ["invented"]},
+            ],
+            evidence,
+            "word",
+        )
+        self.assertEqual(graph[0]["basis"], "book")
+        self.assertEqual(graph[0]["evidence_ids"], ["entry-1"])
+        self.assertEqual(graph[1]["basis"], "model")
+
+    def test_normalization_failure_finishes_the_preparation_run(self) -> None:
+        class BrokenDraft(dict[str, Any]):
+            def get(self, _key: str, _default: Any = None) -> Any:
+                raise RuntimeError("normalization failed")
+
+        class BrokenModel(FakeModel):
+            def generate(
+                self, _query: str, _mode: str, _evidence: list[Evidence]
+            ) -> dict[str, Any]:
+                return BrokenDraft()
+
+        class TrackingStore(CardStore):
+            def __init__(self, path: Path):
+                super().__init__(path)
+                self.finished: list[str] = []
+
+            def finish_preparation(
+                self, preparation_run_id: str, status: str, **kwargs: Any
+            ) -> None:
+                self.finished.append(status)
+                super().finish_preparation(preparation_run_id, status, **kwargs)
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            store = TrackingStore(root / "cards.sqlite3")
+            service = CardService(make_index(root), BrokenModel(), store)
+            with self.assertRaisesRegex(RuntimeError, "normalization failed"):
+                service.create("abacus", "word")
+            self.assertEqual(store.finished, ["failed"])
+
     def test_generated_ruby_must_cover_the_exact_term(self) -> None:
         tokens = [
             {"t": "\u4e00\u6642", "r": "\u3044\u3061\u3058"},
@@ -273,8 +405,14 @@ class ServiceTests(unittest.TestCase):
             service = CardService(make_index(root), FakeModel(), store)
             card = service.create("abacus", "word")
             self.assertEqual(card.japanese["reading"], "そろばん")
-            self.assertEqual(card.chinese["pinyin"], "suàn pán")
-            self.assertEqual(card.chinese["ruby_tokens"][0], {"t": "算", "r": "suàn"})
+            self.assertEqual(card.chinese["pinyin"].replace(" ", ""), "suànpán")
+            self.assertIn(
+                card.chinese["ruby_tokens"],
+                [
+                    [{"t": "算", "r": "suàn"}, {"t": "盘", "r": "pán"}],
+                    [{"t": "算盘", "r": "suànpán"}],
+                ],
+            )
             self.assertEqual(card.evidence[0].pages, (12,))
             self.assertEqual(card.origin_graph[0]["form"], "abax")
             self.assertEqual(card.origin_graph[1]["basis"], "model")

@@ -11,11 +11,23 @@ from lkt.llm import (
     WORD_ORIGIN_PROMPT,
     _extract_json,
     _validate_card_draft,
+    _validate_morphology_language_draft,
 )
 from lkt.models import Evidence
 
 
 class LlmParsingTests(unittest.TestCase):
+    def test_morphology_languages_reject_non_arabic_model_leakage(self) -> None:
+        draft = {
+            "english": {"term": "SPECT", "meaning": "look"},
+            "japanese": {"term": "見る", "reading": "みる", "meaning": "見る"},
+            "chinese": {"simplified": "看", "pinyin": "kàn", "meaning": "看"},
+            "french": {"term": "voir", "meaning": "regarder"},
+            "arabic": {"term": "morg", "meaning": "root meaning"},
+        }
+        with self.assertRaisesRegex(ValueError, "arabic.valid_script"):
+            _validate_morphology_language_draft(draft)
+
     def test_morphology_prompt_and_validator_require_connected_focus_graph(self) -> None:
         self.assertIn("evidence_ids", MORPHOLOGY_PROMPT)
         self.assertIn("Components point into words", MORPHOLOGY_PROMPT)
@@ -33,15 +45,19 @@ class LlmParsingTests(unittest.TestCase):
                     {"id": "spect", "type": "root", "form": "spect", "meaning": "look", "basis": "book"},
                     {"id": "ion", "type": "suffix", "form": "-ion", "meaning": "action", "basis": "book"},
                     {"id": "latin", "type": "historical", "form": "specere", "meaning": "to look", "basis": "model"},
+                    {"id": "inspect", "type": "related", "form": "inspect", "meaning": "examine", "basis": "model"},
+                    {"id": "spectator", "type": "related", "form": "spectator", "meaning": "observer", "basis": "model"},
                 ],
                 "edges": [
                     {"source": "in", "target": "word"},
                     {"source": "spect", "target": "word"},
                     {"source": "ion", "target": "word"},
                     {"source": "latin", "target": "spect"},
+                    {"source": "spect", "target": "inspect"},
+                    {"source": "spect", "target": "spectator"},
                 ],
                 "focus_areas": [
-                    {"kind": "overview", "node_ids": ["word", "in", "spect", "ion", "latin"]},
+                    {"kind": "overview", "node_ids": ["word", "in", "spect", "ion", "latin", "inspect", "spectator"]},
                     {"kind": "root", "node_ids": ["spect", "latin"]},
                 ],
             },
@@ -119,15 +135,19 @@ class LlmParsingTests(unittest.TestCase):
                     {"id": "greek", "type": "historical", "form": "abax", "meaning": "board", "basis": "book"},
                     {"id": "plural", "type": "related", "form": "abaci", "meaning": "plural form", "basis": "model"},
                     {"id": "calculate", "type": "related", "form": "calculate", "meaning": "find a number", "basis": "model"},
+                    {"id": "abaci", "type": "related", "form": "abaci", "meaning": "plural form", "basis": "model"},
+                    {"id": "count", "type": "related", "form": "count", "meaning": "enumerate", "basis": "model"},
                 ],
                 "edges": [
                     {"source": "greek", "target": "latin", "relationship": "developed-into"},
                     {"source": "latin", "target": "modern", "relationship": "developed-into"},
                     {"source": "modern", "target": "plural", "relationship": "related-form"},
                     {"source": "modern", "target": "calculate", "relationship": "related-form"},
+                    {"source": "modern", "target": "abaci", "relationship": "related-form"},
+                    {"source": "modern", "target": "count", "relationship": "related-form"},
                 ],
                 "focus_areas": [
-                    {"id": "overview", "kind": "overview", "node_ids": ["modern", "latin", "greek", "plural", "calculate"]},
+                    {"id": "overview", "kind": "overview", "node_ids": ["modern", "latin", "greek", "plural", "calculate", "abaci", "count"]},
                     {"id": "history", "kind": "history", "node_ids": ["modern", "latin", "greek"]},
                 ],
             },
@@ -151,10 +171,14 @@ class LlmParsingTests(unittest.TestCase):
         self.assertEqual(request.call_count, 2)
         first_payload = request.call_args_list[0].args[0]
         repair_payload = request.call_args_list[1].args[0]
-        self.assertEqual(first_payload["max_tokens"], 900)
+        self.assertEqual(first_payload["max_tokens"], 1200)
         self.assertNotIn("response_format", first_payload)
         self.assertEqual(repair_payload["temperature"], 0.0)
-        self.assertIn("Repair the previous response", repair_payload["messages"][-1]["content"])
+        self.assertEqual(repair_payload["max_tokens"], 1600)
+        self.assertFalse(
+            any(message["role"] == "assistant" for message in repair_payload["messages"])
+        )
+        self.assertIn("Start again from the supplied evidence", repair_payload["messages"][-1]["content"])
 
     def test_morphology_is_divided_and_repairs_without_recursive_raw_json(self) -> None:
         client = LlamaCppClient("http://localhost/v1/chat/completions", "test")
@@ -176,7 +200,9 @@ class LlmParsingTests(unittest.TestCase):
                     "basis": "model",
                     "evidence_ids": [],
                 }
-                for word in ("inspect", "respect", "prospect", "spectator")
+                for word in (
+                    "inspect", "respect", "prospect", "spectator", "retrospect", "introspection"
+                )
             ),
         ]
         graph = {
@@ -187,7 +213,9 @@ class LlmParsingTests(unittest.TestCase):
                 "nodes": nodes,
                 "edges": [
                     {"source": "spect", "target": word, "relationship": "root-of"}
-                    for word in ("inspect", "respect", "prospect", "spectator")
+                    for word in (
+                        "inspect", "respect", "prospect", "spectator", "retrospect", "introspection"
+                    )
                 ],
                 "focus_areas": [
                     {
@@ -253,7 +281,11 @@ class LlmParsingTests(unittest.TestCase):
                 for message in repaired_graph["messages"]
             )
         )
-        self.assertEqual(language_call["max_tokens"], 384)
+        self.assertEqual(language_call["max_tokens"], 512)
+        self.assertIn(
+            "Arabic-script letters only",
+            language_call["messages"][0]["content"],
+        )
         self.assertEqual(
             set(result["_preparation_stages"]),
             {"model-morphology-graph", "model-morphology-languages"},

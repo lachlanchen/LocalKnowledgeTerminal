@@ -90,6 +90,8 @@ class WebInputTests(unittest.TestCase):
         self.assertIn("carouselCards.slice(start, start + HISTORY_DOT_LIMIT)", script)
         self.assertIn("button.dataset.carouselIndex = String(index)", script)
         self.assertIn("async function syncAcceptedDeck()", script)
+        self.assertIn('["card", "empty"].includes(visibleView)', script)
+        self.assertIn("acceptedIds.has(visibleCurrent?.card_id)", script)
         self.assertIn("[current, ...newlyAccepted, ...remaining]", script)
         self.assertIn("card-switch-enter", style)
         self.assertIn("inner-slide-enter", style)

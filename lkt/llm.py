@@ -8,6 +8,7 @@ import urllib.request
 from typing import Any, Protocol
 
 from .models import Evidence
+from .pronunciation import is_arabic_script_text
 
 
 class ModelUnavailable(RuntimeError):
@@ -21,7 +22,9 @@ class CardModel(Protocol):
         ...
 
 
-def _evidence_context(evidence: list[Evidence]) -> str:
+def _evidence_context(
+    evidence: list[Evidence], *, excerpt_limit: int = 1600
+) -> str:
     blocks = []
     for index, item in enumerate(evidence, 1):
         pages = ", ".join(str(page) for page in item.pages) or "not applicable"
@@ -40,7 +43,7 @@ def _evidence_context(evidence: list[Evidence]) -> str:
             f"Date label: {item.date_label or 'unknown'}\n"
             f"Book pages: {pages}\n"
             f"Locator: {item.locator or 'not applicable'}\n"
-            f"Authoritative source text: {item.excerpt}\n"
+            f"Authoritative source text: {item.excerpt[:max(120, excerpt_limit)]}\n"
             f"Reviewed translations: {translations}"
         )
     return "\n\n".join(blocks)
@@ -160,7 +163,8 @@ exactly one JSON object with no markdown:
 }
 Japanese ruby token text must concatenate exactly to japanese.term. Use Unicode directly. Keep each
 meaning to one short phrase and the entire response under 140 words. If French or Arabic has no
-honest compact equivalent, return its object with empty strings instead of guessing. /no_think"""
+honest compact equivalent, choose a conservative established equivalent. Arabic term and meaning
+must contain Arabic-script letters only; only arabic.reading may use Latin letters. /no_think"""
 
 
 def _extract_json(text: str) -> dict[str, Any]:
@@ -197,8 +201,8 @@ def _morphology_graph_errors(value: dict[str, Any]) -> list[str]:
     edges = graph.get("edges")
     focuses = graph.get("focus_areas")
     center_id = str(graph.get("center_id", "")).strip()
-    if not isinstance(nodes, list) or len(nodes) < 5:
-        missing.append("morphology_graph.nodes[5+]")
+    if not isinstance(nodes, list) or len(nodes) < 7:
+        missing.append("morphology_graph.nodes[7+]")
         nodes = []
     node_ids = {
         str(node.get("id", "")).strip()
@@ -269,10 +273,22 @@ def _validate_morphology_language_draft(value: dict[str, Any]) -> None:
         ("english", "meaning"),
         ("japanese", "term"),
         ("japanese", "reading"),
+        ("japanese", "meaning"),
         ("chinese", "simplified"),
         ("chinese", "pinyin"),
+        ("chinese", "meaning"),
+        ("french", "term"),
+        ("french", "meaning"),
+        ("arabic", "term"),
+        ("arabic", "meaning"),
     )
     missing = [".".join(path) for path in required if not _nonempty_path(value, *path)]
+    arabic = value.get("arabic") if isinstance(value.get("arabic"), dict) else {}
+    if arabic and (
+        not is_arabic_script_text(str(arabic.get("term", "")))
+        or not is_arabic_script_text(str(arabic.get("meaning", "")))
+    ):
+        missing.append("arabic.valid_script")
     if missing:
         raise ValueError(
             f"model returned incomplete morphology languages: {', '.join(missing)}"
@@ -547,7 +563,7 @@ class LlamaCppClient:
                     "role": "user",
                     "content": (
                         f"{instruction}\n\nBOOK EVIDENCE\n"
-                        f"{_evidence_context(evidence)}\n\n/no_think"
+                        f"{_evidence_context(evidence, excerpt_limit=600)}\n\n/no_think"
                     ),
                 },
             ],
@@ -594,16 +610,18 @@ class LlamaCppClient:
             "top_p": 0.8,
             "top_k": 20,
             "presence_penalty": 0.0,
-            "max_tokens": 384,
+            "max_tokens": 512,
             "stream": False,
         }
         return self._complete_card_stage(
             payload,
             _validate_morphology_language_draft,
-            repair_tokens=512,
+            repair_tokens=640,
             repair_instruction=(
-                "Start again. Return only the five compact language objects with "
-                "valid Japanese kana and tone-marked Chinese pinyin"
+                "Start again. Return all five non-empty compact language objects. "
+                "Use valid Japanese kana, tone-marked Chinese pinyin, and Arabic "
+                "script only for both arabic.term and arabic.meaning; never put "
+                "Latin letters in either Arabic field"
             ),
         )
 
@@ -646,10 +664,16 @@ class LlamaCppClient:
             "question": QUESTION_PROMPT,
         }
         token_budgets = {
-            "word": 900,
-            "knowledge": 300,
-            "answer": 140,
-            "question": 140,
+            "word": 1200,
+            "knowledge": 512,
+            "answer": 192,
+            "question": 192,
+        }
+        repair_token_budgets = {
+            "word": 1600,
+            "knowledge": 640,
+            "answer": 256,
+            "question": 256,
         }
         payload = {
             "model": self.model_name,
@@ -683,13 +707,14 @@ class LlamaCppClient:
                     **payload,
                     "temperature": 0.0,
                     "presence_penalty": 0.0,
+                    "max_tokens": repair_token_budgets[mode],
                     "messages": [
-                        *payload["messages"],
-                        {"role": "assistant", "content": str(content)[:6000]},
+                        payload["messages"][0],
                         {
                             "role": "user",
                             "content": (
-                                "Repair the previous response. Fill every required field with real, "
+                                f"{user_prompt}\n\nStart again from the supplied evidence. The previous "
+                                "response was invalid. Fill every required field with real, "
                                 "non-empty content and return exactly one valid JSON object matching "
                                 "the required shape, with no markdown. /no_think"
                             ),

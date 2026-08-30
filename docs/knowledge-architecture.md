@@ -21,9 +21,19 @@ then advances the least-populated product stage. Word Card and Word Origin share
 one lexical investigation and never start a second autonomous lexical subject
 while one is unfinished. Root and Affix are first-class book-RAG products: each
 selects one unseen record from its own polished index, retrieves useful support
-from the other morphology index, and asks local Qwen for one evidence-labelled
-connected graph. A seeded circular scan makes every source record reachable;
+from the other morphology index and Word Origins, and asks local Qwen for one
+evidence-labelled connected graph. Short ambiguous components do not trigger
+broad FTS expansion. A seeded circular scan makes every source record reachable;
 stable source identities prevent repetition across service restarts.
+
+Root/Affix inference is divide-and-conquer. The first bounded call prepares only
+the evidence-labelled graph/history with a 1,200-token ceiling; one fresh repair
+may use 1,400 tokens but never receives its own truncated JSON as context. After
+the graph validates, it is checkpointed immediately. A separate 512-token call
+prepares the compact multilingual presentation, with one 640-token repair.
+Deterministic composition validates the merged card. If the language or
+publication stage fails, a later attempt reuses the graph only when mode, exact
+query, model revision, and evidence fingerprint all match.
 
 Retrieval chooses and owns each exact record. For Answer/Question, local Qwen
 produces only the bounded title/reflection and composition restores reviewed
@@ -126,10 +136,18 @@ is collapsed deterministically and recorded; broader repetition still fails.
 without rerunning the whole word pipeline; its accepted replacement supersedes
 the earlier preparation artifact.
 
-`prepare-pronunciation` does not spend an LLM call. Japanese reuses its accepted
-kana reading; Chinese pinyin and character ruby are derived deterministically;
-and the small offline eSpeak NG engine provides versioned IPA for English,
-French, and Arabic. Partial Arabic vowel marks are removed before phonemization
+`prepare-pronunciation` normally does not spend an LLM call. Japanese checks the
+accepted written form against the pinned full JMdict index. An already valid
+reading is reused, a sole dictionary reading repairs the atom deterministically,
+and multiple legitimate candidates trigger one 64-token local-Qwen selection
+whose output must be one retrieved reading. If the form is absent, the current
+reading remains explicitly unverified at lower confidence. The selected JMdict
+record becomes retrieval-owned evidence, and a dictionary-verified replacement
+supersedes only older Japanese pronunciation artifacts before deterministic
+Word Card recomposition; meaning, translation, grammar, and other languages are
+reused. Chinese pinyin and character ruby are derived deterministically, and
+the small offline eSpeak NG engine provides versioned IPA for English, French,
+and Arabic. Partial Arabic vowel marks are removed before phonemization
 because a partly marked word is less reliable than the engine's unmarked lexical
 lookup. The visible Arabic spelling is preserved, and this normalization remains
 in provenance. Initial IPA is stored as one grapheme-aligned segment; finer
@@ -270,7 +288,9 @@ corrections rather than a large alternative language system:
 - FreeDict English-Arabic 0.6.3 supplies exact-headword Arabic candidates where
   OMW has no aligned Arabic lemma. Its TEI is temporary; only a compact local
   SQLite index and its source/license metadata remain at runtime.
-- JMdict may correct Japanese forms/readings.
+- Full pinned JMdict corrects exact Japanese readings. It selects nothing by
+  substring: exact/unique results are deterministic and an ambiguous exact form
+  gets one small sense-aligned Qwen choice constrained to retrieved candidates.
 - CC-CEDICT may correct Chinese form/pinyin/gloss.
 
 Each retrieved dictionary item remains source/version/license evidence. Full

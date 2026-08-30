@@ -1667,6 +1667,7 @@ class KnowledgeStore:
         prompt_version: str = "",
         source_fingerprint: str = "",
         max_attempts: int = 2,
+        depends_on: Iterable[str] = (),
     ) -> str:
         language = _language(language) if language else ""
         job_key = ":".join(
@@ -1679,6 +1680,11 @@ class KnowledgeStore:
             )
         )
         job_id = _identifier("job", job_key)
+        prerequisites = tuple(
+            dict.fromkeys(str(item).strip() for item in depends_on if str(item).strip())
+        )
+        if job_id in prerequisites:
+            raise ValueError("a job cannot depend on itself")
         timestamp = _now()
         with closing(self._connect()) as connection:
             connection.execute(
@@ -1707,6 +1713,11 @@ class KnowledgeStore:
                     timestamp,
                     timestamp,
                 ),
+            )
+            connection.executemany(
+                """INSERT OR IGNORE INTO job_dependencies(job_id, depends_on_job_id)
+                   VALUES (?, ?)""",
+                ((job_id, prerequisite) for prerequisite in prerequisites),
             )
             connection.commit()
             row = connection.execute(

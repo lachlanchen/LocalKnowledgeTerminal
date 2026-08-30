@@ -111,8 +111,9 @@ The installed low-priority worker grows all six visible decks as balanced
 rounds. Question and Answer draw from their own reviewed books; Word Card and
 Word Origin share one bounded atomic word investigation; Root and Affix each
 draw independently from their own polished dictionary and use the other
-morphology book only as relevant companion RAG. It always chooses the
-least-populated visible mode, so no fast path can run far ahead of another.
+morphology book plus bounded Word Origins matches as relevant companion RAG. It
+always chooses the least-populated visible mode, so no fast path can run far
+ahead of another.
 During catch-up it pauses new Question/Answer draws and keeps at most one
 unfinished autonomous lexical subject in flight. The balance check runs at a
 bounded interval even while optional enrichment remains queued; lexical jobs
@@ -124,6 +125,13 @@ restarts. Atomic word analysis may derive a Root/Affix view when the word
 genuinely contains one, but independent Root/Affix book walks guarantee that
 those products grow even when a selected word has no productive affix. No
 component is invented merely to balance the tabs.
+
+Root/Affix preparation splits expensive work into two resumable local calls:
+graph/history first, then a small multilingual presentation. The graph has a
+larger 1,200-token ceiling (1,400 for one fresh repair), while the language call
+uses 512 tokens (640 for repair). A truncated JSON response is never recursively
+fed back into Qwen. Each validated stage is saved with its model and exact
+evidence fingerprint, so a later-stage failure does not waste the graph.
 
 The bare browser starts with Question, then continues through Answer → Word
 Card → Word Origin → Root → Affix after each card completes every inner slide.
@@ -144,8 +152,12 @@ Dictionary candidates and deterministic pronunciation/ruby are likewise local
 retrieval/tool output rather than hand-authored card data. FreeDict supplies an
 exact English-Arabic correction gate when OMW has no Arabic lemma for the chosen
 sense; Qwen must copy one retrieved candidate and the system attaches that
-candidate's evidence ID after validation. `/api/health` treats this compact
-correction index as a required source and reports its readiness and entry count.
+candidate's evidence ID after validation. The pinned full JMdict release checks
+Japanese forms and readings locally: an exact reading costs no model call, a
+unique correction is deterministic, and only a genuinely ambiguous written
+form receives one small Qwen selection constrained to the retrieved readings.
+`/api/health` treats both compact correction indexes as required sources and
+reports their readiness, versions, hashes, and entry counts.
 Autonomous generation pauses during current Raspberry Pi undervoltage,
 throttling, or high temperature and resumes after the condition clears. The web
 client loads the complete selected mode (up to 1,000 accepted cards), keeps the
@@ -208,6 +220,7 @@ the configured book has no evidence, the app does not generate a card.
 | `lkt/graph.py` | Rebuildable LadybugDB traversal projection from accepted SQLite atoms |
 | `lkt/lexicon.py` | Compact multilingual WordNet correction evidence |
 | `lkt/freedict.py` | Exact FreeDict English-Arabic ingestion and correction retrieval |
+| `lkt/jmdict.py` | Full JMdict exact-form reading index and provenance |
 | `lkt/web.py` | Dependency-free HTTP API and GUI server |
 | `lkt/outputs.py` | Stable web/e-ink/audio output boundary |
 | `lkt/static/` | Desktop-class GUI, responsive enough for later kiosk use |
@@ -241,6 +254,8 @@ python -m lkt.cli ingest-card-book question "C:\path\to\book-of-questions\json\m
 python -m lkt.cli ingest-morphology root "C:\path\to\root-dictionary\output\json\entries-editorial.jsonl"
 python -m lkt.cli ingest-morphology affix "C:\path\to\affix-dictionary\output\json\entries-editorial.jsonl"
 python -m lkt.cli ingest-freedict "C:\path\to\eng-ara.tei"
+python -m lkt.cli ingest-jmdict "C:\path\to\jmdict-eng-3.6.2.json" --release "3.6.2+20260824122934"
+python -m lkt.cli audit-japanese-readings
 python -m lkt.cli search abacus
 python -m lkt.cli search technology --corpus question
 python -m lkt.cli knowledge-status
@@ -321,8 +336,10 @@ Install the compact optional knowledge runtime and build the graph projection:
 
 This installs eSpeak NG for local IPA, pins LadybugDB 0.19.1 and Wn 1.1.1 in an
 isolated environment, then installs only the OMW 2.0 English, Japanese, Mandarin
-Chinese, French, and Arabic lexicons. Full Wiktionary dumps are intentionally
-excluded. IPA extraction uses quiet text mode and does not enable speech output.
+Chinese, French, and Arabic lexicons. It also verifies the pinned full JMdict
+archive, builds the exact-form reading index, and removes the raw download.
+Full Wiktionary dumps are intentionally excluded. IPA extraction uses quiet text
+mode and does not enable speech output.
 
 On the Pi:
 

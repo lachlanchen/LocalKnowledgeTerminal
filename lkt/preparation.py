@@ -41,6 +41,7 @@ class PreparationPlanner:
         language: str = "",
         priority: int,
         depends_on: Iterable[str] = (),
+        max_attempts: int = 2,
     ) -> str:
         job_id = self.store.enqueue_job(
             job_type,
@@ -51,9 +52,9 @@ class PreparationPlanner:
             model=self.model,
             prompt_version=self.prompt_version,
             source_fingerprint=self.source_fingerprint,
+            max_attempts=max_attempts,
+            depends_on=depends_on,
         )
-        for prerequisite in depends_on:
-            self.store.add_job_dependency(job_id, prerequisite)
         return job_id
 
     def plan_word(
@@ -133,6 +134,7 @@ class PreparationPlanner:
                 language=language,
                 priority=40,
                 depends_on=(morphology,),
+                max_attempts=3,
             )
             jobs["expand-origin-branches"] = origin
 
@@ -277,15 +279,20 @@ class PreparationPlanner:
         artifacts = self.store.artifacts_for_subject(
             subject_key, validation_state="accepted"
         )
-        translations = [
+        source_stage = (
+            "accepted-meaning"
+            if target_language == source_language
+            else "accepted-translation"
+        )
+        sources = [
             item
             for item in artifacts
-            if item["stage"] == "accepted-translation"
-            and item["language"] == target_language
+            if item["stage"] == source_stage and item["language"] == target_language
         ]
-        if not translations:
+        if not sources:
+            source_label = "meaning" if target_language == source_language else "translation"
             raise ValueError(
-                f"no accepted {target_language} translation is available for {text!r}"
+                f"no accepted {target_language} {source_label} is available for {text!r}"
             )
         pronunciation = self._job(
             "prepare-pronunciation",
@@ -293,7 +300,7 @@ class PreparationPlanner:
             term_id,
             language=target_language,
             priority=60,
-            depends_on=(str(translations[-1]["job_id"]),),
+            depends_on=(str(sources[-1]["job_id"]),),
         )
         jobs = {f"pronunciation:{target_language}": pronunciation}
 
@@ -469,6 +476,7 @@ class PreparationPlanner:
             language=language,
             priority=40,
             depends_on=(str(splits[-1]["job_id"]),),
+            max_attempts=3,
         )
         return PreparationPlan(term_id, subject_key, {"expand-origin-branches": origin})
 
@@ -477,23 +485,51 @@ class PreparationPlanner:
         text: str,
         *,
         language: str = "en",
+        display_languages: Iterable[str] = DISPLAY_LANGUAGES,
     ) -> PreparationPlan:
         """Compose the visible origin view from already accepted atoms."""
         term_id = self.store.upsert_term(language, text, status="draft")
         subject_key = f"term:{term_id}"
-        origins = self.store.artifacts_for_subject(
-            subject_key,
-            stage="accepted-origin-branches",
-            validation_state="accepted",
+        artifacts = self.store.artifacts_for_subject(
+            subject_key, validation_state="accepted"
         )
+        origins = [
+            item for item in artifacts if item["stage"] == "accepted-origin-branches"
+        ]
         if not origins:
             raise ValueError(f"no accepted origin branches are available for {text!r}")
+        required = [("accepted-meaning", language)]
+        required.extend(
+            ("accepted-pronunciation", output_language)
+            for output_language in dict.fromkeys(display_languages)
+        )
+        required.extend(
+            ("accepted-translation", output_language)
+            for output_language in dict.fromkeys(display_languages)
+            if output_language != language
+        )
+        dependencies = [str(origins[-1]["job_id"])]
+        missing: list[str] = []
+        for stage, output_language in required:
+            matches = [
+                item
+                for item in artifacts
+                if item["stage"] == stage and item["language"] == output_language
+            ]
+            if not matches:
+                missing.append(f"{stage}:{output_language}")
+                continue
+            dependencies.append(str(matches[-1]["job_id"]))
+        if missing:
+            raise ValueError(
+                f"accepted Origin Card atoms are missing for {text!r}: {', '.join(missing)}"
+            )
         composition = self._job(
             "compose-origin-card",
             subject_key,
             term_id,
             priority=90,
-            depends_on=(str(origins[-1]["job_id"]),),
+            depends_on=dependencies,
         )
         return PreparationPlan(term_id, subject_key, {"compose-origin-card": composition})
 
@@ -575,6 +611,7 @@ class PreparationPlanner:
             language=language,
             priority=40,
             depends_on=(split,),
+            max_attempts=3,
         )
         composition = self._job(
             "compose-origin-card",

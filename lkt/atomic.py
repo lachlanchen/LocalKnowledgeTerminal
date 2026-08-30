@@ -23,7 +23,7 @@ from .pronunciation import (
     chinese_ruby_tokens,
     is_arabic_script_text,
 )
-from .store import CardStore
+from .store import CardStore, card_validation_errors
 
 
 SUPPORTED_ATOMIC_JOBS = (
@@ -139,6 +139,20 @@ def _artifact_quality(artifact: dict[str, Any]) -> float:
         return max(0.0, min(1.0, float(value)))
     except (TypeError, ValueError):
         return 0.0
+
+
+def _origin_generation_metadata(
+    completion: dict[str, Any] | None, fallback_model: str
+) -> tuple[str, dict[str, Any]]:
+    """Describe either a local-model draft or deterministic retrieved-book work."""
+
+    if completion is None:
+        return "retrieved book evidence", {}
+    metrics = completion.get("metrics", {})
+    return (
+        str(completion.get("model", fallback_model)),
+        dict(metrics) if isinstance(metrics, dict) else {},
+    )
 
 
 class AtomicModel(Protocol):
@@ -480,6 +494,29 @@ def _clean_morpheme_meaning(value: Any) -> str:
     return re.sub(r"\s+", " ", text).strip(" .:-")
 
 
+def _derived_origin_view_specs(
+    parts: list[dict[str, Any]],
+) -> tuple[tuple[str, set[str], set[str], str], ...]:
+    """Return only morphology views supported by actual analyzed part kinds."""
+
+    kinds = {str(part.get("kind", "")) for part in parts}
+    specs: list[tuple[str, set[str], set[str], str]] = []
+    if "root" in kinds:
+        specs.append(
+            ("root", {"root"}, {"root"}, "accepted-atomic-root-view")
+        )
+    if kinds.intersection({"prefix", "suffix"}):
+        specs.append(
+            (
+                "affix",
+                {"prefix", "suffix"},
+                {"prefix", "suffix"},
+                "accepted-atomic-affix-view",
+            )
+        )
+    return tuple(specs)
+
+
 def _plain_letter_key(value: Any) -> str:
     """Compare historical forms without punctuation or accent differences."""
 
@@ -526,6 +563,86 @@ def _explicit_form_evidence_ids(
             and str(record.get("evidence_id", ""))
         )
     )
+
+
+def _origin_cross_reference_targets(value: Any) -> tuple[str, ...]:
+    """Return bounded Word Origins targets from a pure ``see ...`` entry."""
+
+    text = re.sub(r"\s+", " ", str(value or "")).strip()
+    match = re.fullmatch(r"see(?:\s+also)?\s+(.+?)[.;]?", text, re.IGNORECASE)
+    if match is None:
+        return ()
+    targets: list[str] = []
+    for raw in re.split(r"\s*(?:,|;|\band\b|&)\s*", match.group(1), flags=re.I):
+        target = re.sub(r"\s+", " ", raw).strip(" .:-")
+        if not re.fullmatch(r"[A-Za-z][A-Za-z' -]{0,59}", target):
+            continue
+        key = target.casefold()
+        if key not in {item.casefold() for item in targets}:
+            targets.append(target)
+    return tuple(targets[:4])
+
+
+def _origin_source_record_matches(term: Any, record: dict[str, Any]) -> bool:
+    """Accept a Word Origins record that owns the headword or names its subentry."""
+
+    source_key = _plain_letter_key(term)
+    excerpt = record.get("excerpt", "")
+    return bool(
+        source_key
+        and str(record.get("kind", "")) == "entry"
+        and not _origin_cross_reference_targets(excerpt)
+        and (
+            _plain_letter_key(record.get("headword", "")) == source_key
+            or source_key in _text_form_keys(excerpt)
+        )
+    )
+
+
+def _normalize_origin_draft(
+    value: Any, *, component_id: str, modern_word: str, base_form: str
+) -> tuple[Any, list[str]]:
+    """Repair application-owned identity and redundant modern endpoints."""
+
+    if not isinstance(value, dict):
+        return value, []
+    normalized = deepcopy(value)
+    changes: list[str] = []
+    if str(normalized.get("component_id", "")) != component_id:
+        normalized["component_id"] = component_id
+        changes.append("restored-system-component-id")
+
+    raw_steps = normalized.get("steps")
+    if not isinstance(raw_steps, list):
+        return normalized, changes
+    forbidden = {_plain_letter_key(modern_word), _plain_letter_key(base_form)}
+    retained: list[Any] = []
+    for raw in raw_steps:
+        if not isinstance(raw, dict):
+            retained.append(raw)
+            continue
+        step = dict(raw)
+        form_key = _plain_letter_key(step.get("form", ""))
+        language = str(step.get("language", "")).strip().casefold()
+        period = str(step.get("period", "")).strip().casefold()
+        if language in {"en", "english"} and "old english" in period:
+            step["language"] = "ang"
+            changes.append("normalized-old-english-code")
+            language = "ang"
+        elif language in {"en", "english"} and "middle english" in period:
+            step["language"] = "enm"
+            changes.append("normalized-middle-english-code")
+            language = "enm"
+        if (
+            form_key in forbidden
+            or "modern english" in period
+            or language in {"en", "english"}
+        ):
+            changes.append("removed-redundant-modern-endpoint")
+            continue
+        retained.append(step)
+    normalized["steps"] = retained
+    return normalized, list(dict.fromkeys(changes))
 
 
 def _origin_draft_review_reason(
@@ -689,11 +806,34 @@ class WordEvidenceRetriever:
         plain = re.sub(r"[^A-Za-z]", "", form)
         if len(plain) < 3:
             return []
+        records: list[Evidence] = []
+        seen: set[str] = set()
+        pending = [plain]
+        followed: set[str] = set()
+        for _depth in range(3):
+            next_targets: list[str] = []
+            for query in pending:
+                query_key = _plain_letter_key(query)
+                if not query_key or query_key in followed:
+                    continue
+                followed.add(query_key)
+                for item in self.corpus.search(query, 6):
+                    exact = _plain_letter_key(item.headword) == query_key
+                    if not exact and not _lexically_related(query, item):
+                        continue
+                    if item.entry_id not in seen:
+                        records.append(item)
+                        seen.add(item.entry_id)
+                    if exact:
+                        next_targets.extend(
+                            _origin_cross_reference_targets(item.excerpt)
+                        )
+            pending = next_targets
+            if not pending or len(records) >= 6:
+                break
         return [
-            _book_record(item, self._hash(self.corpus))
-            for item in self.corpus.search(plain, 6)
-            if _lexically_related(plain, item)
-        ][:3]
+            _book_record(item, self._hash(self.corpus)) for item in records[:6]
+        ]
 
 
 @dataclass(frozen=True)
@@ -1280,12 +1420,8 @@ claims may cite only supplied evidence IDs; model knowledge must cite none."""
             job["subject_key"], stage="retrieved-evidence"
         )
         if retrievals:
-            source_key = _plain_letter_key(source["text"])
             for record in retrievals[-1]["payload"].get("records", []):
-                if (
-                    str(record.get("kind", "")) != "entry"
-                    or _plain_letter_key(record.get("headword", "")) != source_key
-                ):
+                if not _origin_source_record_matches(source["text"], record):
                     continue
                 evidence_id = str(record.get("knowledge_evidence_id", ""))
                 if evidence_id:
@@ -1355,10 +1491,17 @@ claims may cite only supplied evidence IDs; model knowledge must cite none."""
                 for item in context
                 if item["kind"] in {"root", "free"} and item["evidence"]
             ),
-            None,
+            next(
+                (
+                    item
+                    for item in context
+                    if item["component_id"] == history_anchor_id
+                ),
+                None,
+            ),
         )
         if focus is None:
-            raise ValueError("no cited lexical base is available for origin expansion")
+            raise ValueError("no lexical base is available for origin expansion")
         focus_evidence = self.store.evidence_records(
             sorted(allowed_by_component[str(focus["component_id"])])
         )
@@ -1394,7 +1537,7 @@ Return exactly one JSON object with `component_id` copied exactly and `steps`, a
 array ordered oldest to newest. Use one to three historically useful steps. Each
 step has:
 form: concise attested or reconstructed historical form
-language: ISO-style code such as la, fro, fr, grc, ine-pro, or en
+language: ISO-style code such as la, fro, fr, grc, ine-pro, ang, or enm
 period: concise era or language-stage label
 meaning: at most 10 English words
 confidence: number from 0 to 1
@@ -1408,33 +1551,73 @@ in that evidence and copy their spelling exactly.
 Book evidence is authoritative. Model knowledge must use an empty evidence_ids
 array. Stop a branch when another step is uncertain. Prefer a small accurate
 graph over a decorative graph."""
-        completion = self.model.complete_json(
-            "You reason over RAG evidence to expand one bounded etymology branch.",
-            prompt,
-            max_tokens=256,
-        )
-        value = completion.get("value")
-        review_reason = _origin_draft_review_reason(
-            value,
-            component_id=str(focus["component_id"]),
-            modern_word=source["text"],
-            base_form=str(focus["form"]),
-            fixed_provenance_ids=set(fixed_provenance_ids),
-            evidence=focus_evidence,
-        )
-        self.store.save_job_artifact(
-            job["job_id"],
-            "model-origin-draft",
-            {
-                "term": source["text"],
-                "value": value,
-                "model": completion.get("model", self.model.model_name),
-                "metrics": completion.get("metrics", {}),
-            },
-            language=source["language"],
-            validation_state="superseded" if review_reason else "candidate",
-        )
-        if review_reason:
+        fixed_component_id = str(focus["component_id"])
+        completion: dict[str, Any] | None = None
+        book_steps = _book_origin_steps(focus_evidence)
+        if book_steps:
+            value: Any = {
+                "component_id": fixed_component_id,
+                "steps": book_steps,
+            }
+            self.store.save_job_artifact(
+                job["job_id"],
+                "book-origin-draft",
+                {"term": source["text"], "value": value},
+                language=source["language"],
+                validation_state="candidate",
+            )
+        else:
+            completion = self.model.complete_json(
+                "You reason over RAG evidence to expand one bounded etymology branch.",
+                prompt,
+                max_tokens=384,
+            )
+            raw_value = completion.get("value")
+            value, normalizations = _normalize_origin_draft(
+                raw_value,
+                component_id=fixed_component_id,
+                modern_word=source["text"],
+                base_form=str(focus["form"]),
+            )
+            review_reason = _origin_draft_review_reason(
+                value,
+                component_id=fixed_component_id,
+                modern_word=source["text"],
+                base_form=str(focus["form"]),
+                fixed_provenance_ids=set(fixed_provenance_ids),
+                evidence=focus_evidence,
+            )
+            if (
+                not review_reason
+                and fixed_provenance_ids
+                and "removed-redundant-modern-endpoint" in normalizations
+            ):
+                review_reason = "the draft incorrectly used a Modern English endpoint"
+            self.store.save_job_artifact(
+                job["job_id"],
+                "model-origin-draft",
+                {
+                    "term": source["text"],
+                    "value": raw_value,
+                    "model": completion.get("model", self.model.model_name),
+                    "metrics": completion.get("metrics", {}),
+                },
+                language=source["language"],
+                validation_state="superseded" if review_reason else "candidate",
+            )
+            if normalizations:
+                self.store.save_job_artifact(
+                    job["job_id"],
+                    "normalized-origin-draft",
+                    {
+                        "term": source["text"],
+                        "normalizations": normalizations,
+                        "value": value,
+                    },
+                    language=source["language"],
+                    validation_state="candidate",
+                )
+        if not book_steps and review_reason:
             review_prompt = f"""ONE ORIGIN BRANCH REVIEW
 The first draft failed a structural or evidence check: {review_reason}.
 
@@ -1454,26 +1637,57 @@ stop before an uncertain ancestor. Return JSON only."""
             completion = self.model.complete_json(
                 "You independently review one failed RAG-grounded etymology branch.",
                 review_prompt,
-                max_tokens=256,
+                max_tokens=448,
             )
-            value = completion.get("value")
+            reviewed_raw = completion.get("value")
+            reviewed_value, review_normalizations = _normalize_origin_draft(
+                reviewed_raw,
+                component_id=fixed_component_id,
+                modern_word=source["text"],
+                base_form=str(focus["form"]),
+            )
+            reviewed_reason = _origin_draft_review_reason(
+                reviewed_value,
+                component_id=fixed_component_id,
+                modern_word=source["text"],
+                base_form=str(focus["form"]),
+                fixed_provenance_ids=set(fixed_provenance_ids),
+                evidence=focus_evidence,
+            )
             self.store.save_job_artifact(
                 job["job_id"],
                 "model-origin-review-draft",
                 {
                     "term": source["text"],
                     "review_reason": review_reason,
-                    "value": value,
+                    "value": reviewed_raw,
                     "model": completion.get("model", self.model.model_name),
                     "metrics": completion.get("metrics", {}),
                 },
                 language=source["language"],
-                validation_state="candidate",
+                validation_state="candidate" if not reviewed_reason else "rejected",
             )
-        if not isinstance(value, dict) or str(value.get("component_id", "")) != str(
-            focus["component_id"]
-        ):
-            raise ValueError("origin task changed the fixed component")
+            if review_normalizations:
+                self.store.save_job_artifact(
+                    job["job_id"],
+                    "normalized-origin-draft",
+                    {
+                        "term": source["text"],
+                        "normalizations": review_normalizations,
+                        "value": reviewed_value,
+                    },
+                    language=source["language"],
+                    validation_state=(
+                        "candidate" if not reviewed_reason else "rejected"
+                    ),
+                )
+            # Never replace a repairable first draft with a structurally worse
+            # reviewer response. A remaining substantive error still consumes
+            # only the normal bounded job retry.
+            if not reviewed_reason:
+                value = reviewed_value
+        if not isinstance(value, dict):
+            raise ValueError("origin task did not return an object")
         raw_by_component = {str(focus["component_id"]): value}
 
         cleaned_branches: list[dict[str, Any]] = []
@@ -1589,6 +1803,9 @@ stop before an uncertain ancestor. Return JSON only."""
                 "superseded by a newly validated bounded origin branch",
             )
 
+        origin_model, origin_metrics = _origin_generation_metadata(
+            completion, self.model.model_name
+        )
         accepted_steps: list[dict[str, Any]] = []
         for branch in cleaned_branches:
             later_id = str(branch["component_id"])
@@ -1622,7 +1839,7 @@ stop before an uncertain ancestor. Return JSON only."""
                 self.store.record_revision(
                     historical_id,
                     step,
-                    model=str(completion.get("model", self.model.model_name)),
+                    model=origin_model,
                     prompt_version=str(job.get("prompt_version", "")),
                     reason="atomic origin branch expansion",
                     accepted=True,
@@ -1636,8 +1853,8 @@ stop before an uncertain ancestor. Return JSON only."""
             "term_id": source["entity_id"],
             "term": source["text"],
             "branches": cleaned_branches,
-            "model": completion.get("model", self.model.model_name),
-            "metrics": completion.get("metrics", {}),
+            "model": origin_model,
+            "metrics": origin_metrics,
         }
         self.store.record_revision(
             source["entity_id"],
@@ -2624,7 +2841,11 @@ reading and do not rewrite the Japanese form."""
                             if branch.get("component_kind") == "root"
                             else "Word history"
                         ),
-                        "kind": "root",
+                        "kind": (
+                            "root"
+                            if branch.get("component_kind") == "root"
+                            else "word-history"
+                        ),
                         "node_ids": [*branch_ids, component_id, center_id],
                         "headline": headline,
                         "explanation": (
@@ -2760,13 +2981,7 @@ reading and do not rewrite the Japanese form."""
         )
         cards = [card]
         for derived_mode, focus_kinds, part_kinds, policy in (
-            ("root", {"root"}, {"root", "free"}, "accepted-atomic-root-view"),
-            (
-                "affix",
-                {"prefix", "suffix"},
-                {"prefix", "suffix"},
-                "accepted-atomic-affix-view",
-            ),
+            _derived_origin_view_specs(parts)
         ):
             selected_focuses = [
                 deepcopy(area)
@@ -2796,6 +3011,20 @@ reading and do not rewrite the Japanese form."""
             derived.extensions["knowledge_policy"] = policy
             derived.extensions["morphology_graph"] = derived_graph
             cards.append(derived)
+
+        publication_errors = {
+            output_card.mode: card_validation_errors(output_card.to_dict())
+            for output_card in cards
+        }
+        publication_errors = {
+            mode: errors for mode, errors in publication_errors.items() if errors
+        }
+        if publication_errors:
+            details = "; ".join(
+                f"{mode}: {', '.join(errors)}"
+                for mode, errors in publication_errors.items()
+            )
+            raise ValueError(f"origin views failed prepublication validation: {details}")
 
         for output_card in cards:
             self.card_store.save(output_card)

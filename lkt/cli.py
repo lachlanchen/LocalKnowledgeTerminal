@@ -665,12 +665,24 @@ def run_atomic_watch(
 def command_work_atomic(args: argparse.Namespace) -> int:
     settings = _settings()
     knowledge = KnowledgeStore(settings.knowledge_db)
+    cards = CardStore(settings.cards_db)
     if args.recover_running:
         recovered = knowledge.recover_running_jobs()
         if recovered:
             print(
                 json.dumps(
                     {"event": "recovered-interrupted-jobs", "count": recovered}
+                ),
+                flush=True,
+            )
+        recovered_preparations = cards.recover_interrupted_preparations()
+        if recovered_preparations:
+            print(
+                json.dumps(
+                    {
+                        "event": "recovered-interrupted-preparations",
+                        "count": recovered_preparations,
+                    }
                 ),
                 flush=True,
             )
@@ -685,7 +697,7 @@ def command_work_atomic(args: argparse.Namespace) -> int:
         LlamaCppClient(
             settings.llm_url, settings.llm_model, settings.request_timeout
         ),
-        CardStore(settings.cards_db),
+        cards,
         JapaneseReadingIndex(settings.jmdict_db),
     )
     if args.watch:

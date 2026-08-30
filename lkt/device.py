@@ -22,9 +22,14 @@ def pi_power_blocker(throttled_output: str) -> str:
 
 
 def memory_pressure_blocker(
-    meminfo: str, *, min_available_mib: float = 1536.0
+    meminfo: str, *, min_available_mib: float = 1024.0
 ) -> str:
-    """Pause optional generation before it competes with the UI or SSH."""
+    """Pause optional generation before it competes with the UI or SSH.
+
+    The resident 4B llama.cpp runtime leaves about 1.4 GiB ``MemAvailable`` on
+    the 8 GiB product Pi.  Keeping a full 1 GiB reserve still protects the
+    browser and SSH while avoiding a permanent idle state after model load.
+    """
 
     match = re.search(r"^MemAvailable:\s+(\d+)\s+kB$", meminfo, re.MULTILINE)
     if match is None:
@@ -40,7 +45,7 @@ def memory_pressure_blocker(
 
 def background_preparation_blocker(
     max_temperature_c: float = 78.0,
-    min_available_mib: float = 1536.0,
+    min_available_mib: float = 1024.0,
 ) -> str:
     """Protect interactive use while a small device is power- or heat-limited.
 
@@ -70,8 +75,8 @@ def background_preparation_blocker(
     try:
         temperature_c = float(thermal.read_text(encoding="ascii").strip()) / 1000.0
     except (OSError, ValueError):
-        return ""
-    if temperature_c >= max_temperature_c:
+        temperature_c = None
+    if temperature_c is not None and temperature_c >= max_temperature_c:
         return (
             "background preparation paused: device temperature is "
             f"{temperature_c:.1f} C"

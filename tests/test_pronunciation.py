@@ -37,6 +37,13 @@ class PronunciationTests(unittest.TestCase):
             ],
         )
 
+    def test_ruby_tokens_use_supplied_compound_reading_without_pypinyin(self) -> None:
+        with patch.dict("sys.modules", {"pypinyin": None}):
+            self.assertEqual(
+                chinese_ruby_tokens("算盘", "suànpán"),
+                [{"t": "算盘", "r": "suànpán"}],
+            )
+
     @patch("lkt.pronunciation.subprocess.run")
     def test_espeak_adapter_uses_fixed_voice_and_returns_provenance(self, run) -> None:
         run.side_effect = [

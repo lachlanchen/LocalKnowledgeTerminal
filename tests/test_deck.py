@@ -416,6 +416,113 @@ class AutonomousDeckTests(unittest.TestCase):
         self.assertEqual(result.mode, "root")
         self.assertEqual(morphology.calls, ["root"])
 
+    def test_product_seeder_rotates_after_a_deferred_equal_mode(self) -> None:
+        class _Store:
+            def accepted_for_modes(
+                self, _modes: tuple[str, ...]
+            ) -> list[dict[str, str]]:
+                return [
+                    *({"mode": "question"} for _ in range(8)),
+                    *({"mode": "answer"} for _ in range(8)),
+                    *({"mode": "knowledge"} for _ in range(8)),
+                    *({"mode": "word"} for _ in range(8)),
+                    *({"mode": "root"} for _ in range(2)),
+                    *({"mode": "affix"} for _ in range(2)),
+                ]
+
+        class _Book:
+            modes = ("question", "answer")
+
+        class _Lexical:
+            def run_bounded_once(self) -> DeckSeedResult:
+                raise AssertionError("lexical modes are not least-filled")
+
+        class _Morphology:
+            def __init__(self) -> None:
+                self.calls: list[str] = []
+
+            def run_mode(self, mode: str) -> DeckSeedResult:
+                self.calls.append(mode)
+                return DeckSeedResult(status="deferred", mode=mode)
+
+        morphology = _Morphology()
+        seeder = BalancedProductSeeder(
+            _Book(), _Lexical(), _Store(), morphology=morphology
+        )
+        self.assertEqual(seeder.run_once().mode, "root")
+        self.assertEqual(seeder.run_once().mode, "affix")
+        self.assertEqual(morphology.calls, ["root", "affix"])
+
+    def test_terminal_origin_gap_requeues_after_discovery_is_complete(self) -> None:
+        from unittest.mock import patch
+
+        class _Corpus:
+            def lexical_headwords(self) -> tuple[str, ...]:
+                return ("alpha",)
+
+            def metadata(self) -> dict[str, str]:
+                return {}
+
+            def draw_unseen_word(
+                self, _seed: str, _planned: set[str]
+            ) -> None:
+                return None
+
+        class _Store:
+            def accepted_for_modes(
+                self, _modes: tuple[str, ...]
+            ) -> list[dict[str, str]]:
+                return [{"mode": "knowledge", "query": "alpha"}]
+
+        class _Knowledge:
+            def __init__(self) -> None:
+                self.jobs: list[dict[str, str]] = []
+
+            def planned_term_keys(self, _language: str) -> set[str]:
+                return {"alpha"}
+
+            def jobs_for_subject(self, _subject_key: str) -> list[dict[str, str]]:
+                return self.jobs
+
+        versions: list[str] = []
+
+        class _Planner:
+            def __init__(
+                self,
+                knowledge: _Knowledge,
+                *,
+                model: str,
+                prompt_version: str,
+                source_fingerprint: str,
+            ) -> None:
+                self.knowledge = knowledge
+                self.prompt_version = prompt_version
+                versions.append(prompt_version)
+
+            def plan_lexical_history_repair(self, _query: str) -> SimpleNamespace:
+                fresh = "-origin-repair-" in self.prompt_version
+                job_id = "fresh-origin" if fresh else "exhausted-origin"
+                self.knowledge.jobs = [
+                    {"job_id": job_id, "status": "queued" if fresh else "failed"}
+                ]
+                return SimpleNamespace(
+                    subject_key="term:alpha",
+                    jobs={"expand-origin-branches": job_id},
+                )
+
+        knowledge = _Knowledge()
+        seeder = AutonomousLexicalSeeder(
+            _Corpus(), _Store(), knowledge, model="local-qwen-test"
+        )
+        with patch("lkt.deck.PreparationPlanner", _Planner):
+            result = seeder.run_once("stable-cycle")
+
+        self.assertEqual(result.status, "repair-queued")
+        self.assertEqual(versions[0], "autonomous-lexical-v4")
+        self.assertTrue(versions[1].startswith("autonomous-lexical-v4-origin-repair-"))
+        self.assertEqual(seeder.progress()["complete"], False)
+        self.assertEqual(seeder.progress()["remaining"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()

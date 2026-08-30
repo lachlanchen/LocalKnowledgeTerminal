@@ -12,9 +12,12 @@ from .corpus import CorpusIndex
 from .llm import CardModel
 from .models import Card, Evidence
 from .morphology import MorphologyIndex
-from .pronunciation import chinese_pinyin, chinese_ruby_tokens
+from .pronunciation import chinese_pinyin, chinese_ruby_tokens, is_arabic_script_text
 from .retrieval import RagEngine, build_rag_engines
 from .store import CardStore
+
+
+_MORPHOLOGY_CACHE_VERSION = "morphology-prompts-v2"
 
 
 class NoEvidence(LookupError):
@@ -43,6 +46,118 @@ def _string_list(value: Any, limit: int = 6) -> list[str]:
 def _language(value: Any, fields: tuple[str, ...]) -> dict[str, Any]:
     source = value if isinstance(value, dict) else {}
     return {field: _short_text(source.get(field), limit=1000) for field in fields}
+
+
+def _usable_morphology_languages(value: Any) -> bool:
+    """Reject stale reusable language stages that predate script validation."""
+
+    if not isinstance(value, dict):
+        return False
+    required = {
+        "english": ("term", "meaning"),
+        "japanese": ("term", "reading", "meaning"),
+        "chinese": ("simplified", "pinyin", "meaning"),
+        "french": ("term", "meaning"),
+        "arabic": ("term", "meaning"),
+    }
+    for language, fields in required.items():
+        block = value.get(language)
+        if not isinstance(block, dict) or any(
+            not _short_text(block.get(field)) for field in fields
+        ):
+            return False
+    arabic = value["arabic"]
+    return is_arabic_script_text(arabic["term"]) and is_arabic_script_text(
+        arabic["meaning"]
+    )
+
+
+def _usable_morphology_graph(value: Any, evidence: list[Evidence]) -> bool:
+    """Reuse only complete graphs whose book claims resolve to retrieval records."""
+
+    if not isinstance(value, dict) or any(
+        not _short_text(value.get(field)) for field in ("title", "summary_en")
+    ):
+        return False
+    graph = value.get("morphology_graph")
+    if not isinstance(graph, dict):
+        return False
+    nodes = graph.get("nodes")
+    if not isinstance(nodes, list) or not 7 <= len(nodes) <= 18:
+        return False
+    node_ids = [
+        _short_text(node.get("id"), limit=64) if isinstance(node, dict) else ""
+        for node in nodes
+    ]
+    if not all(node_ids) or len(set(node_ids)) != len(node_ids):
+        return False
+    center_id = _short_text(graph.get("center_id"), limit=64)
+    if center_id not in node_ids:
+        return False
+    valid_evidence_ids = {item.entry_id for item in evidence}
+    allowed_types = {"word", "prefix", "root", "suffix", "historical", "related"}
+    for node in nodes:
+        assert isinstance(node, dict)
+        if (
+            _short_text(node.get("type"), limit=20).casefold() not in allowed_types
+            or not _short_text(node.get("form"), limit=100)
+            or not _short_text(node.get("meaning"), limit=180)
+        ):
+            return False
+        basis = _short_text(node.get("basis"), limit=12).casefold()
+        if basis not in {"book", "model"}:
+            return False
+        raw_ids = node.get("evidence_ids")
+        if basis == "book" and (
+            not isinstance(raw_ids, list)
+            or not any(str(item).strip() in valid_evidence_ids for item in raw_ids)
+        ):
+            return False
+    edges = graph.get("edges")
+    if not isinstance(edges, list):
+        return False
+    adjacency = {node_id: set() for node_id in node_ids}
+    valid_relationships = {
+        "developed-into", "prefix-of", "root-of", "suffix-of", "related-form"
+    }
+    valid_edges = 0
+    for edge in edges:
+        if not isinstance(edge, dict):
+            return False
+        source = _short_text(edge.get("source"), limit=64)
+        target = _short_text(edge.get("target"), limit=64)
+        relationship = _short_text(edge.get("relationship"), limit=32).casefold()
+        if (
+            source not in adjacency
+            or target not in adjacency
+            or source == target
+            or relationship not in valid_relationships
+        ):
+            return False
+        adjacency[source].add(target)
+        adjacency[target].add(source)
+        valid_edges += 1
+    if valid_edges < len(nodes) - 1:
+        return False
+    reached = {center_id}
+    frontier = [center_id]
+    while frontier:
+        current = frontier.pop()
+        for neighbor in adjacency[current] - reached:
+            reached.add(neighbor)
+            frontier.append(neighbor)
+    if reached != set(node_ids):
+        return False
+    focuses = graph.get("focus_areas")
+    if not isinstance(focuses, list) or len(focuses) < 2:
+        return False
+    overview = focuses[0] if isinstance(focuses[0], dict) else {}
+    overview_ids = overview.get("node_ids")
+    return (
+        _short_text(overview.get("kind"), limit=20).casefold() == "overview"
+        and isinstance(overview_ids, list)
+        and set(str(item).strip() for item in overview_ids) == set(node_ids)
+    )
 
 
 def _ruby_tokens(value: Any) -> list[dict[str, str]]:
@@ -222,9 +337,10 @@ def _morphology_graph(
 
 def _origin_graph(
     value: Any, evidence: list[Evidence], title: str
-) -> list[dict[str, str]]:
-    result: list[dict[str, str]] = []
+) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
     used_ids: set[str] = set()
+    valid_evidence_ids = {item.entry_id for item in evidence}
     has_explicit_relationships = False
     if isinstance(value, list):
         for index, item in enumerate(value[:7]):
@@ -233,7 +349,14 @@ def _origin_graph(
             form = _short_text(item.get("form"), limit=80)
             if not form:
                 continue
-            basis = _short_text(item.get("basis"), "model", 12).lower()
+            requested_basis = _short_text(item.get("basis"), "model", 12).lower()
+            raw_evidence_ids = item.get("evidence_ids")
+            evidence_ids = [
+                str(evidence_id).strip()
+                for evidence_id in raw_evidence_ids[:5]
+                if str(evidence_id).strip() in valid_evidence_ids
+            ] if isinstance(raw_evidence_ids, list) else []
+            basis = "book" if requested_basis == "book" and evidence_ids else "model"
             node_id = re.sub(
                 r"[^a-z0-9-]+",
                 "-",
@@ -255,7 +378,8 @@ def _origin_graph(
                     "stage": _short_text(item.get("stage"), "Earlier form", 80),
                     "form": form,
                     "meaning": _short_text(item.get("meaning"), limit=180),
-                    "basis": "book" if basis == "book" else "model",
+                    "basis": basis,
+                    "evidence_ids": list(dict.fromkeys(evidence_ids)),
                 }
             )
     if len(result) >= 2:
@@ -291,6 +415,7 @@ def _origin_graph(
             "form": title,
             "meaning": "Present form",
             "basis": "book",
+            "evidence_ids": [anchor.entry_id],
         },
         {
             "id": "book-origin",
@@ -299,12 +424,13 @@ def _origin_graph(
             "form": anchor.headword,
             "meaning": _short_text(anchor.excerpt, limit=140),
             "basis": "book",
+            "evidence_ids": [anchor.entry_id],
         },
     ]
 
 
 def _legacy_morphology_graph(
-    nodes: list[dict[str, str]], title: str
+    nodes: list[dict[str, Any]], title: str
 ) -> dict[str, Any]:
     """Project saved v1 origin nodes into the unified graph contract."""
 
@@ -322,7 +448,7 @@ def _legacy_morphology_graph(
             "language": node.get("stage", ""),
             "history": "",
             "basis": node.get("basis", "model"),
-            "evidence_ids": [],
+            "evidence_ids": list(node.get("evidence_ids", [])),
             "confidence": "medium",
         }
         for node in nodes
@@ -409,11 +535,32 @@ class CardService:
             raise ValueError(
                 "mode must be word, knowledge, answer, question, root, or affix"
             )
+        evidence = list(evidence[: max(1, min(int(self.max_evidence), 12))])
         if not evidence:
             raise NoEvidence(f"no book evidence found for '{query}'")
         preparation_run_id = self.store.start_preparation(
             mode, query, self.model.model_name
         )
+        try:
+            return self._create_from_evidence_run(
+                query, mode, evidence, preparation_run_id
+            )
+        except Exception as exc:
+            try:
+                self.store.finish_preparation(
+                    preparation_run_id, "failed", error=str(exc)
+                )
+            except Exception:
+                pass
+            raise
+
+    def _create_from_evidence_run(
+        self,
+        query: str,
+        mode: str,
+        evidence: list[Evidence],
+        preparation_run_id: str,
+    ) -> Card:
         self.store.save_preparation_artifact(
             preparation_run_id,
             "retrieved-evidence",
@@ -430,7 +577,10 @@ class CardService:
                 and callable(language_generator)
             ):
                 evidence_fingerprint = _fingerprint(
-                    [item.to_dict() for item in evidence]
+                    {
+                        "schema": _MORPHOLOGY_CACHE_VERSION,
+                        "evidence": [item.to_dict() for item in evidence],
+                    }
                 )
                 reusable_graph = self.store.reusable_preparation_artifact(
                     mode,
@@ -439,7 +589,9 @@ class CardService:
                     "model-morphology-graph",
                     evidence_fingerprint,
                 )
-                if reusable_graph:
+                if reusable_graph and _usable_morphology_graph(
+                    reusable_graph["payload"].get("value"), evidence
+                ):
                     graph_stage = {
                         **reusable_graph["payload"],
                         "reused_from_artifact_id": reusable_graph["artifact_id"],
@@ -462,7 +614,9 @@ class CardService:
                     "model-morphology-languages",
                     language_fingerprint,
                 )
-                if reusable_languages:
+                if reusable_languages and _usable_morphology_languages(
+                    reusable_languages["payload"].get("value")
+                ):
                     language_stage = {
                         **reusable_languages["payload"],
                         "reused_from_artifact_id": reusable_languages["artifact_id"],
@@ -486,10 +640,7 @@ class CardService:
                         self.store.save_preparation_artifact(
                             preparation_run_id, str(stage), payload
                         )
-        except Exception as exc:
-            self.store.finish_preparation(
-                preparation_run_id, "failed", error=str(exc)
-            )
+        except Exception:
             raise
         self.store.save_preparation_artifact(
             preparation_run_id, "cleaned-model-draft", generated
@@ -538,7 +689,9 @@ class CardService:
         chinese["pinyin"] = chinese_pinyin(
             chinese["simplified"], chinese.get("pinyin", "")
         )
-        chinese["ruby_tokens"] = chinese_ruby_tokens(chinese["simplified"])
+        chinese["ruby_tokens"] = chinese_ruby_tokens(
+            chinese["simplified"], chinese["pinyin"]
+        )
         extra_languages: dict[str, dict[str, str]] = {}
         if mode in {"knowledge", "root", "affix"}:
             extra_languages = {
@@ -609,19 +762,22 @@ class CardService:
             origin_graph=legacy_origin,
             extra_languages=extra_languages,
         )
-        self.store.save_preparation_artifact(
-            preparation_run_id, "normalized-card", card.to_dict()
-        )
-        self.store.save(card)
-        self.store.publish(
-            card.card_id,
-            quality_score=0.7,
-            review_note="grounded schema and presentation validation passed",
-        )
-        self.store.save_preparation_artifact(
-            preparation_run_id, "published-card", card.to_dict()
-        )
-        self.store.finish_preparation(
-            preparation_run_id, "complete", card_id=card.card_id
-        )
+        try:
+            self.store.save_preparation_artifact(
+                preparation_run_id, "normalized-card", card.to_dict()
+            )
+            self.store.save(card)
+            self.store.publish(
+                card.card_id,
+                quality_score=0.7,
+                review_note="grounded schema and presentation validation passed",
+            )
+            self.store.save_preparation_artifact(
+                preparation_run_id, "published-card", card.to_dict()
+            )
+            self.store.finish_preparation(
+                preparation_run_id, "complete", card_id=card.card_id
+            )
+        except Exception:
+            raise
         return card

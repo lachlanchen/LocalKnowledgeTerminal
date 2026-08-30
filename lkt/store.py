@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import sqlite3
 import uuid
@@ -16,6 +17,21 @@ from .pronunciation import is_arabic_script_text
 _VISIBLE_MODES = {"word", "knowledge", "answer", "question", "root", "affix"}
 _MOJIBAKE_MARKERS = ("\ufffd", "Ã", "Â", "â€", "åŒ", "æ˜", "çš")
 _HAN = re.compile(r"[\u3400-\u9fff]")
+
+
+def _process_identity(pid: int) -> str:
+    if pid <= 0:
+        return ""
+    try:
+        stat = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
+        tail = stat[stat.rfind(")") + 2 :].split()
+        return f"{pid}:{tail[19]}"
+    except (IndexError, OSError):
+        try:
+            os.kill(pid, 0)
+        except (OSError, OverflowError):
+            return ""
+        return str(pid)
 
 
 def _text_values(value: Any) -> list[str]:
@@ -205,10 +221,26 @@ class CardStore:
                     status TEXT NOT NULL,
                     card_id TEXT NOT NULL DEFAULT '',
                     error TEXT NOT NULL DEFAULT '',
+                    owner_pid INTEGER NOT NULL DEFAULT 0,
+                    owner_identity TEXT NOT NULL DEFAULT '',
                     created_at TEXT NOT NULL,
                     finished_at TEXT NOT NULL DEFAULT ''
                 )"""
             )
+            preparation_columns = {
+                row[1]
+                for row in connection.execute("PRAGMA table_info(preparation_runs)")
+            }
+            if "owner_pid" not in preparation_columns:
+                connection.execute(
+                    "ALTER TABLE preparation_runs ADD COLUMN "
+                    "owner_pid INTEGER NOT NULL DEFAULT 0"
+                )
+            if "owner_identity" not in preparation_columns:
+                connection.execute(
+                    "ALTER TABLE preparation_runs ADD COLUMN "
+                    "owner_identity TEXT NOT NULL DEFAULT ''"
+                )
             connection.execute(
                 """CREATE TABLE IF NOT EXISTS preparation_artifacts (
                     artifact_id TEXT PRIMARY KEY,
@@ -380,15 +412,53 @@ class CardStore:
     def start_preparation(self, mode: str, query: str, model: str) -> str:
         run_id = str(uuid.uuid4())
         created_at = datetime.now(UTC).isoformat()
+        owner_pid = os.getpid()
         with closing(self._connect()) as connection:
             connection.execute(
                 """INSERT INTO preparation_runs(
-                    run_id, mode, query, model, status, created_at
-                ) VALUES (?, ?, ?, ?, 'running', ?)""",
-                (run_id, mode, query, model, created_at),
+                    run_id, mode, query, model, status, owner_pid,
+                    owner_identity, created_at
+                ) VALUES (?, ?, ?, ?, 'running', ?, ?, ?)""",
+                (
+                    run_id,
+                    mode,
+                    query,
+                    model,
+                    owner_pid,
+                    _process_identity(owner_pid),
+                    created_at,
+                ),
             )
             connection.commit()
         return run_id
+
+    def recover_interrupted_preparations(self) -> int:
+        """Fail only running preparations whose exact owner process is gone."""
+
+        timestamp = datetime.now(UTC).isoformat()
+        recovered: list[str] = []
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """SELECT run_id, owner_pid, owner_identity
+                   FROM preparation_runs WHERE status = 'running'
+                     AND owner_pid > 0 AND owner_identity <> ''"""
+            ).fetchall()
+            for run_id, owner_pid, owner_identity in rows:
+                if _process_identity(int(owner_pid)) == str(owner_identity):
+                    continue
+                recovered.append(str(run_id))
+            if recovered:
+                placeholders = ",".join("?" for _ in recovered)
+                connection.execute(
+                    f"""UPDATE preparation_runs
+                        SET status = 'failed',
+                            error = 'owner process interrupted before completion',
+                            finished_at = ?
+                        WHERE run_id IN ({placeholders})""",
+                    (timestamp, *recovered),
+                )
+                connection.commit()
+        return len(recovered)
 
     def save_preparation_artifact(
         self,

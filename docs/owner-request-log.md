@@ -644,3 +644,35 @@ source was live dictation and may contain recognition errors:
   modern word or orders a branch badly, run one small independent RAG review.
   Backfill only failed history/composition and reuse the accepted split and all
   accepted language atoms.
+
+## Japanese reading correction and full morphology quality
+
+- Japanese pronunciation errors must be corrected efficiently with local
+  dictionary RAG plus local Qwen, then backfilled only where established data
+  is contradicted. Reuse every unaffected atom and remove superseded readings
+  from the accepted view without erasing their audit trail.
+- Apply the maximum useful local-Qwen-plus-RAG quality to Root and Affix as well
+  as Word Origin. Root and Affix remain independent full products driven by
+  their own polished books, with bounded relevant evidence from the companion
+  morphology book and Word Origins; they must not wait for or merely inherit
+  Origin.
+- Prefer exact deterministic dictionary facts when unambiguous. Use Qwen for
+  the linguistic decisions that require meaning or context, constrain it to the
+  retrieved candidates, keep citations retrieval-owned, and persist every
+  reusable accepted result.
+- Increase the Root/Affix graph ceiling, tolerate bounded model errors, and use
+  divide-and-conquer rather than one fragile monolithic response. Save and reuse
+  the validated graph/history before independently preparing multilingual
+  presentation; a repair must start fresh instead of recursively including a
+  ceiling-truncated JSON draft.
+
+### 2026-08-30: lexical growth is a release condition
+
+- Word Origin, Root, and Affix must not remain at two visible cards while the
+  Question and Answer decks continue growing.
+- A recoverable local-model formatting error must not permanently starve a
+  product mode. Increase bounded output ceilings where needed, normalize only
+  system-owned identity/redundant endpoints, retain provenance checks, and
+  rotate fairly after a deferred equal-count mode.
+- Do not report this fixed from unit tests alone. Deploy it and verify that the
+  live accepted Word Origin API count rises above two.

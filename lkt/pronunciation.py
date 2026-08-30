@@ -44,25 +44,32 @@ def chinese_pinyin(text: str, fallback: str = "") -> str:
     return re.sub(r"\s+", " ", result).strip()
 
 
-def chinese_ruby_tokens(text: str) -> list[dict[str, str]]:
+def chinese_ruby_tokens(text: str, fallback: str = "") -> list[dict[str, str]]:
     """Pair each Han character with tone-marked pinyin for HTML ruby rendering."""
 
     if not text or not _CJK_RE.search(text):
         return []
+    compound = (
+        [{"t": text, "r": fallback.strip()}] if fallback.strip() else []
+    )
     try:
         from pypinyin import Style, lazy_pinyin
     except ImportError:
-        return []
+        return compound
 
     readings = lazy_pinyin(text, style=Style.TONE, errors=lambda value: list(value))
     if len(readings) != len(text):
-        return []
+        return compound
     tokens: list[dict[str, str]] = []
     for character, reading in zip(text, readings, strict=True):
         token = {"t": character}
         if _CJK_RE.fullmatch(character) and reading != character:
             token["r"] = reading
         tokens.append(token)
+    if any(
+        _CJK_RE.search(token["t"]) and not token.get("r") for token in tokens
+    ):
+        return compound
     return tokens
 
 

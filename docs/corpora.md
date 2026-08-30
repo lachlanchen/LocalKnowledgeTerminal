@@ -24,14 +24,16 @@ the Pi. The pre-editorial SQLite pair is retained as a rollback snapshot.
 | --- | --- | --- |
 | Open Multilingual Wordnet | sense-aligned English/Japanese/Chinese/French/Arabic meaning correction | install exact OMW 2.0 lexicons through Wn 1.1.1; retain each included lexicon's metadata |
 | FreeDict English-Arabic | exact-headword Arabic candidates when OMW has no aligned Arabic lemma | `eng-ara` 0.6.3, GPL-2.0-or-later, source revision `5bdceeac8d0dba3298c1bebe734f60d54dad30f7`, SHA-256 `7572d3685c501975cd0d47b0dfb581b053b28fb18932d06f09d64d0479b06746` |
-| JMdict | Japanese form, reading, and gloss correction | EDRDG CC BY-SA 4.0; record daily-build hash when added |
+| JMdict full English JSON | exact Japanese form, reading, gloss, and part-of-speech correction | `3.6.2+20260824122934`, dictionary date `2026-08-24`; archive SHA-256 `d9b74539bce7df82491a57ad96a0634a988129db6ca4a362f7221bc5e736871f`; extracted JSON SHA-256 `5f3c8fc399411e49b45702a99bf99ce44b160c3e42345fb5df72629d7d1aeb87`; EDRDG JMdict / CC BY-SA 4.0 distribution |
 | CC-CEDICT | Chinese form, pinyin, and gloss correction | CC BY-SA 4.0; record release hash when added |
 
 The local model remains responsible for concise explanation and composition.
 These resources provide retrieved correction facts, not full generated card
-content. The FreeDict TEI is downloaded to a temporary file during indexing;
-only its compact SQLite index remains on the Pi. Full Wiktionary dumps are
-intentionally excluded.
+content. The FreeDict TEI and pinned JMdict archive are downloaded to temporary
+directories during indexing; only their compact SQLite indexes remain on the
+Pi. The full rather than common-only JMdict set produces 327,737 exact
+form-reading rows, including uncommon lexical material, in a roughly 66 MB
+runtime database. Full Wiktionary dumps are intentionally excluded.
 
 ## Authority rules
 

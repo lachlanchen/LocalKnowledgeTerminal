@@ -2075,7 +2075,8 @@ function rebuildModeCarousel(openLatest = false) {
 }
 
 async function syncAcceptedDeck() {
-  if (mode === "chat" || visibleView !== "card" || activeCard?.mode !== mode) return;
+  if (mode === "chat" || !["card", "empty"].includes(visibleView)) return;
+  if (visibleView === "card" && activeCard?.mode !== mode) return;
   const requestedMode = mode;
   try {
     const response = await fetch(
@@ -2083,8 +2084,9 @@ async function syncAcceptedDeck() {
     );
     const cards = await response.json();
     if (!response.ok || !Array.isArray(cards) || mode !== requestedMode) return;
-    const current = carouselCards[carouselIndex];
+    const visibleCurrent = carouselCards[carouselIndex];
     const acceptedIds = new Set(cards.map((card) => card.card_id));
+    const current = acceptedIds.has(visibleCurrent?.card_id) ? visibleCurrent : null;
     const knownIds = new Set(carouselCards.map((card) => card.card_id));
     const newlyAccepted = cards.filter((card) => !knownIds.has(card.card_id));
     const removedCount = carouselCards.filter((card) => !acceptedIds.has(card.card_id)).length;

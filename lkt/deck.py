@@ -187,7 +187,7 @@ class AutonomousLexicalSeeder:
         knowledge: KnowledgeStore,
         *,
         model: str,
-        prompt_version: str = "autonomous-lexical-v3",
+        prompt_version: str = "autonomous-lexical-v4",
     ):
         self.corpus = corpus
         self.store = store
@@ -206,6 +206,7 @@ class AutonomousLexicalSeeder:
     def progress(self) -> dict[str, Any]:
         candidates = {item.casefold() for item in self.corpus.lexical_headwords()}
         planned = len(candidates.intersection(self._planned_keys()))
+        repair_remaining = len(self._missing_origin_queries())
         accepted = {
             str(card.get("query", "")).strip().casefold()
             for card in self.store.accepted_for_modes(self.MODES)
@@ -218,8 +219,8 @@ class AutonomousLexicalSeeder:
             "planned": planned,
             "accepted": accepted_count,
             "total": total,
-            "remaining": max(0, total - planned),
-            "complete": planned >= total,
+            "remaining": max(0, total - planned) + repair_remaining,
+            "complete": planned >= total and repair_remaining == 0,
             "modes": list(self.MODES),
         }
 
@@ -255,6 +256,7 @@ class AutonomousLexicalSeeder:
         planned = self._planned_keys()
         progress = self.progress()
         total = int(progress["total"])
+        terminal_repairs: list[str] = []
         for repair_query in self._missing_origin_queries():
             planner = PreparationPlanner(
                 self.knowledge,
@@ -273,6 +275,7 @@ class AutonomousLexicalSeeder:
                 # job IDs. Do not report those as newly queued forever or let
                 # one terminally failed word starve Root/Affix and later words.
                 if not self._plan_has_pending_work(plan):
+                    terminal_repairs.append(repair_query)
                     continue
                 return DeckSeedResult(
                     status="repair-queued",
@@ -289,6 +292,48 @@ class AutonomousLexicalSeeder:
             planned,
         )
         if evidence is None:
+            # Do not let an exhausted repair monopolize discovery. Once every
+            # unseen headword is planned, create a fresh bounded job revision so
+            # Knowledge-without-Word cannot become a permanent false completion.
+            for repair_query in terminal_repairs:
+                retry_planner = PreparationPlanner(
+                    self.knowledge,
+                    model=self.model,
+                    prompt_version=(
+                        f"{self.prompt_version}-origin-repair-{time.time_ns()}"
+                    ),
+                    source_fingerprint=self.corpus.metadata().get(
+                        "source_sha256", ""
+                    ),
+                )
+                try:
+                    retry_plan = retry_planner.plan_lexical_history_repair(
+                        repair_query
+                    )
+                except ValueError:
+                    continue
+                if self._plan_has_pending_work(retry_plan):
+                    return DeckSeedResult(
+                        status="repair-queued",
+                        mode="lexical",
+                        prepared=int(progress["planned"]),
+                        total=total,
+                        message=(
+                            "queued a fresh bounded history revision for "
+                            f"{repair_query}; accepted evidence remains reusable"
+                        ),
+                    )
+            if terminal_repairs:
+                return DeckSeedResult(
+                    status="repair-blocked",
+                    mode="lexical",
+                    prepared=int(progress["planned"]),
+                    total=total,
+                    message=(
+                        "terminal history repairs remain; lexical publication is "
+                        "not complete"
+                    ),
+                )
             return DeckSeedResult(
                 status="complete",
                 mode="lexical",
@@ -489,6 +534,7 @@ class BalancedProductSeeder:
         self.lexical = lexical
         self.store = store
         self.morphology = morphology
+        self._next_mode_index = 0
 
     def counts(self) -> dict[str, int]:
         counts = {mode: 0 for mode in self.MODES}
@@ -502,9 +548,12 @@ class BalancedProductSeeder:
         counts = self.counts()
         attempted: set[str] = set()
         pending_result: DeckSeedResult | None = None
+        rotated = (
+            self.MODES[self._next_mode_index :]
+            + self.MODES[: self._next_mode_index]
+        )
         ranked = sorted(
-            self.MODES,
-            key=lambda mode: (counts[mode], self.MODES.index(mode)),
+            self.MODES, key=lambda mode: (counts[mode], rotated.index(mode))
         )
         for mode in ranked:
             action = "lexical" if mode in self.LEXICAL_MODES else mode
@@ -525,9 +574,10 @@ class BalancedProductSeeder:
             # this call and may not increase a visible deck. Preserve that
             # result, but let one genuinely least-filled Root/Affix/book mode
             # use this balance pass. Model work remains sequential.
-            if result.status in {"busy", "repair-queued"}:
+            if result.status in {"busy", "repair-queued", "repair-blocked"}:
                 pending_result = pending_result or result
                 continue
+            self._next_mode_index = (self.MODES.index(mode) + 1) % len(self.MODES)
             if result.status != "complete":
                 return result
         if pending_result is not None:

@@ -9,6 +9,7 @@ from typing import Any
 
 from lkt.atomic import (
     PreparationWorker,
+    WordEvidenceRetriever,
     _artifact_quality,
     _book_anchored_shape,
     _book_decomposition_shape,
@@ -17,6 +18,9 @@ from lkt.atomic import (
     _collapse_repeated_arabic_alternative,
     _explicit_form_evidence_ids,
     _origin_draft_review_reason,
+    _origin_cross_reference_targets,
+    _normalize_origin_draft,
+    _origin_source_record_matches,
     _has_repeated_arabic_content_word,
     _align_grammar_draft,
     _grammar_role_matches,
@@ -657,6 +661,182 @@ class AtomicWorkerTests(unittest.TestCase):
                 ),
                 [],
             )
+
+    def test_origin_restores_owned_component_id_and_drops_modern_endpoint(self) -> None:
+        class NoisyOriginModel(FakeAtomicModel):
+            def complete_json(
+                self, system: str, prompt: str, *, max_tokens: int = 256
+            ) -> dict[str, Any]:
+                if "ONE ORIGIN BRANCH REVIEW" in prompt:
+                    raise AssertionError("a normalized valid draft must not be reviewed")
+                if "ONE ORIGIN BRANCH" not in prompt:
+                    return super().complete_json(system, prompt, max_tokens=max_tokens)
+                evidence_ids = re.findall(
+                    r'"evidence_id": "(evidence-[^"]+)"', prompt
+                )
+                return {
+                    "value": {
+                        "component_id": "model-invented-id",
+                        "steps": [
+                            {
+                                "form": "*spek-",
+                                "language": "ine-pro",
+                                "period": "Proto-Indo-European",
+                                "meaning": "look",
+                                "confidence": 0.9,
+                                "evidence_ids": [evidence_ids[-1]],
+                            },
+                            {
+                                "form": "inspection",
+                                "language": "en",
+                                "period": "Modern English",
+                                "meaning": "modern word",
+                                "confidence": 0.9,
+                                "evidence_ids": [],
+                            },
+                        ],
+                    },
+                    "model": self.model_name,
+                }
+
+        with tempfile.TemporaryDirectory() as temp:
+            store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")
+            plan = PreparationPlanner(store, model="test").plan_word(
+                "inspection", display_languages=("en",)
+            )
+            results = PreparationWorker(
+                store, FakeRetriever(), NoisyOriginModel()
+            ).run(4)
+
+            self.assertEqual(results[-1].job_type, "expand-origin-branches")
+            self.assertEqual(results[-1].status, "complete")
+            accepted = store.artifacts_for_subject(
+                plan.subject_key,
+                stage="accepted-origin-branches",
+                validation_state="accepted",
+            )
+            self.assertEqual(len(accepted), 1)
+            self.assertEqual(
+                accepted[0]["payload"]["branches"][1]["steps"][0]["form"],
+                "*spek-",
+            )
+            normalized = store.artifacts_for_subject(
+                plan.subject_key, stage="normalized-origin-draft"
+            )
+            self.assertEqual(
+                set(normalized[-1]["payload"]["normalizations"]),
+                {
+                    "restored-system-component-id",
+                    "removed-redundant-modern-endpoint",
+                },
+            )
+
+    def test_origin_record_can_anchor_a_named_subentry(self) -> None:
+        self.assertTrue(
+            _origin_source_record_matches(
+                "attention",
+                {
+                    "kind": "entry",
+                    "headword": "attend",
+                    "excerpt": "The noun derivative attention comes from Latin attentio.",
+                },
+            )
+        )
+        self.assertFalse(
+            _origin_source_record_matches(
+                "attention",
+                {
+                    "kind": "entry",
+                    "headword": "gimmick",
+                    "excerpt": "A device intended to attract notice.",
+                },
+            )
+        )
+        self.assertFalse(
+            _origin_source_record_matches(
+                "aardvark",
+                {
+                    "kind": "entry",
+                    "headword": "aardvark",
+                    "excerpt": "see EARTH, FARROW",
+                },
+            )
+        )
+
+    def test_origin_cross_reference_targets_are_followed(self) -> None:
+        self.assertEqual(
+            _origin_cross_reference_targets("see EARTH, FARROW"),
+            ("EARTH", "FARROW"),
+        )
+
+        class CrossReferenceCorpus:
+            def metadata(self) -> dict[str, str]:
+                return {"source_sha256": "origin-book"}
+
+            def search(self, query: str, _limit: int) -> list[Evidence]:
+                entries = {
+                    "aardvark": Evidence(
+                        entry_id="aardvark",
+                        headword="aardvark",
+                        section="A",
+                        date_label="",
+                        pages=(1,),
+                        excerpt="see EARTH, FARROW",
+                    ),
+                    "earth": Evidence(
+                        entry_id="earth",
+                        headword="EARTH",
+                        section="E",
+                        date_label="Old English",
+                        pages=(2,),
+                        excerpt="Old English eorthe developed from a Germanic base.",
+                    ),
+                    "farrow": Evidence(
+                        entry_id="farrow",
+                        headword="FARROW",
+                        section="F",
+                        date_label="Old English",
+                        pages=(3,),
+                        excerpt="Old English fearh meant piglet.",
+                    ),
+                }
+                item = entries.get(query.casefold())
+                return [item] if item else []
+
+        retriever = WordEvidenceRetriever(
+            CrossReferenceCorpus(), None, None, None  # type: ignore[arg-type]
+        )
+        records = retriever.origin_evidence("aardvark")
+        self.assertEqual(
+            [record["entry_id"] for record in records],
+            ["aardvark", "earth", "farrow"],
+        )
+
+    def test_old_english_code_is_normalized_without_dropping_history(self) -> None:
+        value, changes = _normalize_origin_draft(
+            {
+                "component_id": "wrong",
+                "steps": [
+                    {
+                        "form": "eorthe",
+                        "language": "en",
+                        "period": "Old English",
+                    },
+                    {
+                        "form": "earth",
+                        "language": "en",
+                        "period": "Modern English",
+                    },
+                ],
+            },
+            component_id="owned",
+            modern_word="earth",
+            base_form="earth",
+        )
+        self.assertEqual(value["steps"][0]["language"], "ang")
+        self.assertEqual(len(value["steps"]), 1)
+        self.assertIn("normalized-old-english-code", changes)
+        self.assertIn("removed-redundant-modern-endpoint", changes)
 
     def test_word_origin_rag_repairs_a_forced_split_into_an_unsplit_base(self) -> None:
         class LecherRetriever:
@@ -1776,6 +1956,23 @@ class AtomicWorkerTests(unittest.TestCase):
                 ["prefix", "suffix"],
             )
             self.assertEqual(affix_graph["center_id"], "m-in")
+
+    def test_book_origin_metadata_does_not_require_a_model_completion(self) -> None:
+        from lkt.atomic import _origin_generation_metadata
+
+        model, metrics = _origin_generation_metadata(None, "unused-local-model")
+
+        self.assertEqual(model, "retrieved book evidence")
+        self.assertEqual(metrics, {})
+
+    def test_free_only_analysis_has_no_derived_root_view(self) -> None:
+        from lkt.atomic import _derived_origin_view_specs
+
+        specs = _derived_origin_view_specs(
+            [{"canonical_form": "lecher", "kind": "free"}]
+        )
+
+        self.assertNotIn("root", {spec[0] for spec in specs})
 
 
 if __name__ == "__main__":

@@ -31,6 +31,12 @@ class PreparationPlannerTests(unittest.TestCase):
             self.assertIn("pronunciation:ja", plan.jobs)
             self.assertIn("compose-word-card", plan.jobs)
             self.assertIn("compose-origin-card", plan.jobs)
+            origin_job = next(
+                item
+                for item in store.jobs_for_subject(plan.subject_key)
+                if item["job_type"] == "expand-origin-branches"
+            )
+            self.assertEqual(origin_job["max_attempts"], 3)
             first = store.claim_next_job()
             self.assertEqual(first["job_type"], "retrieve-evidence")
             self.assertIsNone(store.claim_next_job())
@@ -133,6 +139,31 @@ class PreparationPlannerTests(unittest.TestCase):
             store.finish_job(plan.jobs["translation:ar"])
             claimed = store.claim_next_job(("prepare-pronunciation",))
             self.assertEqual(claimed["job_id"], plan.jobs["pronunciation:ar"])
+
+    def test_source_pronunciation_rebuild_depends_on_accepted_meaning(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")
+            term_id = store.upsert_term("en", "inspection", status="accepted")
+            subject_key = f"term:{term_id}"
+            meaning_job = store.enqueue_job(
+                "prepare-meaning", subject_key, subject_entity_id=term_id, language="en"
+            )
+            store.save_job_artifact(
+                meaning_job,
+                "accepted-meaning",
+                {"definition": "an official examination"},
+                language="en",
+                validation_state="accepted",
+            )
+            store.finish_job(meaning_job)
+            plan = PreparationPlanner(
+                store, model="Qwen3-4B-Q4_K_M", prompt_version="source-reading-v1"
+            ).plan_pronunciation("inspection", "en")
+            self.assertEqual(set(plan.jobs), {"pronunciation:en"})
+            self.assertEqual(
+                store.claim_next_job(("prepare-pronunciation",))["job_id"],
+                plan.jobs["pronunciation:en"],
+            )
 
     def test_pronunciation_repair_reuses_translation_and_recomposes(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -285,6 +316,38 @@ class PreparationPlannerTests(unittest.TestCase):
             self.assertEqual(set(plan.jobs), {"expand-origin-branches"})
             claimed = store.claim_next_job(("expand-origin-branches",))
             self.assertEqual(claimed["prompt_version"], "origin-v2")
+
+    def test_origin_card_requires_and_reuses_accepted_language_atoms(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")
+            term_id = store.upsert_term("en", "inspection", status="accepted")
+            subject_key = f"term:{term_id}"
+
+            def checkpoint(stage: str, language: str) -> str:
+                job_id = store.enqueue_job(stage, subject_key, language=language)
+                store.save_job_artifact(
+                    job_id,
+                    stage,
+                    {"accepted": True},
+                    language=language,
+                    validation_state="accepted",
+                )
+                store.finish_job(job_id)
+                return job_id
+
+            checkpoint("accepted-origin-branches", "en")
+            checkpoint("accepted-meaning", "en")
+            checkpoint("accepted-pronunciation", "en")
+            checkpoint("accepted-translation", "ja")
+            checkpoint("accepted-pronunciation", "ja")
+            plan = PreparationPlanner(
+                store, model="Qwen3-4B-Q4_K_M", prompt_version="origin-card-v2"
+            ).plan_origin_card("inspection", display_languages=("en", "ja"))
+            self.assertEqual(set(plan.jobs), {"compose-origin-card"})
+            self.assertEqual(
+                store.claim_next_job(("compose-origin-card",))["job_id"],
+                plan.jobs["compose-origin-card"],
+            )
 
     def test_lexical_history_repair_reuses_accepted_language_atoms(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

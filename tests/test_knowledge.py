@@ -353,6 +353,18 @@ class KnowledgeStoreTests(unittest.TestCase):
             self.assertIsNone(store.claim_next_job())
             self.assertEqual(store.status()["counts"]["preparation_jobs"], 1)
 
+    def test_job_dependencies_are_committed_with_the_queued_job(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")
+            first = store.enqueue_job("retrieve-evidence", "term:atomic")
+            second = store.enqueue_job(
+                "prepare-meaning", "term:atomic", depends_on=(first,)
+            )
+            self.assertEqual(store.claim_next_job()["job_id"], first)
+            self.assertIsNone(store.claim_next_job())
+            store.finish_job(first)
+            self.assertEqual(store.claim_next_job()["job_id"], second)
+
     def test_lexical_jobs_are_claimed_before_optional_content_enrichment(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")

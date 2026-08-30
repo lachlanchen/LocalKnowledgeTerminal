@@ -110,6 +110,31 @@ class StoreTests(unittest.TestCase):
             )
             self.assertTrue(all(artifact["reusable"] for artifact in artifacts))
 
+    def test_only_a_dead_owner_preparation_is_recovered(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            database = Path(temp) / "knowledge.sqlite3"
+            store = CardStore(database)
+            run_id = store.start_preparation("root", "inspection", "qwen-test")
+            self.assertEqual(store.recover_interrupted_preparations(), 0)
+
+            with closing(sqlite3.connect(database)) as connection:
+                connection.execute(
+                    """UPDATE preparation_runs
+                       SET owner_pid = 999999, owner_identity = '999999:dead'
+                       WHERE run_id = ?""",
+                    (run_id,),
+                )
+                connection.commit()
+
+            self.assertEqual(store.recover_interrupted_preparations(), 1)
+            with closing(sqlite3.connect(database)) as connection:
+                status, error = connection.execute(
+                    "SELECT status, error FROM preparation_runs WHERE run_id = ?",
+                    (run_id,),
+                ).fetchone()
+            self.assertEqual(status, "failed")
+            self.assertIn("owner process interrupted", error)
+
     def test_archive_removes_card_from_active_carousel(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             database = Path(temp) / "knowledge.sqlite3"
