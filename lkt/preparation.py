@@ -26,11 +26,13 @@ class PreparationPlanner:
         model: str,
         prompt_version: str = "atomic-v1",
         source_fingerprint: str = "",
+        priority_offset: int = 0,
     ):
         self.store = store
         self.model = model
         self.prompt_version = prompt_version
         self.source_fingerprint = source_fingerprint
+        self.priority_offset = int(priority_offset)
 
     def _job(
         self,
@@ -48,7 +50,7 @@ class PreparationPlanner:
             subject_key,
             subject_entity_id=subject_entity_id,
             language=language,
-            priority=priority,
+            priority=priority + self.priority_offset,
             model=self.model,
             prompt_version=self.prompt_version,
             source_fingerprint=self.source_fingerprint,

@@ -12,6 +12,7 @@ from lkt.atomic import (
     WordEvidenceRetriever,
     _affix_origin_story,
     _artifact_quality,
+    _attach_verbatim_origin_evidence,
     _book_anchored_shape,
     _book_decomposition_shape,
     _book_origin_steps,
@@ -22,6 +23,7 @@ from lkt.atomic import (
     _origin_cross_reference_targets,
     _origin_history_headline,
     _normalize_origin_draft,
+    _normalize_dictionary_candidate,
     _origin_source_record_matches,
     _origin_source_evidence_supported,
     _has_repeated_arabic_content_word,
@@ -34,6 +36,7 @@ from lkt.atomic import (
     _normalise_grammar_labels,
     _normalise_grammar_role,
     _plain_letter_key,
+    _publication_provenance,
 )
 from lkt.knowledge import KnowledgeStore
 from lkt.jmdict import JapaneseReadingIndex, build_jmdict_index
@@ -67,7 +70,7 @@ class FakeRetriever:
                 "corpus_id": "test-roots:1.0",
                 "source_title": "Test Root Dictionary",
                 "headword": "SPECT",
-                "excerpt": "SPECT comes from Latin and means to look or see.",
+                "excerpt": "SPECT comes from Latin specere and means to look or see.",
                 "source_hash": "roots123",
                 "locator": "root SPECT",
                 "kind": "morphology-root",
@@ -83,7 +86,7 @@ class FakeRetriever:
                 "corpus_id": "test-word-origins:1.0",
                 "source_title": "Test Word Origins",
                 "headword": "spectacle",
-                "excerpt": "Latin specere descends from Indo-European *spek-, to look.",
+                "excerpt": "SPECT: Latin specere descends from Indo-European *spek-, to look.",
                 "source_hash": "origins123",
                 "locator": "spectacle entry",
                 "kind": "entry",
@@ -674,20 +677,17 @@ class AtomicWorkerTests(unittest.TestCase):
                     raise AssertionError("a normalized valid draft must not be reviewed")
                 if "ONE ORIGIN BRANCH" not in prompt:
                     return super().complete_json(system, prompt, max_tokens=max_tokens)
-                evidence_ids = re.findall(
-                    r'"evidence_id": "(evidence-[^"]+)"', prompt
-                )
                 return {
                     "value": {
                         "component_id": "model-invented-id",
                         "steps": [
                             {
-                                "form": "*spek-",
+                                "form": "*spok-",
                                 "language": "ine-pro",
                                 "period": "Proto-Indo-European",
                                 "meaning": "look",
                                 "confidence": 0.9,
-                                "evidence_ids": [evidence_ids[-1]],
+                                "evidence_ids": [],
                             },
                             {
                                 "form": "inspection",
@@ -719,10 +719,13 @@ class AtomicWorkerTests(unittest.TestCase):
                 validation_state="accepted",
             )
             self.assertEqual(len(accepted), 1)
-            self.assertEqual(
-                accepted[0]["payload"]["branches"][1]["steps"][0]["form"],
-                "*spek-",
-            )
+            hypothesis = accepted[0]["payload"]["branches"][1]["steps"][0]
+            self.assertEqual(hypothesis["form"], "*spok-")
+            self.assertEqual(hypothesis["basis"], "model")
+            self.assertEqual(hypothesis["confidence"], 0.7)
+            self.assertEqual(hypothesis["evidence_ids"], [])
+            self.assertEqual(hypothesis["edge_basis"], "model")
+            self.assertEqual(hypothesis["edge_evidence_ids"], [])
             normalized = store.artifacts_for_subject(
                 plan.subject_key, stage="normalized-origin-draft"
             )
@@ -1894,6 +1897,9 @@ class AtomicWorkerTests(unittest.TestCase):
                 ["*spek-", "specere"],
             )
             self.assertTrue(all(step["basis"] == "book" for step in root_branch["steps"]))
+            self.assertTrue(
+                all(step["edge_evidence_ids"] for step in root_branch["steps"])
+            )
             self.assertEqual(store.status()["counts"]["historical_forms"], 2)
             queued_types = {
                 job["job_type"]
@@ -2231,6 +2237,21 @@ class AtomicWorkerTests(unittest.TestCase):
                     "kind": "dictionary-sense",
                 },
             )
+            origin_evidence_id = store.add_evidence(
+                "test-roots:1.0",
+                "root-spect-inspection",
+                locator="root SPECT",
+                excerpt=(
+                    "SPECT is the root in inspection; Latin specere developed from "
+                    "Proto-Indo-European *spek-."
+                ),
+                payload={
+                    "entry_id": "test-roots:1.0:root-spect-inspection",
+                    "headword": "SPECT",
+                    "source_title": "Test Root Dictionary",
+                    "kind": "morphology-root",
+                },
+            )
             store.finish_job(plan.jobs["retrieve-evidence"])
             meaning_id = "meaning-inspection"
             meaning = {
@@ -2330,7 +2351,7 @@ class AtomicWorkerTests(unittest.TestCase):
                     "language": "en",
                     "meaning": "into",
                     "basis": "model",
-                    "confidence": 0.8,
+                    "confidence": 0.4,
                     "evidence_ids": [],
                 },
                 {
@@ -2342,7 +2363,7 @@ class AtomicWorkerTests(unittest.TestCase):
                     "meaning": "look",
                     "basis": "book",
                     "confidence": 0.95,
-                    "evidence_ids": [evidence_id],
+                    "evidence_ids": [origin_evidence_id],
                 },
                 {
                     "morpheme_id": "m-ion",
@@ -2352,7 +2373,7 @@ class AtomicWorkerTests(unittest.TestCase):
                     "language": "en",
                     "meaning": "process",
                     "basis": "model",
-                    "confidence": 0.8,
+                    "confidence": 0.4,
                     "evidence_ids": [],
                 },
             ]
@@ -2390,7 +2411,8 @@ class AtomicWorkerTests(unittest.TestCase):
                                     "meaning": "look",
                                     "basis": "book",
                                     "confidence": 0.95,
-                                    "evidence_ids": [evidence_id],
+                                    "evidence_ids": [origin_evidence_id],
+                                    "edge_evidence_ids": [origin_evidence_id],
                                 },
                                 {
                                     "historical_form_id": "h-latin",
@@ -2400,7 +2422,8 @@ class AtomicWorkerTests(unittest.TestCase):
                                     "meaning": "look",
                                     "basis": "book",
                                     "confidence": 0.95,
-                                    "evidence_ids": [evidence_id],
+                                    "evidence_ids": [origin_evidence_id],
+                                    "edge_evidence_ids": [origin_evidence_id],
                                 },
                             ],
                         },
@@ -2458,6 +2481,46 @@ class AtomicWorkerTests(unittest.TestCase):
             graph = origin_card["extensions"]["morphology_graph"]
             self.assertEqual(len(graph["nodes"]), 6)
             self.assertEqual(len(graph["edges"]), 5)
+            nodes_by_id = {node["id"]: node for node in graph["nodes"]}
+            self.assertEqual(
+                {
+                    node_id: (
+                        nodes_by_id[node_id]["form"],
+                        nodes_by_id[node_id]["basis"],
+                        nodes_by_id[node_id]["evidence_ids"],
+                        nodes_by_id[node_id]["confidence"],
+                    )
+                    for node_id in ("m-in", "m-ion")
+                },
+                {
+                    "m-in": ("in-", "model", [], "low"),
+                    "m-ion": ("-ion", "model", [], "low"),
+                },
+            )
+            self.assertEqual(nodes_by_id["m-spect"]["basis"], "book")
+            self.assertEqual(
+                nodes_by_id["m-spect"]["evidence_ids"], [origin_evidence_id]
+            )
+            model_edges = [
+                edge for edge in graph["edges"] if edge["basis"] == "model"
+            ]
+            self.assertEqual(len(model_edges), 2)
+            self.assertTrue(
+                all(
+                    edge["evidence_ids"] == [] and edge["confidence"] == "low"
+                    for edge in model_edges
+                )
+            )
+            book_edges = [
+                edge for edge in graph["edges"] if edge["basis"] == "book"
+            ]
+            self.assertEqual(len(book_edges), 3)
+            self.assertTrue(
+                all(
+                    edge["evidence_ids"] == [origin_evidence_id]
+                    for edge in book_edges
+                )
+            )
             self.assertEqual(
                 [area["kind"] for area in graph["focus_areas"]],
                 ["overview", "overview", "root", "prefix", "suffix"],
@@ -2488,6 +2551,64 @@ class AtomicWorkerTests(unittest.TestCase):
         self.assertEqual(model, "retrieved book evidence")
         self.assertEqual(metrics, {})
 
+    def test_publication_provenance_repairs_claims_without_rejecting_them(self) -> None:
+        warnings: list[dict[str, str]] = []
+
+        self.assertEqual(
+            _publication_provenance(
+                "book",
+                ["stored", "invented"],
+                {"stored"},
+                claim="component",
+                claim_id="m-root",
+                warnings=warnings,
+            ),
+            ("book", ["stored"]),
+        )
+        self.assertEqual(
+            _publication_provenance(
+                "book",
+                ["invented"],
+                {"stored"},
+                claim="historical-node",
+                claim_id="h-latin",
+                warnings=warnings,
+            ),
+            ("model", []),
+        )
+        self.assertEqual(
+            _publication_provenance(
+                "model",
+                ["stored"],
+                {"stored"},
+                claim="historical-edge",
+                claim_id="h-latin",
+                warnings=warnings,
+            ),
+            ("model", []),
+        )
+        self.assertEqual(
+            _publication_provenance(
+                "uncertain",
+                ["stored"],
+                {"stored"},
+                claim="component",
+                claim_id="m-prefix",
+                warnings=warnings,
+            ),
+            ("model", []),
+        )
+        self.assertEqual(
+            [warning["action"] for warning in warnings],
+            [
+                "removed-invalid-citations",
+                "downgraded-to-model",
+                "removed-model-citations",
+                "downgraded-to-model",
+            ],
+        )
+        self.assertTrue(all(warning["claim_id"] for warning in warnings))
+
     def test_free_only_analysis_has_no_derived_root_view(self) -> None:
         from lkt.atomic import _derived_origin_view_specs
 
@@ -2515,6 +2636,71 @@ class AtomicWorkerTests(unittest.TestCase):
                 ["com-", "ponere", "pon", "compound"]
             ),
             "com- → ponere → pon → compound",
+        )
+
+    def test_dictionary_join_markup_normalizes_without_term_hardcoding(self) -> None:
+        self.assertEqual(_normalize_dictionary_candidate("活着+的", "zh"), "活着的")
+        self.assertEqual(_normalize_dictionary_candidate("生き+ている", "ja"), "生きている")
+        self.assertEqual(_normalize_dictionary_candidate("C++", "fr"), "C++")
+
+    def test_origin_evidence_is_attached_only_for_verbatim_forms(self) -> None:
+        draft = {
+            "component_id": "free-alive",
+            "steps": [
+                {"form": "on life", "evidence_ids": ["invented"]},
+                {"form": "not in source", "evidence_ids": ["entry-0171"]},
+            ],
+        }
+        value, changes = _attach_verbatim_origin_evidence(
+            draft,
+            evidence=[
+                {
+                    "evidence_id": "entry-0171",
+                    "headword": "alive",
+                    "excerpt": "Alive developed from on life and Old English līf.",
+                }
+            ],
+            allowed_ids={"entry-0171"},
+        )
+        self.assertEqual(value["steps"][0]["evidence_ids"], ["entry-0171"])
+        self.assertEqual(value["steps"][1]["evidence_ids"], [])
+        self.assertEqual(changes, ["attached-verbatim-origin-evidence"])
+
+    def test_origin_review_allows_uncited_history_but_rejects_model_citations(self) -> None:
+        evidence = [
+            {
+                "evidence_id": "entry-0171",
+                "headword": "alive",
+                "excerpt": "Alive developed from on life and Old English līf.",
+            }
+        ]
+        draft = {
+            "component_id": "free-alive",
+            "steps": [
+                {
+                    "form": "*libjan",
+                    "language": "gem-pro",
+                    "period": "Proto-Germanic hypothesis",
+                    "meaning": "remain alive",
+                    "confidence": 0.9,
+                    "evidence_ids": [],
+                }
+            ],
+        }
+        review_args = {
+            "component_id": "free-alive",
+            "modern_word": "alive",
+            "base_form": "alive",
+            "fixed_provenance_ids": set(),
+            "evidence": evidence,
+        }
+
+        self.assertEqual(_origin_draft_review_reason(draft, **review_args), "")
+
+        draft["steps"][0]["evidence_ids"] = ["entry-0171"]
+        self.assertEqual(
+            _origin_draft_review_reason(draft, **review_args),
+            "a historical form is not visibly supported by the exact book entry",
         )
 
 

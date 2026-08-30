@@ -416,6 +416,57 @@ class KnowledgeStoreTests(unittest.TestCase):
             self.assertIn("blocked by failed prerequisite", jobs[second]["error"])
             self.assertIn("blocked by failed prerequisite", jobs[third]["error"])
 
+    def test_explicit_retry_requeues_only_failed_jobs_in_the_named_dag(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")
+            first = store.enqueue_job(
+                "retrieve-evidence", "term:retry", max_attempts=1
+            )
+            second = store.enqueue_job(
+                "prepare-meaning", "term:retry", depends_on=(first,)
+            )
+            outside = store.enqueue_job(
+                "retrieve-evidence", "term:outside", max_attempts=1
+            )
+            store.save_job_artifact(first, "retrieved-evidence", {"kept": True})
+            self.assertEqual(store.claim_next_job()["job_id"], first)
+            store.finish_job(first, error="terminal plan failure")
+            self.assertEqual(store.claim_next_job()["job_id"], outside)
+            store.finish_job(outside, error="unrelated failure")
+
+            self.assertEqual(store.requeue_failed_jobs((first, second)), 2)
+            jobs = {
+                job["job_id"]: job
+                for subject in ("term:retry", "term:outside")
+                for job in store.jobs_for_subject(subject)
+            }
+            self.assertEqual(jobs[first]["status"], "queued")
+            self.assertEqual(jobs[first]["attempts"], 0)
+            self.assertEqual(jobs[second]["status"], "queued")
+            self.assertEqual(jobs[outside]["status"], "failed")
+            self.assertEqual(
+                store.artifacts_for_subject("term:retry")[0]["payload"],
+                {"kept": True},
+            )
+            self.assertEqual(store.claim_next_job()["job_id"], first)
+
+    def test_worker_heartbeat_separates_liveness_from_generation_readiness(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")
+            self.assertFalse(store.worker_status()["ready"])
+
+            memory = "background preparation paused: only 900 MiB memory is available"
+            store.record_worker_heartbeat(memory)
+            blocked = store.worker_status()
+            self.assertTrue(blocked["ready"])
+            self.assertFalse(blocked["generation_ready"])
+            self.assertEqual(blocked["blocker"], memory)
+
+            store.record_worker_heartbeat("")
+            self.assertTrue(store.worker_status()["generation_ready"])
+            store.record_worker_heartbeat("atomic worker stopped", status="stopped")
+            self.assertFalse(store.worker_status()["ready"])
+
     def test_claim_cleans_legacy_job_blocked_by_a_failed_dependency(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")

@@ -42,6 +42,7 @@ _PREPARATION_LABELS = {
 }
 
 _ATOMIC_WORD_MODES = {"knowledge", "word", "root", "affix"}
+_INTERACTIVE_PRIORITY_OFFSET = -1000
 
 
 def correction_source_status(settings: Settings) -> dict[str, dict[str, Any]]:
@@ -183,6 +184,7 @@ def word_card_preparation_state(
     if current is None:
         current = next((job for job in jobs if job["status"] == "queued"), None)
     final_job = "compose-word-card" if mode == "knowledge" else "compose-origin-card"
+    worker = knowledge.worker_status()
     payload: dict[str, Any] = {
         "status": "failed" if failed else "preparing",
         "mode": mode,
@@ -196,6 +198,9 @@ def word_card_preparation_state(
             "Preparing accepted knowledge",
         ),
         "poll_after_ms": 3000,
+        "worker": worker,
+        "generation_ready": worker["generation_ready"],
+        "generation_blocker": worker["blocker"],
     }
     if failed:
         payload["error"] = str(failed[0].get("error", ""))[:500] or (
@@ -220,6 +225,7 @@ def plan_interactive_word(
         knowledge,
         model=model,
         prompt_version=prompt_version,
+        priority_offset=_INTERACTIVE_PRIORITY_OFFSET,
     )
     return (
         planner.plan_word_card(query)
@@ -438,6 +444,7 @@ def handler_factory(
                 lexicons = correction_source_status(settings)
                 deck = autonomous_deck_status(service, knowledge)
                 lexical = autonomous_lexical_status(service, knowledge)
+                worker = knowledge.worker_status()
                 sources_ready = (
                     corpus_ready
                     and all(item.get("ready") for item in card_books.values())
@@ -446,6 +453,12 @@ def handler_factory(
                     and deck.get("ready") is True
                     and lexical.get("ready") is True
                 )
+                if not sources_ready:
+                    generation_blocker = "Local retrieval sources are starting"
+                elif not model_ready:
+                    generation_blocker = "Local Qwen is starting"
+                else:
+                    generation_blocker = str(worker["blocker"])
                 self._json(
                     {
                         "status": "ready" if sources_ready and model_ready else "starting",
@@ -460,6 +473,15 @@ def handler_factory(
                         "autonomous_deck": deck,
                         "autonomous_lexical": lexical,
                         "knowledge": knowledge.status(),
+                        "worker": worker,
+                        "generation": {
+                            "ready": bool(
+                                sources_ready
+                                and model_ready
+                                and worker["generation_ready"]
+                            ),
+                            "blocker": generation_blocker,
+                        },
                         "model": {
                             "ready": model_ready,
                             "name": model.model_name,
@@ -650,9 +672,15 @@ def handler_factory(
                     plan = plan_interactive_word(
                         knowledge, query, requested_mode, settings.llm_model
                     )
+                    retried_jobs = (
+                        knowledge.requeue_failed_jobs(plan.jobs.values())
+                        if payload.get("retry_failed") is True
+                        else 0
+                    )
                     preparation = word_card_preparation_state(
                         plan, knowledge, requested_mode
                     )
+                    preparation["retried_jobs"] = retried_jobs
                     preparation["query"] = query.strip()
                     if linked_context is not None:
                         preparation.update(

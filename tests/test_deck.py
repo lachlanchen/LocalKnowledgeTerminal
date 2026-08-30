@@ -453,6 +453,41 @@ class AutonomousDeckTests(unittest.TestCase):
         self.assertEqual(seeder.run_once().mode, "affix")
         self.assertEqual(morphology.calls, ["root", "affix"])
 
+    def test_deferred_unique_low_root_yields_one_round_to_affix(self) -> None:
+        class _Store:
+            def accepted_for_modes(self, _modes: tuple[str, ...]) -> list[dict[str, str]]:
+                return [
+                    *({"mode": "question"} for _ in range(8)),
+                    *({"mode": "answer"} for _ in range(8)),
+                    *({"mode": "knowledge"} for _ in range(8)),
+                    *({"mode": "word"} for _ in range(8)),
+                    {"mode": "root"},
+                    *({"mode": "affix"} for _ in range(3)),
+                ]
+
+        class _Book:
+            modes = ("question", "answer")
+
+        class _Lexical:
+            def run_bounded_once(self) -> DeckSeedResult:
+                raise AssertionError("lexical modes are not least-filled")
+
+        class _Morphology:
+            def __init__(self) -> None:
+                self.calls: list[str] = []
+
+            def run_mode(self, mode: str) -> DeckSeedResult:
+                self.calls.append(mode)
+                return DeckSeedResult(status="deferred", mode=mode)
+
+        morphology = _Morphology()
+        seeder = BalancedProductSeeder(
+            _Book(), _Lexical(), _Store(), morphology=morphology
+        )
+        self.assertEqual(seeder.run_once().mode, "root")
+        self.assertEqual(seeder.run_once().mode, "affix")
+        self.assertEqual(morphology.calls, ["root", "affix"])
+
     def test_terminal_origin_gap_requeues_after_discovery_is_complete(self) -> None:
         from unittest.mock import patch
 

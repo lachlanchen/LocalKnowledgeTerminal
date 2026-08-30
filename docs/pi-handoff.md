@@ -15,7 +15,7 @@ indexes, and captured screens are not stored in Git.
 | llama.cpp runtime | packaged under `llama.cpp-0.3.0`; exact source commit unavailable from the deployed runtime |
 | llama-server self-report | `0.3.0-dev`, build `0`, commit `unknown`, Linux aarch64 |
 | Kernel | Raspberry Pi aarch64 `6.6.51+rpt-rpi-2712` |
-| Inference profile | one slot, 3,072-token context, batch 128, micro-batch 64 |
+| Inference profile | one slot, 3,072-token context, batch 128, micro-batch 64, 256 MiB prompt-cache cap, four context checkpoints, sleep after 600 idle seconds |
 | Background policy | one low-priority atomic job at a time; memory gate before every job; periodic visible-count balancing; one unfinished autonomous lexical subject after existing backlog drains |
 
 `lkt-web`, `lkt-llm`, and `lkt-worker` were active. The live Python and browser
@@ -23,11 +23,20 @@ code matched the runtime revision above, and the Pi worktree was clean.
 `/api/health` returned `ready`, with Qwen reported as local and ready.
 
 The model service is configured with `MemoryHigh=5 GiB`, `MemoryMax=6 GiB`,
-`MemorySwapMax=128 MiB`, and `OOMPolicy=stop`. A read-only 2026-08-30 audit found
-the active 3,072-token model at 6,587,472 KiB RSS (6,731,808 KiB high-water mark),
-with 1,046,736 KiB system memory available. That was 1,840 KiB below the required
-1 GiB reserve, so a 4,096-token profile was rejected without benchmarking or
-changing the runtime. Temperature was 63.9 C and `get_throttled` returned `0x0`.
+`MemorySwapMax=128 MiB`, and `OOMPolicy=stop`. These limits are defense in depth:
+the deployed Pi kernel did not expose memory-controller accounting to the service,
+so `systemctl` reported `MemoryCurrent=[not set]` and no cgroup `memory.*` files.
+The worker's explicit available-memory gate remains the effective safety boundary.
+
+A read-only 2026-08-31 audit found an idle llama process at 6,453,677 KiB PSS,
+including 6,441,552 KiB of private anonymous memory, after 27 inference tasks.
+One cold anonymous arena still held 2,873,648 KiB resident while the runtime's
+default prompt-cache allowance was 8,192 MiB with 32 context checkpoints. The
+service therefore sets `--cache-ram 256`, `--ctx-checkpoints 4`, and
+`--sleep-idle-seconds 600`. This preserves local prompt caching and CPU weight
+repacking while bounding retained cache state and reclaiming memory after idle
+periods. The earlier 4,096-token profile remains rejected; the 3,072-token context,
+batch 128, and micro-batch 64 are unchanged.
 
 ## Required local sources
 

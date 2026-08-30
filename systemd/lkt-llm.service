@@ -21,6 +21,9 @@ ExecStart=/home/lachlan/LocalKnowledgeTerminal/runtime/llama.cpp-0.3.0/build/bin
   --threads-batch 4 \
   --batch-size ${LKT_BATCH_SIZE} \
   --ubatch-size ${LKT_UBATCH_SIZE} \
+  --cache-ram 256 \
+  --ctx-checkpoints 4 \
+  --sleep-idle-seconds 600 \
   --parallel 1 \
   --host 127.0.0.1 \
   --port 8081 \

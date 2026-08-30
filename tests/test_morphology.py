@@ -92,6 +92,55 @@ class MorphologyTests(unittest.TestCase):
                 index.draw_unseen("daily-cycle", {first.entry_id, second.entry_id})
             )
 
+    def test_index_only_rows_cannot_anchor_morphology_claims(self) -> None:
+        records = [
+            {
+                "id": "p0783-t001-r014",
+                "source_page": 783,
+                "headword": "horticulture",
+                "cells": ["horticulture* 718 immure* 262"],
+            },
+            {
+                "id": "p0490-t001-r052",
+                "source_page": 490,
+                "headword": "prima",
+                "cells": ["prima 363 procure 314 proliferate 422 prosecute 129"],
+            },
+            {
+                "id": "p0382-t069-r003",
+                "source_page": 382,
+                "headword": "prima",
+                "cells": [
+                    "prima",
+                    "From Latin primus (= first); a principal or first part.",
+                ],
+            },
+        ]
+        with tempfile.TemporaryDirectory() as temp:
+            directory = Path(temp)
+            source = directory / "root-entries-polished.jsonl"
+            source.write_text(
+                "\n".join(json.dumps(record) for record in records),
+                encoding="utf-8",
+            )
+            database = directory / "root.sqlite3"
+            result = build_morphology_index(
+                source,
+                database,
+                "test-root-dictionary",
+                "Test Root Dictionary",
+                "root",
+            )
+            index = MorphologyIndex(database)
+
+            self.assertEqual(result["records"], 1)
+            self.assertEqual(index.exact("horticulture"), [])
+            self.assertEqual(index.search("horticulture"), [])
+            self.assertEqual(
+                [item.entry_id for item in index.exact("prima")],
+                ["p0382-t069-r003"],
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

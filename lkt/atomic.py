@@ -148,6 +148,59 @@ def _artifact_quality(artifact: dict[str, Any]) -> float:
         return 0.0
 
 
+def _publication_provenance(
+    basis: Any,
+    evidence_ids: Any,
+    available_ids: set[str],
+    *,
+    claim: str,
+    claim_id: str,
+    warnings: list[dict[str, str]],
+) -> tuple[str, list[str]]:
+    """Repair claim ownership without discarding usable model semantics."""
+
+    supplied = (
+        list(dict.fromkeys(str(item) for item in evidence_ids if str(item)))
+        if isinstance(evidence_ids, list)
+        else []
+    )
+    valid = [item for item in supplied if item in available_ids]
+    invalid = [item for item in supplied if item not in available_ids]
+    normalized_basis = str(basis or "model").strip().casefold()
+    if normalized_basis == "book" and valid:
+        if invalid:
+            warnings.append(
+                {
+                    "claim": claim,
+                    "claim_id": claim_id,
+                    "action": "removed-invalid-citations",
+                    "reason": "some supplied evidence IDs were not stored retrieved records",
+                }
+            )
+        return "book", valid
+
+    if normalized_basis == "book":
+        action = "downgraded-to-model"
+        reason = "no supplied evidence ID resolved to a stored retrieved record"
+    elif normalized_basis == "model":
+        if not supplied:
+            return "model", []
+        action = "removed-model-citations"
+        reason = "model-owned claims cannot cite retrieved records"
+    else:
+        action = "downgraded-to-model"
+        reason = "unknown provenance basis"
+    warnings.append(
+        {
+            "claim": claim,
+            "claim_id": claim_id,
+            "action": action,
+            "reason": reason,
+        }
+    )
+    return "model", []
+
+
 def _origin_generation_metadata(
     completion: dict[str, Any] | None, fallback_model: str
 ) -> tuple[str, dict[str, Any]]:
@@ -566,41 +619,48 @@ def _plain_letter_key(value: Any) -> str:
     )
 
 
-def _text_form_keys(value: Any) -> set[str]:
-    """Return comparable word forms, repairing common UTF-8 mojibake first."""
+def _normalized_form_tokens(value: Any) -> tuple[str, ...]:
+    """Return accent-insensitive tokens after repairing common UTF-8 mojibake."""
 
     text = str(value)
-    candidates = [text]
     try:
-        repaired = text.encode("cp1252").decode("utf-8")
+        text = text.encode("cp1252").decode("utf-8")
     except (UnicodeEncodeError, UnicodeDecodeError):
         pass
-    else:
-        candidates.append(repaired)
-    return {
-        key
-        for candidate in candidates
-        for token in re.findall(r"[^\W\d_]+(?:[-'][^\W\d_]+)*", candidate)
-        if (key := _plain_letter_key(token))
-    }
+    decomposed = unicodedata.normalize("NFKD", text).casefold()
+    normalized = "".join(
+        character for character in decomposed if not unicodedata.combining(character)
+    )
+    return tuple(re.findall(r"[^\W_]+", normalized, flags=re.UNICODE))
 
 
 def _explicit_form_evidence_ids(
     form: Any, records: list[dict[str, Any]]
 ) -> list[str]:
-    """Cite only records that visibly contain the proposed historical form."""
+    """Find exact contiguous form tokens in a record headword or excerpt."""
 
-    key = _plain_letter_key(form)
-    if not key:
+    needle = _normalized_form_tokens(form)
+    if not needle:
         return []
-    return list(
-        dict.fromkeys(
-            str(record.get("evidence_id", ""))
-            for record in records
-            if key in _text_form_keys(record.get("excerpt", ""))
-            and str(record.get("evidence_id", ""))
+    selected: list[str] = []
+    for record in records:
+        evidence_id = str(record.get("evidence_id", "")).strip()
+        if not evidence_id:
+            continue
+        width = len(needle)
+        visible = any(
+            any(
+                tokens[index : index + width] == needle
+                for index in range(len(tokens) - width + 1)
+            )
+            for tokens in (
+                _normalized_form_tokens(record.get("headword", "")),
+                _normalized_form_tokens(record.get("excerpt", "")),
+            )
         )
-    )
+        if visible and evidence_id not in selected:
+            selected.append(evidence_id)
+    return selected
 
 
 def _origin_cross_reference_targets(value: Any) -> tuple[str, ...]:
@@ -745,6 +805,48 @@ def _normalize_origin_draft(
     return normalized, list(dict.fromkeys(changes))
 
 
+def _attach_verbatim_origin_evidence(
+    value: Any,
+    *,
+    evidence: list[dict[str, Any]],
+    allowed_ids: set[str],
+) -> tuple[Any, list[str]]:
+    """Attach provenance only when a generated form occurs in retrieved text."""
+
+    if not isinstance(value, dict):
+        return value, []
+    normalized = deepcopy(value)
+    changes: list[str] = []
+    steps = normalized.get("steps")
+    if not isinstance(steps, list):
+        return normalized, changes
+    for raw in steps:
+        if not isinstance(raw, dict):
+            continue
+        selected = [
+            evidence_id
+            for evidence_id in _explicit_form_evidence_ids(raw.get("form", ""), evidence)
+            if evidence_id in allowed_ids
+        ]
+        if raw.get("evidence_ids") != selected:
+            raw["evidence_ids"] = selected
+            changes.append("attached-verbatim-origin-evidence")
+    return normalized, list(dict.fromkeys(changes))
+
+
+def _normalize_dictionary_candidate(value: Any, language: str) -> str:
+    """Remove dictionary join markup while preserving lexical characters."""
+
+    candidate = re.sub(
+        r"\s+", " ", unicodedata.normalize("NFKC", str(value))
+    ).strip()
+    if language in {"ja", "zh"}:
+        candidate = re.sub(
+            r"(?<=[^\W\d_])\s*\+\s*(?=[^\W\d_])", "", candidate
+        )
+    return candidate
+
+
 def _origin_draft_review_reason(
     value: Any,
     *,
@@ -772,9 +874,16 @@ def _origin_draft_review_reason(
             return "a historical step repeats the modern word or lexical base"
         if language == "en" or "modern english" in period:
             return "Modern English was incorrectly used as a historical step"
-        if fixed_provenance_ids and not (
-            set(_explicit_form_evidence_ids(form, evidence)) & fixed_provenance_ids
-        ):
+        supplied = (
+            {str(item) for item in step.get("evidence_ids", [])}
+            if isinstance(step.get("evidence_ids"), list)
+            else set()
+        )
+        supported = set(_explicit_form_evidence_ids(form, evidence))
+        allowed = fixed_provenance_ids or {
+            str(item.get("evidence_id", "")) for item in evidence
+        }
+        if supplied and not supplied <= supported.intersection(allowed):
             return "a historical form is not visibly supported by the exact book entry"
     return ""
 
@@ -1692,10 +1801,8 @@ claims may cite only supplied evidence IDs; model knowledge must cite none."""
                 ],
             }
         evidence_instruction = (
-            "evidence_ids: always an empty array; exact source provenance is attached "
-            "by the system after validation"
-            if fixed_provenance_ids
-            else "evidence_ids: only evidence IDs under that exact component"
+            "evidence_ids: always an empty array; the system deterministically attaches "
+            "an ID only when the form is printed verbatim in retrieved evidence"
         )
         prompt = f"""ONE ORIGIN BRANCH
 MODERN WORD: {source['text']}
@@ -1717,8 +1824,10 @@ repeat the modern word or the fixed base itself. Do not use Modern English as a
 historical step, invent dates, or add a sibling component.
 When exact source evidence is supplied, use only historical forms visibly printed
 in that evidence and copy their spelling exactly.
-Book evidence is authoritative. Model knowledge must use an empty evidence_ids
-array. Stop a branch when another step is uncertain. Prefer a small accurate
+Use retrieved evidence first. A form printed verbatim will be labeled book by
+the system. A useful local-model historical hypothesis may remain uncited and
+will be visibly labeled model with conservative confidence. Never invent a
+citation. Stop a branch when another step is uncertain. Prefer a small accurate
 graph over a decorative graph."""
         fixed_component_id = str(focus["component_id"])
         completion: dict[str, Any] | None = None
@@ -1748,6 +1857,12 @@ graph over a decorative graph."""
                 modern_word=source["text"],
                 base_form=str(focus["form"]),
             )
+            value, evidence_normalizations = _attach_verbatim_origin_evidence(
+                value,
+                evidence=focus_evidence,
+                allowed_ids=allowed_by_component[fixed_component_id],
+            )
+            normalizations.extend(evidence_normalizations)
             review_reason = _origin_draft_review_reason(
                 value,
                 component_id=fixed_component_id,
@@ -1801,8 +1916,10 @@ Return a corrected JSON object with exactly the fixed component_id and one to
 three `steps` ordered oldest to newest. The last historical step develops into
 the fixed base or modern word, but no step may repeat either of them. Do not use
 Modern English. Use only historical forms printed verbatim in the exact RAG
-evidence; {evidence_instruction}. Keep meanings under ten English words and
-stop before an uncertain ancestor. Return JSON only."""
+evidence when available; {evidence_instruction}. One useful local-model
+historical hypothesis may remain uncited and will be labeled model by the
+system. Keep meanings under ten English words and stop before a speculative
+chain. Return JSON only."""
             completion = self.model.complete_json(
                 "You independently review one failed RAG-grounded etymology branch.",
                 review_prompt,
@@ -1815,6 +1932,12 @@ stop before an uncertain ancestor. Return JSON only."""
                 modern_word=source["text"],
                 base_form=str(focus["form"]),
             )
+            reviewed_value, evidence_normalizations = _attach_verbatim_origin_evidence(
+                reviewed_value,
+                evidence=focus_evidence,
+                allowed_ids=allowed_by_component[fixed_component_id],
+            )
+            review_normalizations.extend(evidence_normalizations)
             reviewed_reason = _origin_draft_review_reason(
                 reviewed_value,
                 component_id=fixed_component_id,
@@ -1906,31 +2029,14 @@ stop before an uncertain ancestor. Return JSON only."""
                 )
                 if confidence < 0.65:
                     raise ValueError("origin confidence is below threshold")
-                if fixed_provenance_ids and component_id == focus["component_id"]:
-                    selected = _explicit_form_evidence_ids(form, focus_evidence)
-                    selected = [
-                        evidence_id
-                        for evidence_id in selected
-                        if evidence_id in fixed_provenance_ids
-                    ]
-                    if not selected:
-                        raise ValueError(
-                            "origin step is not explicit in exact source evidence"
-                        )
-                else:
-                    selected = (
-                        list(
-                            dict.fromkeys(
-                                str(item)
-                                for item in raw.get("evidence_ids", [])
-                                if str(item) in allowed_by_component[component_id]
-                            )
-                        )
-                        if isinstance(raw.get("evidence_ids"), list)
-                        else []
-                    )
+                selected = [
+                    evidence_id
+                    for evidence_id in _explicit_form_evidence_ids(form, focus_evidence)
+                    if evidence_id in allowed_by_component[component_id]
+                    and (not fixed_provenance_ids or evidence_id in fixed_provenance_ids)
+                ]
                 basis = "book" if selected else "model"
-                confidence = min(confidence, 0.95 if basis == "book" else 0.75)
+                confidence = min(confidence, 0.95 if selected else 0.7)
                 key = (language, form.casefold(), period.casefold())
                 if key in seen_forms:
                     continue
@@ -1946,6 +2052,22 @@ stop before an uncertain ancestor. Return JSON only."""
                         "evidence_ids": selected,
                     }
                 )
+            for index, step in enumerate(steps):
+                later_form = (
+                    steps[index + 1]["form"]
+                    if index + 1 < len(steps)
+                    else part["canonical_form"]
+                )
+                later_support = set(
+                    _explicit_form_evidence_ids(later_form, focus_evidence)
+                )
+                edge_evidence_ids = [
+                    evidence_id
+                    for evidence_id in step["evidence_ids"]
+                    if evidence_id in later_support
+                ]
+                step["edge_evidence_ids"] = edge_evidence_ids
+                step["edge_basis"] = "book" if edge_evidence_ids else "model"
             total_steps += len(steps)
             base_has_history = base_has_history or (
                 part.get("kind") in {"root", "free"} and bool(steps)
@@ -2886,32 +3008,63 @@ reading and do not rewrite the Japanese form."""
             language: latest("accepted-pronunciation", language)["payload"]
             for language in ("en", "ja", "zh", "fr", "ar")
         }
-        parts = list(split["payload"].get("parts", []))
-        branches = list(origin["payload"].get("branches", []))
-        if not parts or not branches:
+        candidate_parts = [dict(item) for item in split["payload"].get("parts", [])]
+        branches = [dict(item) for item in origin["payload"].get("branches", [])]
+        if not candidate_parts or not branches:
             raise ValueError("accepted origin structure is empty")
 
         meaning_evidence = [
             str(item) for item in meaning["payload"].get("evidence_ids", [])
         ]
+        if not meaning_evidence:
+            raise ValueError("published word node has no retrieved evidence")
+        branches_by_component = {
+            str(branch.get("component_id", "")): branch for branch in branches
+        }
+        parts: list[dict[str, Any]] = []
+        publication_component_basis: dict[str, str] = {}
+        publication_component_evidence: dict[str, list[str]] = {}
+        publication_edge_basis: dict[str, str] = {}
+        publication_edge_evidence: dict[str, list[str]] = {}
+        provenance_warnings: list[dict[str, str]] = []
+        for part in candidate_parts:
+            component_id = str(part.get("morpheme_id", ""))
+            supplied = (
+                list(dict.fromkeys(str(item) for item in part.get("evidence_ids", [])))
+                if isinstance(part.get("evidence_ids"), list)
+                else []
+            )
+            available = {
+                str(record.get("evidence_id", ""))
+                for record in self.store.evidence_records(supplied)
+            }
+            basis, selected = _publication_provenance(
+                part.get("basis", "model"),
+                supplied,
+                available,
+                claim="component",
+                claim_id=component_id,
+                warnings=provenance_warnings,
+            )
+            parts.append(part)
+            publication_component_basis[component_id] = basis
+            publication_component_evidence[component_id] = selected
+            publication_edge_basis[component_id] = basis
+            publication_edge_evidence[component_id] = selected
+        retained_component_ids = {
+            str(part.get("morpheme_id", "")) for part in parts
+        }
+        branches = [
+            branch
+            for branch in branches
+            if str(branch.get("component_id", "")) in retained_component_ids
+        ]
+        derived_parts = parts
         component_evidence = [
             str(evidence_id)
             for part in parts
-            for evidence_id in part.get("evidence_ids", [])
+            for evidence_id in publication_component_evidence[str(part["morpheme_id"])]
         ]
-        history_evidence = [
-            str(evidence_id)
-            for branch in branches
-            for step in branch.get("steps", [])
-            for evidence_id in step.get("evidence_ids", [])
-        ]
-        evidence_ids = list(
-            dict.fromkeys([*history_evidence, *component_evidence, *meaning_evidence])
-        )
-        evidence = self._card_evidence(source, evidence_ids)
-        if not evidence:
-            raise ValueError("accepted origin evidence could not be reconstructed")
-
         center_id = str(source["entity_id"])
         graph_nodes: list[dict[str, Any]] = [
             {
@@ -2926,7 +3079,7 @@ reading and do not rewrite the Japanese form."""
                 "confidence": "high",
             }
         ]
-        graph_edges: list[dict[str, str]] = []
+        graph_edges: list[dict[str, Any]] = []
         node_ids = {center_id}
         parts_by_id = {str(part["morpheme_id"]): part for part in parts}
         for part in parts:
@@ -2940,10 +3093,16 @@ reading and do not rewrite the Japanese form."""
                     "meaning": str(part["meaning"]),
                     "language": str(part["language"]),
                     "history": "Fixed word component",
-                    "basis": str(part["basis"]),
-                    "evidence_ids": list(part.get("evidence_ids", [])),
+                    "basis": publication_component_basis[part_id],
+                    "evidence_ids": publication_component_evidence[part_id],
                     "confidence": (
-                        "high" if float(part.get("confidence", 0)) >= 0.85 else "medium"
+                        "low"
+                        if publication_component_basis[part_id] == "model"
+                        else (
+                            "high"
+                            if float(part.get("confidence", 0)) >= 0.85
+                            else "medium"
+                        )
                     ),
                 }
             )
@@ -2952,6 +3111,13 @@ reading and do not rewrite the Japanese form."""
                     "source": part_id,
                     "target": center_id,
                     "relationship": f"{part['kind']}-of",
+                    "basis": publication_edge_basis[part_id],
+                    "evidence_ids": publication_edge_evidence[part_id],
+                    "confidence": (
+                        "low"
+                        if publication_edge_basis[part_id] == "model"
+                        else "high"
+                    ),
                 }
             )
 
@@ -2961,12 +3127,47 @@ reading and do not rewrite the Japanese form."""
             component_id = str(branch["component_id"])
             steps = list(branch.get("steps", []))
             branch_ids: list[str] = []
+            published_steps: list[dict[str, Any]] = []
+            transition_evidence: dict[str, list[str]] = {}
+            transition_basis: dict[str, str] = {}
             for step in steps:
                 historical_id = str(step.get("historical_form_id", ""))
                 if not historical_id or historical_id in node_ids:
                     continue
+                step_evidence = list(
+                    dict.fromkeys(str(item) for item in step.get("evidence_ids", []))
+                )
+                edge_evidence = list(
+                    dict.fromkeys(
+                        str(item) for item in step.get("edge_evidence_ids", [])
+                    )
+                )
+                supplied = list(dict.fromkeys([*step_evidence, *edge_evidence]))
+                available = {
+                    str(record.get("evidence_id", ""))
+                    for record in self.store.evidence_records(supplied)
+                }
+                step_basis, step_evidence = _publication_provenance(
+                    step.get("basis", "model"),
+                    step_evidence,
+                    available,
+                    claim="historical-node",
+                    claim_id=historical_id,
+                    warnings=provenance_warnings,
+                )
+                edge_basis, edge_evidence = _publication_provenance(
+                    step.get("edge_basis", "book" if edge_evidence else "model"),
+                    edge_evidence,
+                    available,
+                    claim="historical-edge",
+                    claim_id=historical_id,
+                    warnings=provenance_warnings,
+                )
                 node_ids.add(historical_id)
                 branch_ids.append(historical_id)
+                published_steps.append(step)
+                transition_evidence[historical_id] = edge_evidence
+                transition_basis[historical_id] = edge_basis
                 graph_nodes.append(
                     {
                         "id": historical_id,
@@ -2975,21 +3176,31 @@ reading and do not rewrite the Japanese form."""
                         "meaning": str(step["meaning"]),
                         "language": str(step["period"]),
                         "history": f"Earlier form in {step['period']}",
-                        "basis": str(step["basis"]),
-                        "evidence_ids": list(step.get("evidence_ids", [])),
+                        "basis": step_basis,
+                        "evidence_ids": step_evidence,
                         "confidence": (
-                            "high"
-                            if float(step.get("confidence", 0)) >= 0.85
-                            else "medium"
+                            "low"
+                            if step_basis == "model"
+                            else (
+                                "high"
+                                if float(step.get("confidence", 0)) >= 0.85
+                                else "medium"
+                            )
                         ),
                     }
                 )
+            steps = published_steps
             chain = [*branch_ids, component_id]
             graph_edges.extend(
                 {
                     "source": earlier,
                     "target": later,
                     "relationship": "developed-into",
+                    "basis": transition_basis[earlier],
+                    "evidence_ids": transition_evidence[earlier],
+                    "confidence": (
+                        "high" if transition_basis[earlier] == "book" else "low"
+                    ),
                 }
                 for earlier, later in zip(chain, chain[1:])
             )
@@ -3018,7 +3229,7 @@ reading and do not rewrite the Japanese form."""
                         "node_ids": [*branch_ids, component_id, center_id],
                         "headline": headline,
                         "explanation": (
-                            "This cited lexical base carries the central history."
+                            "This accepted lexical base carries the central history."
                             if branch_ids
                             else "This accepted base contributes to the modern word."
                         ),
@@ -3034,7 +3245,9 @@ reading and do not rewrite the Japanese form."""
                 "kind": "overview",
                 "node_ids": all_ids,
                 "headline": str(source["text"]),
-                "explanation": "One word, its analyzed structure, and cited history.",
+                "explanation": (
+                    "One word, its analyzed structure, and provenance-labeled history."
+                ),
             },
             {
                 "id": "parts",
@@ -3064,11 +3277,26 @@ reading and do not rewrite the Japanese form."""
                     ),
                 }
             )
+        history_evidence = [
+            str(evidence_id)
+            for collection in (graph_nodes, graph_edges)
+            for claim in collection
+            if claim.get("basis") == "book"
+            for evidence_id in claim.get("evidence_ids", [])
+        ]
+        evidence_ids = list(
+            dict.fromkeys([*history_evidence, *component_evidence, *meaning_evidence])
+        )
+        evidence = self._card_evidence(source, evidence_ids)
+        if not evidence:
+            raise ValueError("accepted origin evidence could not be reconstructed")
+
         graph = {
             "center_id": center_id,
             "nodes": graph_nodes,
             "edges": graph_edges,
             "focus_areas": focus_areas,
+            "provenance_warnings": provenance_warnings,
         }
 
         def ruby(language: str) -> list[dict[str, str]]:
@@ -3087,6 +3315,11 @@ reading and do not rewrite the Japanese form."""
             _artifact_quality(item)
             for item in (meaning, split, origin)
         )
+        if any(
+            publication_component_basis[str(part["morpheme_id"])] == "model"
+            for part in parts
+        ):
+            quality = min(quality, 0.7)
         card = Card(
             card_id=str(uuid.uuid4()),
             mode="word",
@@ -3095,7 +3328,7 @@ reading and do not rewrite the Japanese form."""
             subtitle=" · ".join(str(part["canonical_form"]) for part in parts),
             summary_en=str(meaning["payload"]["definition"]),
             origin_story=(
-                f"The cited lexical history follows {'; '.join(root_headlines)}."
+                f"The lexical history follows {'; '.join(root_headlines)}."
                 if root_headlines
                 else ""
             ),
@@ -3150,7 +3383,7 @@ reading and do not rewrite the Japanese form."""
         )
         cards = [card]
         for derived_mode, focus_kinds, part_kinds, policy in (
-            _derived_origin_view_specs(parts)
+            _derived_origin_view_specs(derived_parts)
         ):
             selected_focuses = [
                 deepcopy(area)
@@ -3264,7 +3497,7 @@ reading and do not rewrite the Japanese form."""
             translations = record.get("translations")
             values = translations.get(language, []) if isinstance(translations, dict) else []
             for value in values if isinstance(values, list) else []:
-                candidate = re.sub(r"\s+", " ", str(value)).strip()
+                candidate = _normalize_dictionary_candidate(value, language)
                 if candidate and candidate not in candidates:
                     candidates.append(candidate)
                 if candidate and record_evidence_id:
@@ -3328,13 +3561,16 @@ End immediately after the JSON object."""
         value = completion.get("value")
         if not isinstance(value, dict):
             raise ValueError("translation task did not return an object")
-        translated = re.sub(r"\s+", " ", str(value.get("term", ""))).strip()
+        raw_translated = re.sub(r"\s+", " ", str(value.get("term", ""))).strip()
+        translated = _normalize_dictionary_candidate(raw_translated, language)
         translated_meaning = re.sub(
             r"\s+", " ", str(value.get("meaning", ""))
         ).strip()
         reading = re.sub(r"\s+", " ", str(value.get("reading", ""))).strip()
         usage_note = _clean_usage_note(value.get("usage_note", ""), language)
         normalizations: list[str] = []
+        if translated != raw_translated:
+            normalizations.append("normalized-dictionary-join-markup")
         sole_arabic_candidate = ""
         sole_freedict_arabic_candidate = ""
         if language == "ar":

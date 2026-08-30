@@ -10,6 +10,25 @@ from lkt.preparation import PreparationPlanner
 
 
 class PreparationPlannerTests(unittest.TestCase):
+    def test_interactive_priority_offset_preempts_an_older_autonomous_term(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")
+            PreparationPlanner(
+                store,
+                model="local-qwen",
+                prompt_version="autonomous-v1",
+            ).plan_word_card("older", display_languages=("en",))
+            interactive = PreparationPlanner(
+                store,
+                model="local-qwen",
+                prompt_version="interactive-v1",
+                priority_offset=-1000,
+            ).plan_word_card("newer", display_languages=("en",))
+
+            claimed = store.claim_next_job()
+            self.assertEqual(claimed["job_id"], interactive.jobs["retrieve-evidence"])
+            self.assertLess(claimed["priority"], 0)
+
     def test_word_plan_splits_languages_and_blocks_composition(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             database = Path(temp) / "knowledge.sqlite3"

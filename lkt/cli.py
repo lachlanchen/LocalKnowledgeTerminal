@@ -3,9 +3,10 @@ from __future__ import annotations
 import argparse
 import json
 import signal
+import sqlite3
 import sys
 from pathlib import Path
-from threading import Event
+from threading import Event, Lock, Thread
 from time import monotonic
 from typing import Any, Callable
 
@@ -20,7 +21,11 @@ from .deck import (
     BalancedProductSeeder,
     DeckSeedResult,
 )
-from .device import background_preparation_blocker, model_free_preparation_blocker
+from .device import (
+    background_preparation_blocker,
+    is_memory_pressure_blocker,
+    model_free_preparation_blocker,
+)
 from .graph import rebuild_ladybug
 from .freedict import build_freedict_index
 from .llm import LlamaCppClient
@@ -612,10 +617,66 @@ def guarded_deck_seed(seeder: Any) -> DeckSeedResult:
 
     blocker = background_preparation_blocker()
     if blocker:
+        if is_memory_pressure_blocker(blocker):
+            lexical = (
+                seeder
+                if isinstance(seeder, AutonomousLexicalSeeder)
+                else seeder.lexical
+                if isinstance(seeder, BalancedProductSeeder)
+                else None
+            )
+            if lexical is not None:
+                return lexical.run_bounded_once()
         return DeckSeedResult(status="paused", message=blocker)
     if isinstance(seeder, AutonomousLexicalSeeder):
         return seeder.run_bounded_once()
     return seeder.run_once()
+
+
+class DurableWorkerHeartbeat:
+    """Keep worker liveness current even while one synchronous model job runs."""
+
+    def __init__(
+        self, store: KnowledgeStore, *, interval_seconds: float = 5.0
+    ) -> None:
+        self.store = store
+        self.interval_seconds = max(1.0, min(float(interval_seconds), 30.0))
+        self.stop_event = Event()
+        self.lock = Lock()
+        self.blocker = "atomic worker is starting"
+        self.thread = Thread(
+            target=self._run,
+            name="lkt-worker-heartbeat",
+            daemon=True,
+        )
+
+    def _write(self, status: str = "running", blocker: str | None = None) -> None:
+        with self.lock:
+            current_blocker = self.blocker if blocker is None else blocker
+        try:
+            self.store.record_worker_heartbeat(current_blocker, status=status)
+        except (OSError, sqlite3.Error):
+            # Card preparation remains authoritative if a transient heartbeat
+            # write loses a race with another short SQLite transaction.
+            pass
+
+    def _run(self) -> None:
+        while not self.stop_event.is_set():
+            self._write()
+            if self.stop_event.wait(self.interval_seconds):
+                break
+
+    def start(self) -> None:
+        self.thread.start()
+
+    def update(self, blocker: str) -> None:
+        with self.lock:
+            self.blocker = blocker.strip()
+
+    def close(self) -> None:
+        self.stop_event.set()
+        self.thread.join(timeout=self.interval_seconds + 1.0)
+        self._write("stopped", "atomic worker stopped")
 
 
 def run_atomic_watch(
@@ -631,6 +692,7 @@ def run_atomic_watch(
     periodic_action_interval: float = 120.0,
     preparation_blocker: Callable[[], str] = background_preparation_blocker,
     model_free_blocker: Callable[[], str] = model_free_preparation_blocker,
+    heartbeat: Callable[[str], None] | None = None,
 ) -> int:
     """Run one persisted task at a time while preserving device headroom.
 
@@ -647,17 +709,15 @@ def run_atomic_watch(
         # before every job keeps that request from becoming an endless chain
         # that starves the browser, VNC, and SSH.
         blocker = preparation_blocker()
+        if heartbeat is not None:
+            heartbeat(blocker)
+        result = None
         if blocker:
             # A lower memory floor may drain only handlers structurally proven
             # not to invoke the model. Power and thermal blockers are still
             # returned by both guards and therefore cannot be bypassed.
-            if model_free_blocker():
-                stop_event.wait(idle_seconds)
-                continue
-            result = worker.run_once(MODEL_FREE_ATOMIC_JOBS)
-            if result is None:
-                stop_event.wait(idle_seconds)
-                continue
+            if not model_free_blocker():
+                result = worker.run_once(MODEL_FREE_ATOMIC_JOBS)
         else:
             result = worker.run_once()
         if result is None:
@@ -667,6 +727,9 @@ def run_atomic_watch(
                     1.0, periodic_action_interval
                 )
                 stop_event.wait(job_delay)
+                continue
+            if blocker:
+                stop_event.wait(idle_seconds)
                 continue
             if idle_action is not None and monotonic() >= next_idle_action:
                 emit(idle_action())
@@ -720,6 +783,7 @@ def command_work_atomic(args: argparse.Namespace) -> int:
     )
     if args.watch:
         stop_event = Event()
+        heartbeat = DurableWorkerHeartbeat(knowledge)
         lexical_seeder = (
             _lexical_seeder(settings) if args.autoprepare_lexical_deck else None
         )
@@ -745,19 +809,26 @@ def command_work_atomic(args: argparse.Namespace) -> int:
 
         signal.signal(signal.SIGTERM, stop_worker)
         signal.signal(signal.SIGINT, stop_worker)
-        return run_atomic_watch(
-            worker,
-            stop_event,
-            idle_seconds=max(0.25, min(float(args.idle_seconds), 60.0)),
-            job_delay=max(0.0, min(float(args.job_delay), 60.0)),
-            emit=lambda result: print(
-                json.dumps(result.__dict__, ensure_ascii=False), flush=True
-            ),
-            periodic_action=(lambda: guarded_deck_seed(seeder)) if seeder is not None else None,
-            periodic_action_interval=max(
-                10.0, min(float(args.autoprepare_interval_seconds), 86_400.0)
-            ),
-        )
+        heartbeat.start()
+        try:
+            return run_atomic_watch(
+                worker,
+                stop_event,
+                idle_seconds=max(0.25, min(float(args.idle_seconds), 60.0)),
+                job_delay=max(0.0, min(float(args.job_delay), 60.0)),
+                emit=lambda result: print(
+                    json.dumps(result.__dict__, ensure_ascii=False), flush=True
+                ),
+                periodic_action=(
+                    (lambda: guarded_deck_seed(seeder)) if seeder is not None else None
+                ),
+                periodic_action_interval=max(
+                    10.0, min(float(args.autoprepare_interval_seconds), 86_400.0)
+                ),
+                heartbeat=heartbeat.update,
+            )
+        finally:
+            heartbeat.close()
     print(
         json.dumps(
             [result.__dict__ for result in worker.run(args.limit)],

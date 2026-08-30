@@ -601,6 +601,8 @@ class BalancedProductSeeder:
         self.store = store
         self.morphology = morphology
         self._next_mode_index = 0
+        self._round = 0
+        self._cooldown_until: dict[str, int] = {}
 
     def counts(self) -> dict[str, int]:
         counts = {mode: 0 for mode in self.MODES}
@@ -611,6 +613,7 @@ class BalancedProductSeeder:
         return counts
 
     def run_once(self) -> DeckSeedResult:
+        self._round += 1
         counts = self.counts()
         attempted: set[str] = set()
         pending_result: DeckSeedResult | None = None
@@ -618,8 +621,14 @@ class BalancedProductSeeder:
             self.MODES[self._next_mode_index :]
             + self.MODES[: self._next_mode_index]
         )
+        eligible = tuple(
+            mode
+            for mode in self.MODES
+            if self._cooldown_until.get(mode, 0) <= self._round
+        )
         ranked = sorted(
-            self.MODES, key=lambda mode: (counts[mode], rotated.index(mode))
+            eligible or self.MODES,
+            key=lambda mode: (counts[mode], rotated.index(mode)),
         )
         for mode in ranked:
             action = "lexical" if mode in self.LEXICAL_MODES else mode
@@ -644,6 +653,10 @@ class BalancedProductSeeder:
                 pending_result = pending_result or result
                 continue
             self._next_mode_index = (self.MODES.index(mode) + 1) % len(self.MODES)
+            if result.status == "deferred":
+                # Skip exactly the next balance pass so a persistently sparse,
+                # failing mode cannot monopolize every autonomous opportunity.
+                self._cooldown_until[mode] = self._round + 2
             if result.status != "complete":
                 return result
         if pending_result is not None:

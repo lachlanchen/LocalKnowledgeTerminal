@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 from lkt.device import (
     background_preparation_blocker,
+    is_memory_pressure_blocker,
     memory_pressure_blocker,
     pi_power_blocker,
 )
@@ -48,6 +49,18 @@ class DeviceReadinessTests(unittest.TestCase):
         self.assertEqual(
             memory_pressure_blocker(meminfo, min_available_mib=768.0),
             "",
+        )
+
+    def test_only_the_memory_guard_is_safe_for_model_free_planning(self) -> None:
+        self.assertTrue(
+            is_memory_pressure_blocker(
+                "background preparation paused: only 900 MiB memory is available"
+            )
+        )
+        self.assertFalse(
+            is_memory_pressure_blocker(
+                "background preparation paused: device temperature is 80.0 C"
+            )
         )
 
     def test_memory_is_checked_when_thermal_telemetry_is_unavailable(self) -> None:

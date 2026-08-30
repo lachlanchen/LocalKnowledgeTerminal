@@ -359,6 +359,14 @@ class KnowledgeStore:
                 CREATE INDEX IF NOT EXISTS idx_job_artifacts
                     ON job_artifacts(job_id, created_at);
 
+                CREATE TABLE IF NOT EXISTS worker_heartbeat (
+                    worker_key TEXT PRIMARY KEY,
+                    status TEXT NOT NULL
+                        CHECK(status IN ('running', 'stopped')),
+                    blocker TEXT NOT NULL DEFAULT '',
+                    updated_at TEXT NOT NULL
+                );
+
                 CREATE TABLE IF NOT EXISTS inquiry_threads (
                     thread_id TEXT PRIMARY KEY,
                     title TEXT NOT NULL,
@@ -1654,6 +1662,100 @@ class KnowledgeStore:
             for evidence_id in ordered
             if evidence_id in by_id
         ]
+
+    def record_worker_heartbeat(
+        self,
+        blocker: str = "",
+        *,
+        status: str = "running",
+        worker_key: str = "atomic",
+    ) -> None:
+        """Persist one cheap liveness row owned by the long-running worker."""
+
+        if status not in {"running", "stopped"}:
+            raise ValueError(f"invalid worker status: {status!r}")
+        worker_key = worker_key.strip()
+        if not worker_key:
+            raise ValueError("worker key is required")
+        with closing(self._connect()) as connection:
+            connection.execute(
+                """INSERT INTO worker_heartbeat(worker_key, status, blocker, updated_at)
+                   VALUES (?, ?, ?, ?)
+                   ON CONFLICT(worker_key) DO UPDATE SET
+                       status = excluded.status,
+                       blocker = excluded.blocker,
+                       updated_at = excluded.updated_at""",
+                (worker_key, status, blocker.strip()[:500], _now()),
+            )
+            connection.commit()
+
+    def worker_status(
+        self, *, worker_key: str = "atomic", max_age_seconds: float = 15.0
+    ) -> dict[str, Any]:
+        """Report process liveness separately from its current safety blocker."""
+
+        max_age_seconds = max(5.0, min(float(max_age_seconds), 3600.0))
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                """SELECT status, blocker, updated_at,
+                          (julianday('now') - julianday(updated_at)) * 86400.0
+                              AS age_seconds
+                   FROM worker_heartbeat WHERE worker_key = ?""",
+                (worker_key.strip(),),
+            ).fetchone()
+        if row is None:
+            return {
+                "ready": False,
+                "generation_ready": False,
+                "status": "missing",
+                "blocker": "atomic worker heartbeat unavailable",
+                "last_blocker": "",
+                "updated_at": "",
+                "age_seconds": None,
+            }
+        raw_age = row["age_seconds"]
+        age_seconds = max(0.0, float(raw_age)) if raw_age is not None else None
+        reported_blocker = str(row["blocker"])
+        running = str(row["status"]) == "running"
+        fresh = running and age_seconds is not None and age_seconds <= max_age_seconds
+        if not running:
+            blocker = reported_blocker or "atomic worker is stopped"
+        elif not fresh:
+            blocker = "atomic worker heartbeat is stale"
+        else:
+            blocker = reported_blocker
+        return {
+            "ready": fresh,
+            "generation_ready": fresh and not blocker,
+            "status": str(row["status"]),
+            "blocker": blocker,
+            "last_blocker": reported_blocker,
+            "updated_at": str(row["updated_at"]),
+            "age_seconds": round(age_seconds, 3) if age_seconds is not None else None,
+        }
+
+    def requeue_failed_jobs(self, job_ids: Iterable[str]) -> int:
+        """Atomically retry only terminal jobs explicitly named by one plan."""
+
+        selected = tuple(
+            dict.fromkeys(str(job_id).strip() for job_id in job_ids if str(job_id).strip())
+        )
+        if not selected:
+            return 0
+        if len(selected) > 256:
+            raise ValueError("a retry plan cannot contain more than 256 jobs")
+        placeholders = ",".join("?" for _ in selected)
+        with closing(self._connect()) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            cursor = connection.execute(
+                f"""UPDATE preparation_jobs
+                    SET status = 'queued', attempts = 0, error = '', locked_at = '',
+                        updated_at = ?
+                    WHERE status = 'failed' AND job_id IN ({placeholders})""",
+                (_now(), *selected),
+            )
+            connection.commit()
+        return int(cursor.rowcount)
 
     def enqueue_job(
         self,

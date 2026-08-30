@@ -47,6 +47,28 @@ def _compact(value: str) -> str:
     return re.sub(r"\s+", " ", value).strip()
 
 
+_INDEX_TERM = re.compile(r"[^\W\d_]+(?:[-'’][^\W\d_]+)*\*?", re.UNICODE)
+_INDEX_PAGE = re.compile(r"\d{1,4}")
+
+
+def _is_index_only(content: str) -> bool:
+    """Return whether content is only a run of index terms and page numbers."""
+
+    references = 0
+    term_tokens = 0
+    for token in content.split():
+        if _INDEX_PAGE.fullmatch(token):
+            if not term_tokens:
+                return False
+            references += 1
+            term_tokens = 0
+        elif _INDEX_TERM.fullmatch(token):
+            term_tokens += 1
+        else:
+            return False
+    return references >= 2 and term_tokens == 0
+
+
 def _rows(source: Path) -> Iterable[tuple[str, str, str, int, str]]:
     with source.open("r", encoding="utf-8-sig") as handle:
         for line_number, line in enumerate(handle, 1):
@@ -68,7 +90,7 @@ def _rows(source: Path) -> Iterable[tuple[str, str, str, int, str]]:
                 if isinstance(cells, list)
                 else ""
             )
-            if not content:
+            if not content or _is_index_only(content):
                 continue
             try:
                 source_page = int(record.get("source_page") or 0)
@@ -212,6 +234,7 @@ class MorphologyIndex:
             rows = connection.execute(
                 "SELECT * FROM records ORDER BY source_page, row_id"
             ).fetchall()
+        rows = [row for row in rows if not _is_index_only(str(row["content"]))]
         if not rows:
             return None
         material = f"{metadata.get('corpus_id', '')}\0{seed.strip().casefold()}"
@@ -246,6 +269,7 @@ class MorphologyIndex:
                 locator=(f"source page {row['source_page']}" if row["source_page"] else ""),
             )
             for row in rows
+            if not _is_index_only(str(row["content"]))
         ]
 
     def exact(self, query: str, limit: int = 4) -> list[Evidence]:
@@ -256,9 +280,12 @@ class MorphologyIndex:
         with closing(self._connect()) as connection:
             rows = connection.execute(
                 """SELECT * FROM records WHERE headword_key = ?
-                   ORDER BY length(content) DESC, source_page, row_id LIMIT ?""",
-                (query.casefold(), limit),
+                   ORDER BY length(content) DESC, source_page, row_id""",
+                (query.casefold(),),
             ).fetchall()
+        rows = [row for row in rows if not _is_index_only(str(row["content"]))][
+            :limit
+        ]
         return self._evidence(rows, query, self.metadata())
 
     def search(self, query: str, limit: int = 4) -> list[Evidence]:
@@ -271,9 +298,14 @@ class MorphologyIndex:
         with closing(self._connect()) as connection:
             exact = connection.execute(
                 """SELECT * FROM records WHERE headword_key = ?
-                   ORDER BY source_page, row_id LIMIT ?""",
-                (query.casefold(), limit),
+                   ORDER BY source_page, row_id""",
+                (query.casefold(),),
             ).fetchall()
+            exact = [
+                row
+                for row in exact
+                if not _is_index_only(str(row["content"]))
+            ][:limit]
             rows.extend(exact)
             seen.update(str(row["record_id"]) for row in exact)
 
@@ -293,6 +325,8 @@ class MorphologyIndex:
                     (expression, limit * 4),
                 ).fetchall()
                 for row in matches:
+                    if _is_index_only(str(row["content"])):
+                        continue
                     record_id = str(row["record_id"])
                     if record_id in seen:
                         continue

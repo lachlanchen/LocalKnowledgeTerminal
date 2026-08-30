@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 import time
+import unicodedata
 import urllib.error
 import urllib.request
 from typing import Any, Protocol
@@ -182,6 +183,287 @@ honest compact equivalent, choose a conservative established equivalent. Arabic 
 must contain Arabic-script letters only; only arabic.reading may use Latin letters. /no_think"""
 
 
+# Runtime evidence-first prompts replace the older expansive graph contract above.
+WORD_ORIGIN_PROMPT = """Create one compact multilingual Word Origin card from
+the supplied retrieved book evidence. Return one JSON object only. Work
+evidence-first, then add only useful local-model knowledge as visibly labeled
+hypotheses. A `book` node or edge must cite exact supplied `evidence_ids`; a
+`model` node or edge must use empty evidence_ids and low confidence. Never attach
+a citation to model knowledge. Include one to six useful nodes. The
+center node form and english.term must exactly match the requested word.
+Components point into words. Historical forms point toward later forms.
+A model prefix-of edge must match the word start, suffix-of the word end, and
+root-of must visibly occur inside the word.
+Sibling components never parent one another. Include at least one focus_areas entry.
+Return title, summary_en, morphology_graph, english, japanese, chinese, french,
+and arabic. Japanese and Chinese ruby token text must concatenate exactly to the
+displayed term. Root Dictionary, and Affix Dictionary evidence may be used only
+when present in supplied records. Never copy instruction or example labels."""
+
+MORPHOLOGY_PROMPT = """Create one compact connected evidence-first morphology
+graph. Return title, summary_en, and
+morphology_graph. The graph has center_id, nodes, edges, and focus_areas. Use one
+to six nodes, proportional to explicit evidence; a one-node graph is valid when
+only the center is useful. Every node and edge has basis, evidence_ids, and
+confidence. Use basis `book` only when exact supplied evidence IDs support the
+claim. Local-model knowledge is allowed with basis `model`, empty evidence_ids,
+and low confidence. Never relabel a model claim as book. Historical hypotheses
+may be uncited model nodes. Model prefix-of, suffix-of, and root-of edges must
+also match the visible surface shape. Do not add decorative filler. The center
+form must exactly equal the
+requested primary component. Components point into words. Historical forms
+point toward later forms. Include one or more focus_areas."""
+
+MORPHOLOGY_LANGUAGE_PROMPT = """Return one JSON object containing english,
+japanese, chinese, french, and arabic objects for the accepted graph. Copy the
+user's EXACT CENTER FORM exactly into english.term. Supply concise natural
+meanings and established translations, but never copy an instruction label or
+placeholder into a value. Japanese needs term, reading, meaning; Chinese needs
+simplified, pinyin, meaning; French needs term, meaning; Arabic needs term and
+meaning. Use Arabic-script letters only in both Arabic fields. Return JSON only."""
+
+_PROMPT_PLACEHOLDER_KEYS = frozenset(
+    {"exactcenterform", "establishedequivalent", "conciseenglishgloss", "rootmeaning"}
+)
+
+
+def _normalized_english_term(value: Any) -> str:
+    return re.sub(r"[^a-z0-9]+", "", str(value).casefold())
+
+
+def _contains_prompt_placeholder(value: Any) -> bool:
+    if isinstance(value, dict):
+        return any(_contains_prompt_placeholder(item) for item in value.values())
+    if isinstance(value, list):
+        return any(_contains_prompt_placeholder(item) for item in value)
+    return (
+        isinstance(value, str)
+        and _normalized_english_term(value) in _PROMPT_PLACEHOLDER_KEYS
+    )
+
+
+def _evidence_form_visible(item: Evidence, form: str) -> bool:
+    def tokens(value: Any) -> tuple[str, ...]:
+        decomposed = unicodedata.normalize("NFKD", str(value)).casefold()
+        normalized = "".join(
+            character
+            for character in decomposed
+            if not unicodedata.combining(character)
+        )
+        return tuple(re.findall(r"[^\W_]+", normalized, flags=re.UNICODE))
+
+    needle = tokens(form)
+    if not needle:
+        return False
+    width = len(needle)
+    return any(
+        any(
+            haystack[index : index + width] == needle
+            for index in range(len(haystack) - width + 1)
+        )
+        for haystack in (tokens(item.headword), tokens(item.excerpt))
+    )
+
+
+def _evidence_supports_node(item: Evidence, node: dict[str, Any]) -> bool:
+    if not _evidence_form_visible(item, str(node.get("form", ""))):
+        return False
+    meaning_tokens = {
+        token
+        for token in re.findall(r"[a-z]{3,}", str(node.get("meaning", "")).casefold())
+        if token not in {"the", "and", "from", "form", "word", "related"}
+    }
+    evidence_tokens = set(
+        re.findall(r"[a-z]{3,}", f"{item.headword} {item.excerpt}".casefold())
+    )
+    return not meaning_tokens or bool(meaning_tokens & evidence_tokens)
+
+
+def _evidence_supports_edge(
+    item: Evidence,
+    edge: dict[str, Any],
+    source: dict[str, Any],
+    target: dict[str, Any],
+) -> bool:
+    if not (
+        _evidence_form_visible(item, str(source.get("form", "")))
+        and _evidence_form_visible(item, str(target.get("form", "")))
+    ):
+        return False
+    relation = str(edge.get("relationship", "")).strip().casefold()
+    text = f"{item.headword} {item.excerpt}".casefold()
+    owner = _normalized_english_term(item.headword)
+    endpoints = {
+        _normalized_english_term(source.get("form", "")),
+        _normalized_english_term(target.get("form", "")),
+    }
+    if relation.endswith("-of"):
+        return owner in endpoints
+    if relation in {"developed-into", "derived-from", "descends-from"}:
+        return any(
+            cue in text
+            for cue in (" from ", "derived", "descend", "develop", "became", "<", "→")
+        )
+    return True
+
+
+def _model_confidence_is_conservative(value: dict[str, Any]) -> bool:
+    confidence = value.get("confidence")
+    if isinstance(confidence, (int, float)) and not isinstance(confidence, bool):
+        return 0.0 <= float(confidence) <= 0.7
+    return str(confidence).strip().casefold() in {"low", "conservative"}
+
+
+def _model_relationship_matches_surface(
+    edge: dict[str, Any], source: dict[str, Any], target: dict[str, Any]
+) -> bool:
+    relation = str(edge.get("relationship", "")).strip().casefold()
+    source_form = _normalized_english_term(source.get("form", ""))
+    target_form = _normalized_english_term(target.get("form", ""))
+    if not source_form or not target_form:
+        return False
+    if relation == "prefix-of":
+        return target_form.startswith(source_form)
+    if relation == "suffix-of":
+        return target_form.endswith(source_form)
+    if relation == "root-of":
+        return source_form in target_form
+    return True
+
+
+def _validate_grounded_morphology_graph(
+    value: dict[str, Any], requested_form: str, evidence: list[Evidence]
+) -> None:
+    _validate_morphology_graph_draft(value)
+    graph = value["morphology_graph"]
+    nodes = graph["nodes"]
+    node_by_id = {str(node["id"]).strip(): node for node in nodes}
+    center = node_by_id[str(graph["center_id"]).strip()]
+    warnings: list[dict[str, str]] = []
+
+    def warn(scope: str, claim_id: str, code: str, message: str) -> None:
+        warnings.append(
+            {
+                "scope": scope,
+                "claim_id": claim_id,
+                "code": code,
+                "message": message,
+            }
+        )
+
+    expected = str(requested_form).strip()
+    if expected and str(center.get("form", "")).strip() != expected:
+        previous = str(center.get("form", "")).strip()
+        center["form"] = expected
+        warn(
+            "graph",
+            str(graph["center_id"]).strip(),
+            "center-form-normalized",
+            f"center form {previous!r} was normalized to the requested form",
+        )
+
+    evidence_by_id = {str(item.entry_id): item for item in evidence}
+
+    def sanitize_claim(
+        claim: dict[str, Any],
+        *,
+        scope: str,
+        claim_id: str,
+        support_check: Any,
+    ) -> None:
+        cited = claim.get("evidence_ids")
+        supplied_ids = (
+            list(dict.fromkeys(str(item) for item in cited))
+            if isinstance(cited, list)
+            else []
+        )
+        valid_ids = [item for item in supplied_ids if item in evidence_by_id]
+        if valid_ids != supplied_ids:
+            warn(
+                scope,
+                claim_id,
+                "evidence-ids-filtered",
+                "non-retrieved evidence IDs were removed",
+            )
+
+        basis = str(claim.get("basis", "")).strip().casefold()
+        if basis == "book" and valid_ids:
+            claim["basis"] = "book"
+            claim["evidence_ids"] = valid_ids
+            if not any(support_check(evidence_by_id[item]) for item in valid_ids):
+                warn(
+                    scope,
+                    claim_id,
+                    "evidence-support-warning",
+                    "retrieved provenance exists but semantic support is imperfect",
+                )
+            return
+
+        if basis == "book":
+            warn(
+                scope,
+                claim_id,
+                "book-claim-downgraded",
+                "book claim had no retrieved evidence ID and became model-owned",
+            )
+        elif basis != "model":
+            warn(
+                scope,
+                claim_id,
+                "basis-normalized",
+                "unknown basis became model-owned",
+            )
+        if supplied_ids:
+            warn(
+                scope,
+                claim_id,
+                "model-citations-stripped",
+                "model-owned claims cannot retain citations",
+            )
+        claim["basis"] = "model"
+        claim["evidence_ids"] = []
+        if not _model_confidence_is_conservative(claim):
+            claim["confidence"] = "low"
+            warn(
+                scope,
+                claim_id,
+                "model-confidence-normalized",
+                "model-owned confidence was normalized to low",
+            )
+
+    for node in nodes:
+        node_id = str(node.get("id", "")).strip()
+        sanitize_claim(
+            node,
+            scope="node",
+            claim_id=node_id,
+            support_check=lambda item, node=node: _evidence_supports_node(item, node),
+        )
+    for index, edge in enumerate(graph.get("edges", [])):
+        source = node_by_id.get(str(edge.get("source", "")).strip(), {})
+        target = node_by_id.get(str(edge.get("target", "")).strip(), {})
+        edge_id = f"edge-{index}"
+        sanitize_claim(
+            edge,
+            scope="edge",
+            claim_id=edge_id,
+            support_check=lambda item, edge=edge, source=source, target=target: (
+                _evidence_supports_edge(item, edge, source, target)
+            ),
+        )
+        if (
+            str(edge.get("basis", "")).strip().casefold() == "model"
+            and not _model_relationship_matches_surface(edge, source, target)
+        ):
+            warn(
+                "edge",
+                edge_id,
+                "model-surface-shape-warning",
+                "model relationship does not match the visible surface shape",
+            )
+    graph["provenance_warnings"] = warnings
+
+
 def _extract_json(text: str) -> dict[str, Any]:
     cleaned = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
     if cleaned.startswith("```"):
@@ -216,8 +498,8 @@ def _morphology_graph_errors(value: dict[str, Any]) -> list[str]:
     edges = graph.get("edges")
     focuses = graph.get("focus_areas")
     center_id = str(graph.get("center_id", "")).strip()
-    if not isinstance(nodes, list) or len(nodes) < 7:
-        missing.append("morphology_graph.nodes[7+]")
+    if not isinstance(nodes, list) or not 1 <= len(nodes) <= 6:
+        missing.append("morphology_graph.nodes[1-6]")
         nodes = []
     node_ids = {
         str(node.get("id", "")).strip()
@@ -246,7 +528,7 @@ def _morphology_graph_errors(value: dict[str, Any]) -> list[str]:
         if isinstance(edges, list)
         else []
     )
-    if len(valid_edges) < max(1, len(nodes) - 1):
+    if len(valid_edges) < max(0, len(nodes) - 1):
         missing.append("morphology_graph.connected_edges")
     else:
         adjacency = {node_id: set() for node_id in node_ids}
@@ -264,8 +546,8 @@ def _morphology_graph_errors(value: dict[str, Any]) -> list[str]:
                 frontier.append(neighbor)
         if reached != node_ids:
             missing.append("morphology_graph.connected")
-    if not isinstance(focuses, list) or len(focuses) < 2:
-        missing.append("morphology_graph.focus_areas[2+]")
+    if not isinstance(focuses, list) or not focuses:
+        missing.append("morphology_graph.focus_areas[1+]")
     return missing
 
 
@@ -282,7 +564,9 @@ def _validate_morphology_graph_draft(value: dict[str, Any]) -> None:
         )
 
 
-def _validate_morphology_language_draft(value: dict[str, Any]) -> None:
+def _validate_morphology_language_draft(
+    value: dict[str, Any], expected_term: str = ""
+) -> None:
     required = (
         ("english", "term"),
         ("english", "meaning"),
@@ -298,6 +582,13 @@ def _validate_morphology_language_draft(value: dict[str, Any]) -> None:
         ("arabic", "meaning"),
     )
     missing = [".".join(path) for path in required if not _nonempty_path(value, *path)]
+    if _contains_prompt_placeholder(value):
+        missing.append("prompt_placeholder")
+    if expected_term and (
+        _normalized_english_term(value.get("english", {}).get("term", ""))
+        != _normalized_english_term(expected_term)
+    ):
+        missing.append("english.term.exact_center")
     arabic = value.get("arabic") if isinstance(value.get("arabic"), dict) else {}
     if arabic and (
         not is_arabic_script_text(str(arabic.get("term", "")))
@@ -310,7 +601,13 @@ def _validate_morphology_language_draft(value: dict[str, Any]) -> None:
         )
 
 
-def _validate_card_draft(value: dict[str, Any], mode: str) -> None:
+def _validate_card_draft(
+    value: dict[str, Any],
+    mode: str,
+    *,
+    expected_term: str = "",
+    evidence: list[Evidence] | None = None,
+) -> None:
     required_paths = {
         "word": (
             ("title",),
@@ -364,7 +661,34 @@ def _validate_card_draft(value: dict[str, Any], mode: str) -> None:
         if not _nonempty_path(value, *path)
     ]
     if mode in {"word", "root", "affix"}:
-        missing.extend(_morphology_graph_errors(value))
+        graph_errors = _morphology_graph_errors(value)
+        missing.extend(graph_errors)
+        if not graph_errors and expected_term and evidence is not None:
+            _validate_grounded_morphology_graph(value, expected_term, evidence)
+        graph = value.get("morphology_graph", {})
+        nodes = graph.get("nodes", []) if isinstance(graph, dict) else []
+        center_id = str(graph.get("center_id", "")) if isinstance(graph, dict) else ""
+        center = next(
+            (
+                node
+                for node in nodes
+                if isinstance(node, dict) and str(node.get("id", "")) == center_id
+            ),
+            {},
+        )
+        english_term = value.get("english", {}).get("term", "")
+        if center and (
+            _normalized_english_term(english_term)
+            != _normalized_english_term(center.get("form", ""))
+        ):
+            missing.append("english.term.graph_center")
+        if expected_term and (
+            _normalized_english_term(english_term)
+            != _normalized_english_term(expected_term)
+        ):
+            missing.append("english.term.requested")
+        if _contains_prompt_placeholder(value):
+            missing.append("prompt_placeholder")
     if missing:
         raise ValueError(f"model returned incomplete card fields: {', '.join(missing)}")
 
@@ -619,13 +943,13 @@ class LlamaCppClient:
             "top_p": 0.8,
             "top_k": 20,
             "presence_penalty": 0.1,
-            "max_tokens": 1200,
+            "max_tokens": 760,
             "stream": False,
         }
         return self._complete_card_stage(
             payload,
-            _validate_morphology_graph_draft,
-            repair_tokens=1400,
+            lambda value: _validate_grounded_morphology_graph(value, query, evidence),
+            repair_tokens=900,
             repair_instruction=(
                 "Start again from the supplied evidence. Return one complete, concise "
                 "graph JSON object; close every array and object"
@@ -663,7 +987,7 @@ class LlamaCppClient:
         }
         return self._complete_card_stage(
             payload,
-            _validate_morphology_language_draft,
+            lambda value: _validate_morphology_language_draft(value, query),
             repair_tokens=640,
             repair_instruction=(
                 "Start again. Return all five non-empty compact language objects. "
@@ -680,6 +1004,8 @@ class LlamaCppClient:
                 query, mode, evidence, graph_stage["value"]
             )
             draft = {**graph_stage["value"], **language_stage["value"]}
+            # The graph stage has already sanitized provenance and recorded
+            # warnings. Do not run it twice and erase why a claim was repaired.
             _validate_card_draft(draft, mode)
             draft["_preparation_stages"] = {
                 "model-morphology-graph": graph_stage,
@@ -749,7 +1075,9 @@ class LlamaCppClient:
             content = self._content(body)
             try:
                 draft = _extract_json(str(content))
-                _validate_card_draft(draft, mode)
+                _validate_card_draft(
+                    draft, mode, expected_term=query, evidence=evidence
+                )
                 return draft
             except ValueError as exc:
                 if attempt:

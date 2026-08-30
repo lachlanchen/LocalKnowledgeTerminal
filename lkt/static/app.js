@@ -35,6 +35,8 @@ let ambientRouting = false;
 let ambientModeIndex = 0;
 let userActivityRevision = 0;
 let historyRequestRevision = 0;
+let cardSubmissionRevision = 0;
+let activeCardSubmissionController = null;
 const ambientModeDecks = new Map();
 
 const INNER_SLIDE_DWELL_MS = 18000;
@@ -1803,15 +1805,27 @@ async function loadObservations() {
   }
 }
 
+function cancelCardSubmission() {
+  cardSubmissionRevision += 1;
+  activeCardSubmissionController?.abort();
+  activeCardSubmissionController = null;
+}
+
 async function submitQuery(query, requestedMode = mode, context = {}) {
-  query = String(query || "").trim();
-  if (!query) return;
+  const submittedQuery = String(query || "").trim();
+  if (!submittedQuery) return;
+  cancelCardSubmission();
   setMode(requestedMode);
-  if (mode === "chat") {
-    await submitChat(query);
+  const submittedMode = mode;
+  if (submittedMode === "chat") {
+    await submitChat(submittedQuery);
     return;
   }
-  $("#query").value = query;
+  const submittedContext = { ...context };
+  const requestRevision = cardSubmissionRevision;
+  const requestController = new AbortController();
+  activeCardSubmissionController = requestController;
+  $("#query").value = submittedQuery;
   $("#generate-button").disabled = true;
   text("#loading-kicker", "READING LOCALLY");
   text("#loading-title", "Composing the next card…");
@@ -1819,16 +1833,28 @@ async function submitQuery(query, requestedMode = mode, context = {}) {
   show("loading");
   try {
     for (let poll = 0; poll < 300; poll += 1) {
+      if (requestRevision !== cardSubmissionRevision) return;
       const response = await fetch("/api/cards", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query, mode, ...context }),
+        body: JSON.stringify({
+          ...submittedContext,
+          query: submittedQuery,
+          mode: submittedMode,
+          retry_failed: poll === 0,
+        }),
+        signal: requestController.signal,
       });
       const payload = await response.json();
+      if (requestRevision !== cardSubmissionRevision) return;
       if (response.status === 202 && payload.status === "preparing") {
         text("#loading-kicker", `LOCAL PIPELINE · ${payload.completed_jobs} / ${payload.total_jobs}`);
         text("#loading-title", payload.current_label || "Preparing accepted knowledge");
-        text("#loading-detail", "Each finished step is saved. You may reconnect without losing progress.");
+        text(
+          "#loading-detail",
+          payload.generation_blocker
+            || "Each finished step is saved. You may reconnect without losing progress.",
+        );
         await wait(Math.max(1000, Math.min(Number(payload.poll_after_ms) || 3000, 10000)));
         continue;
       }
@@ -1838,10 +1864,14 @@ async function submitQuery(query, requestedMode = mode, context = {}) {
     }
     throw new Error("Preparation is still running. Reopen this word to resume its saved progress.");
   } catch (error) {
+    if (error.name === "AbortError" || requestRevision !== cardSubmissionRevision) return;
     text("#error-message", error.message);
     show("error");
   } finally {
-    $("#generate-button").disabled = false;
+    if (requestRevision === cardSubmissionRevision) {
+      activeCardSubmissionController = null;
+      $("#generate-button").disabled = false;
+    }
   }
 }
 
@@ -1889,7 +1919,8 @@ async function loadHealth() {
   try {
     const response = await fetch("/api/health");
     const health = await response.json();
-    const ready = health.status === "ready";
+    const generation = health.generation || {};
+    const ready = generation.ready === true;
     container.classList.toggle("ready", ready);
     const bookItems = Object.values(health.card_books || {}).reduce((total, item) => total + (item.items || 0), 0);
     const morphologyItems = Object.values(health.morphology || {}).reduce((total, item) => total + (item.items || 0), 0);
@@ -1905,7 +1936,12 @@ async function loadHealth() {
       ? ` · ${lexical.planned.toLocaleString()} words planned`
       : "";
     const progress = bookProgress + lexicalProgress;
-    text("#state-label", ready ? `${progress} · Qwen ready` : "Model or corpus is starting…");
+    text(
+      "#state-label",
+      ready
+        ? `${progress} · Qwen ready`
+        : generation.blocker || "Model, corpus, or worker is starting…",
+    );
   } catch (_error) {
     text("#state-label", "Terminal unavailable");
   }
@@ -2170,6 +2206,10 @@ function navigateCards(step) {
 
 async function activateMode(nextMode) {
   ambientRouting = false;
+  if (nextMode !== mode) {
+    cancelCardSubmission();
+    $("#generate-button").disabled = false;
+  }
   if (nextMode === "chat") {
     chatContextCardId = "";
     chatContextTitle = "";

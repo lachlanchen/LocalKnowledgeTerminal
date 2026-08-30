@@ -46,6 +46,14 @@ def memory_pressure_blocker(
     return ""
 
 
+def is_memory_pressure_blocker(reason: str) -> bool:
+    """Identify the structured memory guard without bypassing power or heat."""
+
+    return reason.startswith("background preparation paused: only ") and reason.endswith(
+        " MiB memory is available"
+    )
+
+
 def background_preparation_blocker(
     max_temperature_c: float = 78.0,
     min_available_mib: float = 1024.0,

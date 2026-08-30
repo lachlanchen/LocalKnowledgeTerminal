@@ -69,6 +69,9 @@ class AtomicWatchTests(unittest.TestCase):
         self.assertIn("OOMPolicy=stop", unit)
         self.assertIn("Environment=LKT_MODEL_CONTEXT=3072", unit)
         self.assertIn("Environment=LKT_BATCH_SIZE=128", unit)
+        self.assertIn("--cache-ram 256", unit)
+        self.assertIn("--ctx-checkpoints 4", unit)
+        self.assertIn("--sleep-idle-seconds 600", unit)
 
     def test_knowledge_runtime_pins_the_full_jmdict_index(self) -> None:
         root = Path(__file__).resolve().parents[1]

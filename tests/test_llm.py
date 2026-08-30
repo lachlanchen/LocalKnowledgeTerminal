@@ -12,6 +12,7 @@ from lkt.llm import (
     WORD_ORIGIN_PROMPT,
     _extract_json,
     _validate_card_draft,
+    _validate_grounded_morphology_graph,
     _validate_morphology_language_draft,
 )
 from lkt.models import Evidence
@@ -28,6 +29,73 @@ class LlmParsingTests(unittest.TestCase):
         }
         with self.assertRaisesRegex(ValueError, "arabic.valid_script"):
             _validate_morphology_language_draft(draft)
+
+    def test_morphology_languages_reject_prompt_placeholder_as_center(self) -> None:
+        draft = {
+            "english": {"term": "exact center form", "meaning": "cultivation"},
+            "japanese": {"term": "園芸", "reading": "えんげい", "meaning": "栽培"},
+            "chinese": {"simplified": "园艺", "pinyin": "yuán yì", "meaning": "栽培"},
+            "french": {"term": "horticulture", "meaning": "culture"},
+            "arabic": {"term": "بستنة", "meaning": "زراعة"},
+        }
+        with self.assertRaisesRegex(ValueError, "prompt_placeholder"):
+            _validate_morphology_language_draft(draft, "horticulture")
+
+    def test_morphology_provenance_is_normalized_with_warnings(self) -> None:
+        evidence = [
+            Evidence("hort", "horticulture", "A", "1", (1,), "horticulture means garden cultivation"),
+            Evidence("cohort", "cohort", "A", "2", (2,), "com- and hort formed Latin cohors; compare horticulture"),
+        ]
+        draft = {
+            "title": "horticulture",
+            "summary_en": "garden cultivation",
+            "morphology_graph": {
+                "center_id": "word",
+                "nodes": [
+                    {"id": "word", "type": "word", "form": "wrong center", "meaning": "garden cultivation", "basis": "book", "confidence": "high", "evidence_ids": ["missing", "hort"]},
+                    {"id": "com", "type": "prefix", "form": "com-", "meaning": "together", "basis": "book", "confidence": "high", "evidence_ids": ["missing", "cohort"]},
+                    {"id": "suffix", "type": "suffix", "form": "-ism", "meaning": "practice", "basis": "book", "confidence": "high", "evidence_ids": ["missing"]},
+                    {"id": "model-root", "type": "root", "form": "garden", "meaning": "garden", "basis": "model", "confidence": "high", "evidence_ids": ["hort"]},
+                ],
+                "edges": [
+                    {"source": "com", "target": "word", "relationship": "prefix-of", "basis": "book", "confidence": "high", "evidence_ids": ["missing", "cohort"]},
+                    {"source": "suffix", "target": "word", "relationship": "suffix-of", "basis": "book", "confidence": "high", "evidence_ids": ["missing"]},
+                    {"source": "model-root", "target": "word", "relationship": "root-of", "basis": "model", "evidence_ids": ["cohort"]},
+                ],
+                "focus_areas": [{"kind": "overview", "node_ids": ["word", "com", "suffix", "model-root"]}],
+            },
+        }
+        _validate_grounded_morphology_graph(draft, "horticulture", evidence)
+
+        graph = draft["morphology_graph"]
+        nodes = {node["id"]: node for node in graph["nodes"]}
+        self.assertEqual(nodes["word"]["form"], "horticulture")
+        self.assertEqual(nodes["word"]["evidence_ids"], ["hort"])
+        self.assertEqual(nodes["word"]["basis"], "book")
+        self.assertEqual(nodes["com"]["evidence_ids"], ["cohort"])
+        self.assertEqual(nodes["com"]["basis"], "book")
+        self.assertEqual(nodes["suffix"]["basis"], "model")
+        self.assertEqual(nodes["suffix"]["confidence"], "low")
+        self.assertEqual(nodes["suffix"]["evidence_ids"], [])
+        self.assertEqual(nodes["model-root"]["basis"], "model")
+        self.assertEqual(nodes["model-root"]["confidence"], "low")
+        self.assertEqual(nodes["model-root"]["evidence_ids"], [])
+
+        book_edge, downgraded_edge, model_edge = graph["edges"]
+        self.assertEqual(book_edge["basis"], "book")
+        self.assertEqual(book_edge["evidence_ids"], ["cohort"])
+        self.assertEqual(downgraded_edge["basis"], "model")
+        self.assertEqual(downgraded_edge["confidence"], "low")
+        self.assertEqual(downgraded_edge["evidence_ids"], [])
+        self.assertEqual(model_edge["basis"], "model")
+        self.assertEqual(model_edge["confidence"], "low")
+        self.assertEqual(model_edge["evidence_ids"], [])
+
+        warnings = graph["provenance_warnings"]
+        self.assertIsInstance(warnings, list)
+        warning_text = json.dumps(warnings)
+        self.assertIn("evidence-support-warning", warning_text)
+        self.assertIn("model-surface-shape-warning", warning_text)
 
     def test_morphology_prompt_and_validator_require_connected_focus_graph(self) -> None:
         self.assertIn("evidence_ids", MORPHOLOGY_PROMPT)
@@ -47,7 +115,6 @@ class LlmParsingTests(unittest.TestCase):
                     {"id": "ion", "type": "suffix", "form": "-ion", "meaning": "action", "basis": "book"},
                     {"id": "latin", "type": "historical", "form": "specere", "meaning": "to look", "basis": "model"},
                     {"id": "inspect", "type": "related", "form": "inspect", "meaning": "examine", "basis": "model"},
-                    {"id": "spectator", "type": "related", "form": "spectator", "meaning": "observer", "basis": "model"},
                 ],
                 "edges": [
                     {"source": "in", "target": "word"},
@@ -55,10 +122,9 @@ class LlmParsingTests(unittest.TestCase):
                     {"source": "ion", "target": "word"},
                     {"source": "latin", "target": "spect"},
                     {"source": "spect", "target": "inspect"},
-                    {"source": "spect", "target": "spectator"},
                 ],
                 "focus_areas": [
-                    {"kind": "overview", "node_ids": ["word", "in", "spect", "ion", "latin", "inspect", "spectator"]},
+                    {"kind": "overview", "node_ids": ["word", "in", "spect", "ion", "latin", "inspect"]},
                     {"kind": "root", "node_ids": ["spect", "latin"]},
                 ],
             },
@@ -157,24 +223,22 @@ class LlmParsingTests(unittest.TestCase):
             "morphology_graph": {
                 "center_id": "modern",
                 "nodes": [
-                    {"id": "modern", "type": "word", "form": "abacus", "meaning": "counting frame", "basis": "book"},
-                    {"id": "latin", "type": "historical", "form": "abacus", "meaning": "counting board", "basis": "book"},
-                    {"id": "greek", "type": "historical", "form": "abax", "meaning": "board", "basis": "book"},
-                    {"id": "plural", "type": "related", "form": "abaci", "meaning": "plural form", "basis": "model"},
-                    {"id": "calculate", "type": "related", "form": "calculate", "meaning": "find a number", "basis": "model"},
-                    {"id": "abaci", "type": "related", "form": "abaci", "meaning": "plural form", "basis": "model"},
-                    {"id": "count", "type": "related", "form": "count", "meaning": "enumerate", "basis": "model"},
+                {"id": "modern", "type": "word", "form": "abacus", "meaning": "counting frame", "basis": "book", "evidence_ids": ["entry-1"]},
+                {"id": "latin", "type": "historical", "form": "abacus", "meaning": "counting board", "basis": "book", "evidence_ids": ["entry-1"]},
+                {"id": "greek", "type": "historical", "form": "abax", "meaning": "board", "basis": "book", "evidence_ids": ["entry-1"]},
+                {"id": "plural", "type": "related", "form": "abaci", "meaning": "plural form", "basis": "model", "confidence": "low", "evidence_ids": []},
+                {"id": "calculate", "type": "related", "form": "calculate", "meaning": "find a number", "basis": "model", "confidence": "low", "evidence_ids": []},
+                {"id": "abaci", "type": "related", "form": "abaci", "meaning": "plural form", "basis": "model", "confidence": "low", "evidence_ids": []},
                 ],
                 "edges": [
-                    {"source": "greek", "target": "latin", "relationship": "developed-into"},
-                    {"source": "latin", "target": "modern", "relationship": "developed-into"},
-                    {"source": "modern", "target": "plural", "relationship": "related-form"},
-                    {"source": "modern", "target": "calculate", "relationship": "related-form"},
-                    {"source": "modern", "target": "abaci", "relationship": "related-form"},
-                    {"source": "modern", "target": "count", "relationship": "related-form"},
+                {"source": "greek", "target": "latin", "relationship": "developed-into", "basis": "book", "confidence": "high", "evidence_ids": ["entry-1"]},
+                {"source": "latin", "target": "modern", "relationship": "developed-into", "basis": "book", "confidence": "high", "evidence_ids": ["entry-1"]},
+                {"source": "modern", "target": "plural", "relationship": "related-form", "basis": "model", "confidence": "low", "evidence_ids": []},
+                {"source": "modern", "target": "calculate", "relationship": "related-form", "basis": "model", "confidence": "low", "evidence_ids": []},
+                {"source": "modern", "target": "abaci", "relationship": "related-form", "basis": "model", "confidence": "low", "evidence_ids": []},
                 ],
                 "focus_areas": [
-                    {"id": "overview", "kind": "overview", "node_ids": ["modern", "latin", "greek", "plural", "calculate", "abaci", "count"]},
+                    {"id": "overview", "kind": "overview", "node_ids": ["modern", "latin", "greek", "plural", "calculate", "abaci"]},
                     {"id": "history", "kind": "history", "node_ids": ["modern", "latin", "greek"]},
                 ],
             },
@@ -187,6 +251,10 @@ class LlmParsingTests(unittest.TestCase):
                 {"message": {"content": json.dumps(valid_content)}}
             ]
         }
+        support = (
+            "abacus counting frame comes from Latin abacus counting board and "
+            "Greek abax board; abaci is a plural form, calculate means find a number"
+        )
         evidence = [
             Evidence(
                 f"entry-{index}",
@@ -194,7 +262,7 @@ class LlmParsingTests(unittest.TestCase):
                 f"section-{index}",
                 f"locator-{index}",
                 (index,),
-                ("x" * 394) + f"EDGE{index}" + "Z" + f"TAIL{index}",
+                support + ("x" * (394 - len(support))) + f"EDGE{index}" + "Z" + f"TAIL{index}",
             )
             for index in range(1, 5)
         ]
@@ -245,10 +313,11 @@ class LlmParsingTests(unittest.TestCase):
                     "form": word,
                     "meaning": "related word",
                     "basis": "model",
+                    "confidence": "low",
                     "evidence_ids": [],
                 }
                 for word in (
-                    "inspect", "respect", "prospect", "spectator", "retrospect", "introspection"
+                    "inspect", "respect"
                 )
             ),
         ]
@@ -259,9 +328,9 @@ class LlmParsingTests(unittest.TestCase):
                 "center_id": "spect",
                 "nodes": nodes,
                 "edges": [
-                    {"source": "spect", "target": word, "relationship": "root-of"}
+                    {"source": "spect", "target": word, "relationship": "root-of", "basis": "model", "confidence": "low", "evidence_ids": []}
                     for word in (
-                        "inspect", "respect", "prospect", "spectator", "retrospect", "introspection"
+                        "inspect", "respect"
                     )
                 ],
                 "focus_areas": [
@@ -299,7 +368,7 @@ class LlmParsingTests(unittest.TestCase):
                 "S",
                 "Latin",
                 (58,),
-                "Latin spect means look or see.",
+                "SPECT means look or see; inspect and respect are related words.",
             )
         ]
 
@@ -320,8 +389,8 @@ class LlmParsingTests(unittest.TestCase):
         first_graph = request.call_args_list[0].args[0]
         repaired_graph = request.call_args_list[1].args[0]
         language_call = request.call_args_list[2].args[0]
-        self.assertEqual(first_graph["max_tokens"], 1200)
-        self.assertEqual(repaired_graph["max_tokens"], 1400)
+        self.assertEqual(first_graph["max_tokens"], 760)
+        self.assertEqual(repaired_graph["max_tokens"], 900)
         self.assertFalse(
             any(
                 message["role"] == "assistant"

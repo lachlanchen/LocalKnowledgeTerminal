@@ -333,6 +333,22 @@ class WebInputTests(unittest.TestCase):
             ],
         )
 
+    def test_card_submission_keeps_its_mode_and_cancels_stale_polling(self) -> None:
+        script = (
+            Path(__file__).resolve().parents[1] / "lkt" / "static" / "app.js"
+        ).read_text(encoding="utf-8")
+        self.assertIn("const submittedQuery = String(query || \"\").trim();", script)
+        self.assertIn("const submittedMode = mode;", script)
+        self.assertIn("const requestRevision = cardSubmissionRevision;", script)
+        self.assertIn("activeCardSubmissionController?.abort();", script)
+        self.assertIn("signal: requestController.signal,", script)
+        self.assertIn("if (requestRevision !== cardSubmissionRevision) return;", script)
+        self.assertIn("query: submittedQuery,", script)
+        self.assertIn("mode: submittedMode,", script)
+        self.assertIn("retry_failed: poll === 0,", script)
+        self.assertIn("if (nextMode !== mode) {", script)
+        self.assertNotIn("JSON.stringify({ query, mode, ...context })", script)
+
     def test_chat_rejects_an_empty_message(self) -> None:
         with self.assertRaises(ValueError):
             chat_messages({"message": "  "})
@@ -342,6 +358,8 @@ class WebInputTests(unittest.TestCase):
         script = source.read_text(encoding="utf-8")
         self.assertIn('payload.get("refresh") is not True', script)
         self.assertIn("service.store.find_active(requested_mode, query)", script)
+        self.assertIn('payload.get("retry_failed") is True', script)
+        self.assertIn("knowledge.requeue_failed_jobs(plan.jobs.values())", script)
 
     def test_linked_word_preparation_exposes_bounded_polling_progress(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -356,6 +374,12 @@ class WebInputTests(unittest.TestCase):
             self.assertEqual(state["current_job"], "retrieve-evidence")
             self.assertEqual(state["completed_jobs"], 0)
             self.assertGreater(state["total_jobs"], 1)
+            self.assertFalse(state["generation_ready"])
+            self.assertIn("heartbeat", state["generation_blocker"])
+
+            store.record_worker_heartbeat("")
+            state = word_card_preparation_state(plan, store)
+            self.assertTrue(state["generation_ready"])
 
             retrieval = store.claim_next_job()
             store.finish_job(retrieval["job_id"])
@@ -391,6 +415,7 @@ class WebInputTests(unittest.TestCase):
                 state = word_card_preparation_state(plan, store, mode)
                 self.assertEqual(state["mode"], mode)
                 self.assertEqual(state["current_job"], "retrieve-evidence")
+                self.assertTrue(all(job["priority"] < 0 for job in jobs))
 
     def test_card_chat_context_keeps_retrieved_source(self) -> None:
         context = card_chat_context(
