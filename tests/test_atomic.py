@@ -20,6 +20,7 @@ from lkt.atomic import (
     _explicit_form_evidence_ids,
     _origin_draft_review_reason,
     _origin_cross_reference_targets,
+    _origin_history_headline,
     _normalize_origin_draft,
     _origin_source_record_matches,
     _origin_source_evidence_supported,
@@ -2495,6 +2496,26 @@ class AtomicWorkerTests(unittest.TestCase):
         )
 
         self.assertNotIn("root", {spec[0] for spec in specs})
+
+    def test_origin_history_headline_deduplicates_only_adjacent_equal_forms(self) -> None:
+        self.assertEqual(
+            _origin_history_headline(
+                ["Serendip", "serendipity", "SERENDIPITY"]
+            ),
+            "Serendip → serendipity",
+        )
+        self.assertEqual(
+            _origin_history_headline(
+                ["*spek-", "specere", "spect", "inspection"]
+            ),
+            "*spek- → specere → spect → inspection",
+        )
+        self.assertEqual(
+            _origin_history_headline(
+                ["com-", "ponere", "pon", "compound"]
+            ),
+            "com- → ponere → pon → compound",
+        )
 
 
 if __name__ == "__main__":

@@ -524,6 +524,21 @@ def _derived_origin_view_specs(
     return tuple(specs)
 
 
+def _origin_history_headline(forms: list[Any]) -> str:
+    displayed: list[str] = []
+    previous_key = ""
+    for value in forms:
+        form = str(value).strip()
+        if not form:
+            continue
+        normalized = _plain_letter_key(form) or " ".join(form.casefold().split())
+        if displayed and normalized == previous_key:
+            continue
+        displayed.append(form)
+        previous_key = normalized
+    return " → ".join(displayed)
+
+
 def _affix_origin_story(parts: list[dict[str, Any]]) -> str:
     """Describe only accepted affix parts without overstating provenance."""
 
@@ -2979,11 +2994,11 @@ reading and do not rewrite the Japanese form."""
                 for earlier, later in zip(chain, chain[1:])
             )
             if branch.get("component_kind") in {"root", "free"}:
-                headline = " → ".join(
+                headline = _origin_history_headline(
                     [
-                        *(str(step["form"]) for step in steps),
-                        str(parts_by_id[component_id]["canonical_form"]),
-                        str(source["text"]),
+                        *(step["form"] for step in steps),
+                        parts_by_id[component_id]["canonical_form"],
+                        source["text"],
                     ]
                 )
                 root_headlines.append(headline)
