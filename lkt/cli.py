@@ -631,7 +631,12 @@ def run_atomic_watch(
     periodic_action_interval: float = 120.0,
     preparation_blocker: Callable[[], str] = background_preparation_blocker,
 ) -> int:
-    """Run one persisted task at a time while preserving device headroom."""
+    """Run one persisted task at a time while preserving device headroom.
+
+    Atomic work gets the first opportunity on every iteration. Periodic direct
+    preparation is synchronous and cannot be preempted after it starts, so it
+    may begin only after the atomic worker reports that its queue is idle.
+    """
 
     next_idle_action = monotonic()
     next_periodic_action = monotonic()
@@ -643,13 +648,15 @@ def run_atomic_watch(
         if preparation_blocker():
             stop_event.wait(idle_seconds)
             continue
-        if periodic_action is not None and monotonic() >= next_periodic_action:
-            emit(periodic_action())
-            next_periodic_action = monotonic() + max(1.0, periodic_action_interval)
-            stop_event.wait(job_delay)
-            continue
         result = worker.run_once()
         if result is None:
+            if periodic_action is not None and monotonic() >= next_periodic_action:
+                emit(periodic_action())
+                next_periodic_action = monotonic() + max(
+                    1.0, periodic_action_interval
+                )
+                stop_event.wait(job_delay)
+                continue
             if idle_action is not None and monotonic() >= next_idle_action:
                 emit(idle_action())
                 next_idle_action = monotonic() + max(1.0, idle_action_interval)

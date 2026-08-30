@@ -2087,6 +2087,46 @@ class KnowledgeStore:
             ).fetchall()
         return {str(row["normalized"]) for row in rows}
 
+    def terminal_failed_term_keys(
+        self,
+        language: str = "en",
+        *,
+        exclude_prompt_version: str = "",
+        source_fingerprint: str = "",
+    ) -> set[str]:
+        """Return failed lexical subjects with no active work or repair epoch."""
+
+        language = _language(language)
+        exclusion = ""
+        parameters: list[Any] = [language]
+        if exclude_prompt_version:
+            exclusion = """
+                AND NOT EXISTS (
+                    SELECT 1 FROM preparation_jobs AS repair
+                    WHERE repair.subject_entity_id = term.entity_id
+                      AND repair.prompt_version = ?
+                      AND repair.source_fingerprint = ?
+                )"""
+            parameters.extend((exclude_prompt_version, source_fingerprint))
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """SELECT DISTINCT term.normalized FROM terms AS term
+                   WHERE term.language = ? AND term.kind = 'word'
+                     AND EXISTS (
+                         SELECT 1 FROM preparation_jobs AS failed
+                         WHERE failed.subject_entity_id = term.entity_id
+                           AND failed.status = 'failed'
+                     )
+                     AND NOT EXISTS (
+                         SELECT 1 FROM preparation_jobs AS active
+                         WHERE active.subject_entity_id = term.entity_id
+                           AND active.status IN ('queued', 'running')
+                     )
+                """ + exclusion,
+                tuple(parameters),
+            ).fetchall()
+        return {str(row["normalized"]) for row in rows}
+
     def active_term_preparation_count(self) -> int:
         """Return the number of lexical subjects still using the atomic worker."""
 

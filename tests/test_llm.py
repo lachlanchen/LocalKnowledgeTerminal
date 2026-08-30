@@ -6,6 +6,7 @@ import unittest
 from unittest.mock import patch
 
 from lkt.llm import (
+    InvalidModelOutput,
     LlamaCppClient,
     MORPHOLOGY_PROMPT,
     WORD_ORIGIN_PROMPT,
@@ -82,6 +83,32 @@ class LlmParsingTests(unittest.TestCase):
     def test_rejects_non_json(self) -> None:
         with self.assertRaises(ValueError):
             _extract_json("not structured")
+
+    def test_terminal_invalid_stage_retains_two_bounded_attempts(self) -> None:
+        client = LlamaCppClient("http://localhost/v1/chat/completions", "test")
+        body = {
+            "choices": [{"message": {"content": "x" * 5_000}}],
+            "usage": {"prompt_tokens": 21, "completion_tokens": 1200},
+            "timings": {"predicted_per_second": 2.75},
+        }
+        payload = {
+            "messages": [{"role": "user", "content": "evidence"}],
+            "max_tokens": 1200,
+        }
+        with patch.object(client, "_request", side_effect=[(body, 2.0), (body, 3.0)]):
+            with self.assertRaises(InvalidModelOutput) as caught:
+                client._complete_card_stage(
+                    payload,
+                    lambda _value: None,
+                    repair_tokens=1600,
+                    repair_instruction="Try again.",
+                )
+
+        failures = caught.exception.failures
+        self.assertEqual([item["attempt"] for item in failures], [1, 2])
+        self.assertTrue(all(len(item["raw"]) == 4_000 for item in failures))
+        self.assertEqual(failures[0]["metrics"]["completion_tokens"], 1200)
+        self.assertEqual(failures[1]["metrics"]["elapsed_seconds"], 3.0)
 
     def test_rejects_a_blank_structured_card(self) -> None:
         with self.assertRaisesRegex(ValueError, "summary_en"):

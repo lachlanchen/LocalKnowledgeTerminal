@@ -9,7 +9,7 @@ from typing import Any
 
 from .card_books import CardBookIndex
 from .corpus import CorpusIndex
-from .llm import CardModel
+from .llm import CardModel, InvalidModelOutput
 from .models import Card, Evidence
 from .morphology import MorphologyIndex
 from .pronunciation import chinese_pinyin, chinese_ruby_tokens, is_arabic_script_text
@@ -597,7 +597,13 @@ class CardService:
                         "reused_from_artifact_id": reusable_graph["artifact_id"],
                     }
                 else:
-                    graph_stage = graph_generator(query, mode, evidence)
+                    try:
+                        graph_stage = graph_generator(query, mode, evidence)
+                    except InvalidModelOutput as exc:
+                        self._save_rejected_morphology_stage(
+                            preparation_run_id, "graph", exc
+                        )
+                        raise
                     graph_stage["evidence_fingerprint"] = evidence_fingerprint
                 self.store.save_preparation_artifact(
                     preparation_run_id, "model-morphology-graph", graph_stage
@@ -622,9 +628,15 @@ class CardService:
                         "reused_from_artifact_id": reusable_languages["artifact_id"],
                     }
                 else:
-                    language_stage = language_generator(
-                        query, mode, evidence, graph_value
-                    )
+                    try:
+                        language_stage = language_generator(
+                            query, mode, evidence, graph_value
+                        )
+                    except InvalidModelOutput as exc:
+                        self._save_rejected_morphology_stage(
+                            preparation_run_id, "languages", exc
+                        )
+                        raise
                     language_stage["evidence_fingerprint"] = language_fingerprint
                 self.store.save_preparation_artifact(
                     preparation_run_id,
@@ -781,3 +793,40 @@ class CardService:
         except Exception:
             raise
         return card
+
+    def _save_rejected_morphology_stage(
+        self,
+        preparation_run_id: str,
+        stage: str,
+        error: InvalidModelOutput,
+    ) -> None:
+        """Keep rejected local-model output for diagnosis, never for reuse."""
+
+        failures = []
+        for index, item in enumerate(error.failures[:2], 1):
+            metrics = item.get("metrics")
+            failures.append(
+                {
+                    "attempt": int(item.get("attempt") or index),
+                    "error": _short_text(item.get("error"), limit=500),
+                    "raw": str(item.get("raw") or "")[:4_000],
+                    "metrics": {
+                        str(key)[:80]: value
+                        for key, value in (
+                            metrics.items() if isinstance(metrics, dict) else ()
+                        )
+                        if isinstance(value, (str, int, float, bool))
+                    },
+                }
+            )
+        self.store.save_preparation_artifact(
+            preparation_run_id,
+            f"rejected-model-morphology-{stage}",
+            {
+                "model": str(error.model)[:200],
+                "stage": stage,
+                "attempts": len(failures),
+                "failures": failures,
+            },
+            reusable=False,
+        )

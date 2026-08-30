@@ -146,12 +146,18 @@ class AtomicWatchTests(unittest.TestCase):
         self.assertEqual(status, 0)
         self.assertEqual(emitted, ["deck-card-1"])
 
-    def test_watch_runs_periodic_balancer_without_waiting_for_an_empty_queue(self) -> None:
+    def test_watch_drains_atomic_queue_before_periodic_balancer(self) -> None:
         emitted: list[str] = []
-        worker = _Worker([SimpleNamespace(job_id="atomic-job", status="complete")])
+        worker = _Worker(
+            [
+                SimpleNamespace(job_id="atomic-job-1", status="complete"),
+                SimpleNamespace(job_id="atomic-job-2", status="complete"),
+                None,
+            ]
+        )
         status = run_atomic_watch(
             worker,
-            _StopAfterWaits(2),
+            _StopAfterWaits(3),
             idle_seconds=2,
             job_delay=1,
             emit=lambda result: emitted.append(result.job_id),
@@ -160,8 +166,10 @@ class AtomicWatchTests(unittest.TestCase):
             preparation_blocker=lambda: "",
         )
         self.assertEqual(status, 0)
-        self.assertEqual(emitted, ["balanced-seed", "atomic-job"])
-        self.assertEqual(worker.calls, 1)
+        self.assertEqual(
+            emitted, ["atomic-job-1", "atomic-job-2", "balanced-seed"]
+        )
+        self.assertEqual(worker.calls, 3)
 
     def test_watch_does_not_drain_queue_during_memory_pressure(self) -> None:
         worker = _Worker([SimpleNamespace(job_id="job-1", status="complete")])

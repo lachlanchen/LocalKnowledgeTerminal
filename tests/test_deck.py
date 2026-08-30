@@ -523,6 +523,92 @@ class AutonomousDeckTests(unittest.TestCase):
         self.assertEqual(seeder.progress()["complete"], False)
         self.assertEqual(seeder.progress()["remaining"], 1)
 
+    def test_terminal_word_gap_gets_one_deterministic_full_repair(self) -> None:
+        from unittest.mock import patch
+
+        repair_version = "autonomous-lexical-v4-word-repair-v1"
+
+        class _Corpus:
+            def lexical_headwords(self) -> tuple[str, ...]:
+                return ("alpha",)
+
+            def metadata(self) -> dict[str, str]:
+                return {"source_sha256": "corpus-sha"}
+
+            def draw_unseen_word(
+                self, _seed: str, _planned: set[str]
+            ) -> None:
+                return None
+
+        class _Store:
+            def accepted_for_modes(
+                self, _modes: tuple[str, ...]
+            ) -> list[dict[str, str]]:
+                return []
+
+        class _Knowledge:
+            def __init__(self) -> None:
+                self.repair_seen = False
+                self.jobs: list[dict[str, str]] = []
+
+            def planned_term_keys(self, _language: str) -> set[str]:
+                return {"alpha"}
+
+            def terminal_failed_term_keys(
+                self,
+                _language: str,
+                *,
+                exclude_prompt_version: str = "",
+                source_fingerprint: str = "",
+            ) -> set[str]:
+                self.asserted_fingerprint = source_fingerprint
+                if exclude_prompt_version == repair_version and self.repair_seen:
+                    return set()
+                return {"alpha"}
+
+            def jobs_for_subject(self, _subject_key: str) -> list[dict[str, str]]:
+                return self.jobs
+
+        versions: list[str] = []
+
+        class _Planner:
+            def __init__(
+                self,
+                knowledge: _Knowledge,
+                *,
+                model: str,
+                prompt_version: str,
+                source_fingerprint: str,
+            ) -> None:
+                self.knowledge = knowledge
+                self.prompt_version = prompt_version
+                versions.append(prompt_version)
+
+            def plan_word(self, _query: str) -> SimpleNamespace:
+                self.knowledge.repair_seen = True
+                self.knowledge.jobs = [
+                    {"job_id": "repair-word", "status": "queued"}
+                ]
+                return SimpleNamespace(
+                    subject_key="term:alpha",
+                    jobs={"compose-word-card": "repair-word"},
+                )
+
+        knowledge = _Knowledge()
+        seeder = AutonomousLexicalSeeder(
+            _Corpus(), _Store(), knowledge, model="local-qwen-test"
+        )
+        with patch("lkt.deck.PreparationPlanner", _Planner):
+            first = seeder.run_once("stable-cycle")
+            knowledge.jobs[0]["status"] = "failed"
+            second = seeder.run_once("stable-cycle")
+
+        self.assertEqual(first.status, "repair-queued")
+        self.assertEqual(second.status, "repair-blocked")
+        self.assertEqual(versions, [repair_version])
+        self.assertEqual(knowledge.asserted_fingerprint, "corpus-sha")
+        self.assertFalse(seeder.progress()["complete"])
+
 
 if __name__ == "__main__":
     unittest.main()

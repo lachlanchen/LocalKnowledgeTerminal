@@ -206,6 +206,7 @@ class AutonomousLexicalSeeder:
     def progress(self) -> dict[str, Any]:
         candidates = {item.casefold() for item in self.corpus.lexical_headwords()}
         planned = len(candidates.intersection(self._planned_keys()))
+        word_repair_remaining = len(self._missing_word_queries())
         repair_remaining = len(self._missing_origin_queries())
         accepted = {
             str(card.get("query", "")).strip().casefold()
@@ -219,8 +220,16 @@ class AutonomousLexicalSeeder:
             "planned": planned,
             "accepted": accepted_count,
             "total": total,
-            "remaining": max(0, total - planned) + repair_remaining,
-            "complete": planned >= total and repair_remaining == 0,
+            "remaining": (
+                max(0, total - planned)
+                + word_repair_remaining
+                + repair_remaining
+            ),
+            "complete": (
+                planned >= total
+                and word_repair_remaining == 0
+                and repair_remaining == 0
+            ),
             "modes": list(self.MODES),
         }
 
@@ -242,6 +251,38 @@ class AutonomousLexicalSeeder:
             if "knowledge" in modes and "word" not in modes
         )
 
+    def _missing_word_queries(
+        self, *, exclude_prompt_version: str = ""
+    ) -> tuple[str, ...]:
+        """Find terminally failed corpus terms that still lack a Word Card."""
+
+        terminal_lookup = getattr(
+            self.knowledge, "terminal_failed_term_keys", None
+        )
+        if not callable(terminal_lookup):
+            return ()
+        fingerprint = self.corpus.metadata().get("source_sha256", "")
+        terminal = terminal_lookup(
+            "en",
+            exclude_prompt_version=exclude_prompt_version,
+            source_fingerprint=fingerprint,
+        )
+        accepted = {
+            str(card.get("query", "")).strip().casefold()
+            for card in self.store.accepted_for_modes(("knowledge",))
+            if str(card.get("query", "")).strip()
+        }
+        display_by_key = {
+            headword.casefold(): headword
+            for headword in self.corpus.lexical_headwords()
+            if headword.strip()
+        }
+        return tuple(
+            display_by_key[key]
+            for key in display_by_key
+            if key in terminal and key not in accepted
+        )
+
     def _plan_has_pending_work(self, plan: Any) -> bool:
         statuses = {
             str(job["job_id"]): str(job["status"])
@@ -256,13 +297,38 @@ class AutonomousLexicalSeeder:
         planned = self._planned_keys()
         progress = self.progress()
         total = int(progress["total"])
+        source_fingerprint = self.corpus.metadata().get("source_sha256", "")
+        word_repair_version = f"{self.prompt_version}-word-repair-v1"
+        terminal_word_repairs = list(self._missing_word_queries())
+        for repair_query in self._missing_word_queries(
+            exclude_prompt_version=word_repair_version
+        ):
+            repair_planner = PreparationPlanner(
+                self.knowledge,
+                model=self.model,
+                prompt_version=word_repair_version,
+                source_fingerprint=source_fingerprint,
+            )
+            repair_plan = repair_planner.plan_word(repair_query)
+            if not self._plan_has_pending_work(repair_plan):
+                continue
+            return DeckSeedResult(
+                status="repair-queued",
+                mode="lexical",
+                prepared=int(progress["planned"]),
+                total=total,
+                message=(
+                    f"queued one bounded full-Word repair for {repair_query}; "
+                    "the deterministic repair epoch will not spin"
+                ),
+            )
         terminal_repairs: list[str] = []
         for repair_query in self._missing_origin_queries():
             planner = PreparationPlanner(
                 self.knowledge,
                 model=self.model,
                 prompt_version=self.prompt_version,
-                source_fingerprint=self.corpus.metadata().get("source_sha256", ""),
+                source_fingerprint=source_fingerprint,
             )
             try:
                 plan = planner.plan_lexical_history_repair(repair_query)
@@ -323,15 +389,15 @@ class AutonomousLexicalSeeder:
                             f"{repair_query}; accepted evidence remains reusable"
                         ),
                     )
-            if terminal_repairs:
+            if terminal_word_repairs or terminal_repairs:
                 return DeckSeedResult(
                     status="repair-blocked",
                     mode="lexical",
                     prepared=int(progress["planned"]),
                     total=total,
                     message=(
-                        "terminal history repairs remain; lexical publication is "
-                        "not complete"
+                        "terminal bounded Word or history repairs remain; lexical "
+                        "publication is not complete"
                     ),
                 )
             return DeckSeedResult(
@@ -345,7 +411,7 @@ class AutonomousLexicalSeeder:
             self.knowledge,
             model=self.model,
             prompt_version=self.prompt_version,
-            source_fingerprint=self.corpus.metadata().get("source_sha256", ""),
+            source_fingerprint=source_fingerprint,
         )
         plan = planner.plan_word(evidence.headword)
         return DeckSeedResult(

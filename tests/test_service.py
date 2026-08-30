@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 from typing import Any
 
+from lkt.llm import InvalidModelOutput
 from lkt.models import Evidence
 from lkt.service import (
     CardService,
@@ -271,6 +272,121 @@ class ServiceTests(unittest.TestCase):
             )
             self.assertIn("reused_from_artifact_id", graph_stage["payload"])
             self.assertEqual(card.extensions["morphology_graph"]["center_id"], "spect")
+
+    def test_rejected_morphology_stages_are_run_linked_and_never_reusable(self) -> None:
+        class RejectedStageModel:
+            model_name = "local-qwen-test"
+
+            def __init__(self, failed_stage: str) -> None:
+                self.failed_stage = failed_stage
+
+            def _failure(self) -> InvalidModelOutput:
+                return InvalidModelOutput(
+                    "model stage was invalid after one fresh repair attempt",
+                    model=self.model_name,
+                    failures=[
+                        {
+                            "attempt": 1,
+                            "error": "invalid first response",
+                            "raw": "first" * 1_000,
+                            "metrics": {"completion_tokens": 1200},
+                        },
+                        {
+                            "attempt": 2,
+                            "error": "invalid repaired response",
+                            "raw": "second" * 1_000,
+                            "metrics": {"elapsed_seconds": 12.5},
+                        },
+                    ],
+                )
+
+            def generate_morphology_graph(
+                self, query: str, _mode: str, _evidence: list[Evidence]
+            ) -> dict[str, Any]:
+                if self.failed_stage == "graph":
+                    raise self._failure()
+                return {
+                    "value": {
+                        "title": query,
+                        "summary_en": "look or see",
+                        "morphology_graph": {},
+                    },
+                    "attempts": 1,
+                }
+
+            def generate_morphology_languages(
+                self,
+                _query: str,
+                _mode: str,
+                _evidence: list[Evidence],
+                _graph: dict[str, Any],
+            ) -> dict[str, Any]:
+                raise self._failure()
+
+            def generate(
+                self, _query: str, _mode: str, _evidence: list[Evidence]
+            ) -> dict[str, Any]:
+                raise AssertionError("staged morphology must not use monolithic generation")
+
+        evidence = [
+            Evidence(
+                "root-spect",
+                "SPECT",
+                "Root Dictionary",
+                "S",
+                (58,),
+                "Latin spect: look or see.",
+                corpus_id="test-root-dictionary",
+                kind="morphology-root",
+            )
+        ]
+        for failed_stage in ("graph", "languages"):
+            with self.subTest(stage=failed_stage), tempfile.TemporaryDirectory() as temp:
+                store = CardStore(Path(temp) / "cards.sqlite3")
+                run_ids: list[str] = []
+                start_preparation = store.start_preparation
+
+                def capture_run(*args: Any, **kwargs: Any) -> str:
+                    run_id = start_preparation(*args, **kwargs)
+                    run_ids.append(run_id)
+                    return run_id
+
+                store.start_preparation = capture_run  # type: ignore[method-assign]
+                service = CardService(
+                    make_index(Path(temp)),
+                    RejectedStageModel(failed_stage),
+                    store,
+                )
+
+                with self.assertRaises(InvalidModelOutput):
+                    service.create_from_evidence("SPECT", "root", evidence)
+
+                artifacts = store.preparation_artifacts(run_ids[0])
+                rejected = next(
+                    item for item in artifacts
+                    if item["stage"]
+                    == f"rejected-model-morphology-{failed_stage}"
+                )
+                self.assertFalse(rejected["reusable"])
+                self.assertEqual(rejected["payload"]["attempts"], 2)
+                self.assertEqual(
+                    rejected["payload"]["failures"][0]["metrics"][
+                        "completion_tokens"
+                    ],
+                    1200,
+                )
+                self.assertLessEqual(
+                    len(rejected["payload"]["failures"][0]["raw"]), 4_000
+                )
+                self.assertIsNone(
+                    store.reusable_preparation_artifact(
+                        "root",
+                        "SPECT",
+                        "local-qwen-test",
+                        rejected["stage"],
+                        "",
+                    )
+                )
 
     def test_morphology_graph_keeps_cited_nodes_and_downgrades_fake_book_ids(self) -> None:
         evidence = [

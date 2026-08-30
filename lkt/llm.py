@@ -15,6 +15,21 @@ class ModelUnavailable(RuntimeError):
     pass
 
 
+class InvalidModelOutput(ModelUnavailable):
+    """A bounded record of semantic model failures after the fresh retry."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        model: str,
+        failures: list[dict[str, Any]],
+    ) -> None:
+        super().__init__(message)
+        self.model = model
+        self.failures = tuple(dict(item) for item in failures[:2])
+
+
 class CardModel(Protocol):
     model_name: str
 
@@ -507,7 +522,7 @@ class LlamaCppClient:
     ) -> dict[str, Any]:
         """Run one bounded JSON stage with one fresh, non-recursive retry."""
 
-        failures: list[dict[str, str]] = []
+        failures: list[dict[str, Any]] = []
         for attempt in range(2):
             body, elapsed = self._request(payload)
             content = self._content(body)
@@ -523,12 +538,45 @@ class LlamaCppClient:
                     "failed_attempts": failures,
                 }
             except ValueError as exc:
+                usage = (
+                    body.get("usage")
+                    if isinstance(body.get("usage"), dict)
+                    else {}
+                )
+                timings = (
+                    body.get("timings")
+                    if isinstance(body.get("timings"), dict)
+                    else {}
+                )
                 failures.append(
-                    {"error": str(exc)[:500], "raw": str(content)[:12_000]}
+                    {
+                        "attempt": attempt + 1,
+                        "error": str(exc)[:500],
+                        "raw": str(content)[:4_000],
+                        "metrics": {
+                            "elapsed_seconds": round(elapsed, 2),
+                            "prompt_tokens": int(
+                                usage.get("prompt_tokens")
+                                or timings.get("prompt_n")
+                                or 0
+                            ),
+                            "completion_tokens": int(
+                                usage.get("completion_tokens")
+                                or timings.get("predicted_n")
+                                or 0
+                            ),
+                            "tokens_per_second": round(
+                                float(timings.get("predicted_per_second") or 0),
+                                2,
+                            ),
+                        },
+                    }
                 )
                 if attempt:
-                    raise ModelUnavailable(
-                        "model stage was invalid after one fresh repair attempt"
+                    raise InvalidModelOutput(
+                        "model stage was invalid after one fresh repair attempt",
+                        model=self.model_name,
+                        failures=failures,
                     ) from exc
                 # Never feed a ceiling-truncated JSON document back into Qwen.
                 # A fresh deterministic attempt uses the original evidence and
