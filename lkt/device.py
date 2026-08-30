@@ -6,6 +6,9 @@ import subprocess
 from pathlib import Path
 
 
+MODEL_FREE_MIN_AVAILABLE_MIB = 768.0
+
+
 def pi_power_blocker(throttled_output: str) -> str:
     """Return a reason only for a *current* Pi power or throttle condition."""
 
@@ -91,3 +94,15 @@ def background_preparation_blocker(
     if blocker:
         return blocker
     return ""
+
+
+def model_free_preparation_blocker() -> str:
+    """Guard bounded composition while retaining three quarters of a GiB.
+
+    This lower floor is only for the explicit model-free worker allowlist. LLM
+    work and autonomous seeding continue to use the full 1 GiB reserve.
+    """
+
+    return background_preparation_blocker(
+        min_available_mib=MODEL_FREE_MIN_AVAILABLE_MIB
+    )

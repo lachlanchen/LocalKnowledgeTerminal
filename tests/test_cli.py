@@ -4,6 +4,7 @@ import unittest
 from types import SimpleNamespace
 from pathlib import Path
 
+from lkt.atomic import MODEL_FREE_ATOMIC_JOBS
 from lkt.cli import run_atomic_watch
 
 
@@ -23,9 +24,11 @@ class _Worker:
     def __init__(self, results: list[object | None]):
         self.results = list(results)
         self.calls = 0
+        self.job_type_filters: list[tuple[str, ...] | None] = []
 
-    def run_once(self) -> object | None:
+    def run_once(self, job_types: tuple[str, ...] | None = None) -> object | None:
         self.calls += 1
+        self.job_type_filters.append(job_types)
         return self.results.pop(0) if self.results else None
 
 
@@ -180,9 +183,40 @@ class AtomicWatchTests(unittest.TestCase):
             job_delay=1,
             emit=lambda _result: self.fail("blocked work must not be emitted"),
             preparation_blocker=lambda: "only 80 MiB memory is available",
+            model_free_blocker=lambda: "only 80 MiB memory is available",
         )
         self.assertEqual(status, 0)
         self.assertEqual(worker.calls, 0)
+
+    def test_watch_only_drains_model_free_composition_below_llm_floor(self) -> None:
+        emitted: list[str] = []
+        worker = _Worker(
+            [
+                SimpleNamespace(
+                    job_id="compose-1",
+                    job_type="compose-word-card",
+                    status="complete",
+                )
+            ]
+        )
+        status = run_atomic_watch(
+            worker,
+            _StopAfterWaits(1),
+            idle_seconds=2,
+            job_delay=1,
+            emit=lambda result: emitted.append(result.job_id),
+            preparation_blocker=lambda: "only 800 MiB memory is available",
+            model_free_blocker=lambda: "",
+        )
+        self.assertEqual(status, 0)
+        self.assertEqual(emitted, ["compose-1"])
+        self.assertEqual(worker.job_type_filters, [MODEL_FREE_ATOMIC_JOBS])
+        self.assertEqual(
+            set(MODEL_FREE_ATOMIC_JOBS),
+            {"compose-word-card", "compose-origin-card"},
+        )
+        self.assertNotIn("prepare-translation", MODEL_FREE_ATOMIC_JOBS)
+        self.assertNotIn("prepare-pronunciation", MODEL_FREE_ATOMIC_JOBS)
 
 
 if __name__ == "__main__":

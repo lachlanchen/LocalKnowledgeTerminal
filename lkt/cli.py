@@ -9,7 +9,7 @@ from threading import Event
 from time import monotonic
 from typing import Any, Callable
 
-from .atomic import build_worker
+from .atomic import MODEL_FREE_ATOMIC_JOBS, build_worker
 from .card_books import CardBookIndex, build_card_book_index
 from .config import Settings
 from .corpus import CorpusIndex, build_index
@@ -20,7 +20,7 @@ from .deck import (
     BalancedProductSeeder,
     DeckSeedResult,
 )
-from .device import background_preparation_blocker
+from .device import background_preparation_blocker, model_free_preparation_blocker
 from .graph import rebuild_ladybug
 from .freedict import build_freedict_index
 from .llm import LlamaCppClient
@@ -630,6 +630,7 @@ def run_atomic_watch(
     periodic_action: Callable[[], Any] | None = None,
     periodic_action_interval: float = 120.0,
     preparation_blocker: Callable[[], str] = background_preparation_blocker,
+    model_free_blocker: Callable[[], str] = model_free_preparation_blocker,
 ) -> int:
     """Run one persisted task at a time while preserving device headroom.
 
@@ -645,10 +646,20 @@ def run_atomic_watch(
         # A model request can temporarily consume most of a small Pi; checking
         # before every job keeps that request from becoming an endless chain
         # that starves the browser, VNC, and SSH.
-        if preparation_blocker():
-            stop_event.wait(idle_seconds)
-            continue
-        result = worker.run_once()
+        blocker = preparation_blocker()
+        if blocker:
+            # A lower memory floor may drain only handlers structurally proven
+            # not to invoke the model. Power and thermal blockers are still
+            # returned by both guards and therefore cannot be bypassed.
+            if model_free_blocker():
+                stop_event.wait(idle_seconds)
+                continue
+            result = worker.run_once(MODEL_FREE_ATOMIC_JOBS)
+            if result is None:
+                stop_event.wait(idle_seconds)
+                continue
+        else:
+            result = worker.run_once()
         if result is None:
             if periodic_action is not None and monotonic() >= next_periodic_action:
                 emit(periodic_action())

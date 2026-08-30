@@ -39,6 +39,12 @@ SUPPORTED_ATOMIC_JOBS = (
     "compose-word-card",
     "compose-origin-card",
 )
+# Safety boundary for low-memory queue draining. Keep this list limited to
+# bounded handlers that compose persisted artifacts and never call ``self.model``.
+MODEL_FREE_ATOMIC_JOBS = (
+    "compose-word-card",
+    "compose-origin-card",
+)
 _PARTS_OF_SPEECH = {
     "noun",
     "verb",
@@ -975,12 +981,27 @@ class PreparationWorker:
         self.card_store = card_store
         self.japanese_readings = japanese_readings
 
-    def run_once(self) -> AtomicRunResult | None:
-        job_types = list(SUPPORTED_ATOMIC_JOBS)
+    def run_once(
+        self, job_types: tuple[str, ...] | None = None
+    ) -> AtomicRunResult | None:
+        requested_job_types = (
+            SUPPORTED_ATOMIC_JOBS if job_types is None else tuple(job_types)
+        )
+        unsupported = set(requested_job_types) - set(SUPPORTED_ATOMIC_JOBS)
+        if unsupported:
+            raise ValueError(
+                "unsupported atomic job types: " + ", ".join(sorted(unsupported))
+            )
+        claimable_job_types = list(dict.fromkeys(requested_job_types))
         if self.card_store is None:
-            job_types.remove("compose-word-card")
-            job_types.remove("compose-origin-card")
-        job = self.store.claim_next_job(job_types)
+            claimable_job_types = [
+                job_type
+                for job_type in claimable_job_types
+                if job_type not in MODEL_FREE_ATOMIC_JOBS
+            ]
+        if not claimable_job_types:
+            return None
+        job = self.store.claim_next_job(claimable_job_types)
         if job is None:
             return None
         try:

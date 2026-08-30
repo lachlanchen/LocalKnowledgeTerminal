@@ -32,11 +32,11 @@ record the model that actually produced them.
 On the 8 GB Pi profile, the 4B service uses a 3,072-token context and a smaller
 batch. The systemd units declare a soft 5 GB and hard 6 GB model-service ceiling
 plus a small swap ceiling. The audited Pi kernel does not expose the cgroup
-memory controller, so runtime readiness checks remain the effective protection:
-the atomic worker checks available memory before draining every queued job as
-well as before adding optional deck work, and pauses below 1 GiB. Interactive
-requests and already persisted cards remain independent of that background
-pause.
+memory controller, so runtime readiness checks remain the effective protection.
+Inference-capable jobs and optional deck work pause below 1 GiB; an explicit
+allowlist of model-free Word and Origin composition jobs may drain down to a
+separate 768 MiB floor. Interactive requests and already persisted cards remain
+independent of those background pauses.
 
 Autonomous scheduling is based on accepted visible-card counts, not source-book
 percentages. A bounded periodic balance pass selects the least-populated stage

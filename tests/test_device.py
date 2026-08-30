@@ -42,6 +42,14 @@ class DeviceReadinessTests(unittest.TestCase):
             "",
         )
 
+    def test_model_free_floor_is_lower_but_still_bounded(self) -> None:
+        meminfo = "MemTotal:       8245248 kB\nMemAvailable:    819200 kB\n"
+        self.assertIn("memory", memory_pressure_blocker(meminfo))
+        self.assertEqual(
+            memory_pressure_blocker(meminfo, min_available_mib=768.0),
+            "",
+        )
+
     def test_memory_is_checked_when_thermal_telemetry_is_unavailable(self) -> None:
         with (
             patch("lkt.device.shutil.which", return_value=None),
