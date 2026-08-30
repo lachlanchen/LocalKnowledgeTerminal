@@ -18,6 +18,107 @@ from lkt.web import (
 
 
 class WebInputTests(unittest.TestCase):
+    def test_arrow_keys_map_vertical_modes_and_horizontal_cards(self) -> None:
+        script = (
+            Path(__file__).resolve().parents[1] / "lkt" / "static" / "app.js"
+        ).read_text(encoding="utf-8")
+        self.assertIn('ArrowUp: { axis: "mode", step: -1 }', script)
+        self.assertIn('ArrowDown: { axis: "mode", step: 1 }', script)
+        self.assertIn('ArrowLeft: { axis: "card", step: -1 }', script)
+        self.assertIn('ArrowRight: { axis: "card", step: 1 }', script)
+        self.assertIn(
+            "const nextIndex = (currentIndex + step + buttons.length) % buttons.length;",
+            script,
+        )
+        self.assertIn(
+            "carouselIndex = (carouselIndex + step + carouselCards.length) % carouselCards.length;",
+            script,
+        )
+        self.assertIn(
+            'if (navigation.axis === "mode") navigateModes(navigation.step);',
+            script,
+        )
+        self.assertIn(
+            'if (navigation.axis === "card") navigateCards(navigation.step);',
+            script,
+        )
+
+    def test_arrow_navigation_preserves_editing_and_modified_keys(self) -> None:
+        script = (
+            Path(__file__).resolve().parents[1] / "lkt" / "static" / "app.js"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            "input, textarea, select, [contenteditable]:not([contenteditable='false'])",
+            script,
+        )
+        self.assertIn(
+            "event.altKey || event.ctrlKey || event.metaKey || event.shiftKey",
+            script,
+        )
+        self.assertIn(
+            "navigation && !hasNavigationModifier(event) && !isEditingTarget(event.target)",
+            script,
+        )
+
+    def test_click_controls_share_mode_and_card_navigation(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        script = (root / "lkt" / "static" / "app.js").read_text(encoding="utf-8")
+        page = (root / "lkt" / "static" / "index.html").read_text(encoding="utf-8")
+        self.assertIn(
+            'button.addEventListener("click", () => activateMode(button.dataset.mode))',
+            script,
+        )
+        self.assertIn(
+            '$("#previous-card").addEventListener("click", () => navigateCards(-1));',
+            script,
+        )
+        self.assertIn(
+            '$("#next-card").addEventListener("click", () => navigateCards(1));',
+            script,
+        )
+        self.assertIn('id="previous-card"', page)
+        self.assertIn('id="next-card"', page)
+
+    def test_rapid_tab_history_ignores_out_of_order_responses(self) -> None:
+        script = (
+            Path(__file__).resolve().parents[1] / "lkt" / "static" / "app.js"
+        ).read_text(encoding="utf-8")
+        stale_guard = (
+            "if (requestRevision !== historyRequestRevision "
+            "|| mode !== requestedMode) return;"
+        )
+        self.assertIn("const requestedMode = mode;", script)
+        self.assertIn("const requestRevision = ++historyRequestRevision;", script)
+        self.assertGreaterEqual(script.count(stale_guard), 2)
+
+        current_mode = "question"
+        current_revision = 0
+        rendered: list[str] = []
+        errors: list[str] = []
+
+        def begin(requested_mode: str) -> tuple[int, str]:
+            nonlocal current_mode, current_revision
+            current_mode = requested_mode
+            current_revision += 1
+            return current_revision, requested_mode
+
+        def finish(
+            request: tuple[int, str], label: str, *, failed: bool = False
+        ) -> None:
+            revision, requested_mode = request
+            if revision != current_revision or requested_mode != current_mode:
+                return
+            (errors if failed else rendered).append(label)
+
+        old_request = begin("question")
+        newest_request = begin("knowledge")
+        finish(newest_request, "newest word deck")
+        finish(old_request, "stale question deck")
+        finish(old_request, "stale error", failed=True)
+
+        self.assertEqual(rendered, ["newest word deck"])
+        self.assertEqual(errors, [])
+
     def test_health_marks_a_missing_correction_index_unready(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             database = Path(temp) / "missing-freedict.sqlite3"

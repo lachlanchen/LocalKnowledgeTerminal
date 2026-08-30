@@ -34,6 +34,7 @@ let chromeTimer = null;
 let ambientRouting = false;
 let ambientModeIndex = 0;
 let userActivityRevision = 0;
+let historyRequestRevision = 0;
 const ambientModeDecks = new Map();
 
 const INNER_SLIDE_DWELL_MS = 18000;
@@ -1717,6 +1718,7 @@ function renderCard(card, refreshHistory = true) {
 function setMode(nextMode, preserveView = false) {
   const previousMode = mode;
   mode = MODE_COPY[nextMode] ? nextMode : "answer";
+  if (previousMode !== mode) historyRequestRevision += 1;
   const copy = MODE_COPY[mode] || MODE_COPY.word;
   all(".mode").forEach((button) => button.classList.toggle("active", button.dataset.mode === mode));
   text("#query-label", copy.label);
@@ -1910,15 +1912,19 @@ async function loadHealth() {
 }
 
 async function loadHistory() {
+  const requestedMode = mode;
+  const requestRevision = ++historyRequestRevision;
   try {
-    if (mode === "chat") return;
-    const response = await fetch(`/api/cards?mode=${encodeURIComponent(mode)}&limit=1000`);
+    if (requestedMode === "chat") return;
+    const response = await fetch(`/api/cards?mode=${encodeURIComponent(requestedMode)}&limit=1000`);
     const cards = await response.json();
+    if (requestRevision !== historyRequestRevision || mode !== requestedMode) return;
     if (!response.ok || !Array.isArray(cards)) throw new Error("Card history unavailable");
     allSavedCards = cards;
-    const shouldOpenLatest = mode !== "chat" && (!activeCard || activeCard.mode !== mode);
+    const shouldOpenLatest = !activeCard || activeCard.mode !== requestedMode;
     rebuildModeCarousel(shouldOpenLatest);
   } catch (_error) {
+    if (requestRevision !== historyRequestRevision || mode !== requestedMode) return;
     $("#history").replaceChildren(element("p", "quiet", "History unavailable."));
   }
 }
@@ -2162,6 +2168,46 @@ function navigateCards(step) {
   scheduleCarousel();
 }
 
+async function activateMode(nextMode) {
+  ambientRouting = false;
+  if (nextMode === "chat") {
+    chatContextCardId = "";
+    chatContextTitle = "";
+    resetChat();
+    setMode(nextMode);
+    rebuildModeCarousel();
+    return;
+  }
+  setMode(nextMode);
+  await loadHistory();
+}
+
+function navigateModes(step) {
+  const buttons = all(".mode");
+  if (!buttons.length) return;
+  const selectedIndex = buttons.findIndex((button) => button.dataset.mode === mode);
+  const currentIndex = selectedIndex < 0 ? 0 : selectedIndex;
+  const nextIndex = (currentIndex + step + buttons.length) % buttons.length;
+  activateMode(buttons[nextIndex].dataset.mode);
+}
+
+const ARROW_NAVIGATION = {
+  ArrowUp: { axis: "mode", step: -1 },
+  ArrowDown: { axis: "mode", step: 1 },
+  ArrowLeft: { axis: "card", step: -1 },
+  ArrowRight: { axis: "card", step: 1 },
+};
+
+function isEditingTarget(target) {
+  return target instanceof Element && Boolean(
+    target.closest("input, textarea, select, [contenteditable]:not([contenteditable='false'])"),
+  );
+}
+
+function hasNavigationModifier(event) {
+  return event.altKey || event.ctrlKey || event.metaKey || event.shiftKey;
+}
+
 function activeInnerSlideCount() {
   if (["answer", "question"].includes(mode)) return Math.max(1, sentenceSlides.length);
   if (["word", "root", "affix"].includes(mode)) return Math.max(1, graphFocusAreas.length);
@@ -2201,20 +2247,7 @@ async function toggleFullscreen() {
   }
 }
 
-all(".mode").forEach((button) => button.addEventListener("click", async () => {
-  ambientRouting = false;
-  const nextMode = button.dataset.mode;
-  if (nextMode === "chat") {
-    chatContextCardId = "";
-    chatContextTitle = "";
-    resetChat();
-    setMode(nextMode);
-    rebuildModeCarousel();
-    return;
-  }
-  setMode(nextMode);
-  await loadHistory();
-}));
+all(".mode").forEach((button) => button.addEventListener("click", () => activateMode(button.dataset.mode)));
 all(".examples button").forEach((button) => button.addEventListener("click", () => {
   if (ambientRouting || button.dataset.mode === "ambient") submitIntent(button.dataset.query);
   else submitQuery(button.dataset.query, button.dataset.mode || mode);
@@ -2282,6 +2315,12 @@ document.addEventListener("keydown", (event) => {
     event.preventDefault();
     window.close();
     return;
+  }
+  const navigation = ARROW_NAVIGATION[event.key];
+  if (navigation && !hasNavigationModifier(event) && !isEditingTarget(event.target)) {
+    event.preventDefault();
+    if (navigation.axis === "mode") navigateModes(navigation.step);
+    if (navigation.axis === "card") navigateCards(navigation.step);
   }
   noteActivity(true);
 });
