@@ -3156,6 +3156,21 @@ End immediately after the JSON object."""
         reading = re.sub(r"\s+", " ", str(value.get("reading", ""))).strip()
         usage_note = _clean_usage_note(value.get("usage_note", ""), language)
         normalizations: list[str] = []
+        sole_arabic_candidate = ""
+        if language == "ar":
+            valid_candidates = [
+                candidate
+                for candidate in candidates
+                if len(candidate) <= 160
+                and is_arabic_script_text(candidate)
+                and not any(marker in candidate for marker in _ENCODING_DAMAGE)
+                and candidate_evidence.get(candidate)
+            ]
+            if len(valid_candidates) == 1:
+                sole_arabic_candidate = valid_candidates[0]
+                if translated != sole_arabic_candidate:
+                    translated = sole_arabic_candidate
+                    normalizations.append("selected-sole-arabic-dictionary-candidate")
         if language == "ar" and (
             not is_arabic_script_text(translated)
             or not is_arabic_script_text(translated_meaning)
@@ -3164,6 +3179,7 @@ End immediately after the JSON object."""
                 "You repair one Arabic lexical entry. Arabic fields must contain no Latin letters.",
                 f"""ARABIC SCRIPT REPAIR
 SOURCE ENGLISH SENSE: {meaning['definition']}
+DICTIONARY CANDIDATE: {json.dumps(sole_arabic_candidate, ensure_ascii=False)}
 
 Return exactly one JSON object with these keys:
 term: the natural Modern Standard Arabic equivalent using Arabic letters only
@@ -3189,6 +3205,12 @@ End immediately after the JSON object.""",
             reading = re.sub(r"\s+", " ", str(value.get("reading", ""))).strip()
             usage_note = _clean_usage_note(value.get("usage_note", ""), language)
             normalizations.append("repaired-arabic-script")
+            if sole_arabic_candidate and translated != sole_arabic_candidate:
+                translated = sole_arabic_candidate
+                if "selected-sole-arabic-dictionary-candidate" not in normalizations:
+                    normalizations.append(
+                        "selected-sole-arabic-dictionary-candidate"
+                    )
         if not translated or len(translated) > 160:
             raise ValueError("translation term is empty or too long")
         if not translated_meaning or len(translated_meaning) > 320:

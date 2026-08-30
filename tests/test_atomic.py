@@ -1187,6 +1187,77 @@ class AtomicWorkerTests(unittest.TestCase):
             self.assertEqual(len(artifact["payload"]["dictionary_evidence_ids"]), 1)
             self.assertEqual(len(artifact["payload"]["evidence_ids"]), 2)
 
+    def test_sole_arabic_candidate_is_selected_with_exact_dictionary_spelling(self) -> None:
+        class SerendipityRetriever(FakeRetriever):
+            def retrieve(self, term: str) -> list[dict[str, Any]]:
+                return [
+                    *super().retrieve(term),
+                    {
+                        "entry_id": "freedict-serendipity",
+                        "corpus_id": "freedict-eng-ara:0.6.3",
+                        "source_title": "FreeDict English-Arabic 0.6.3",
+                        "headword": term,
+                        "definition": "",
+                        "translations": {"ar": ["موهبة الإكتشاف"]},
+                        "source_hash": "freedict-serendipity",
+                        "locator": f"headword {term}",
+                        "kind": "bilingual-dictionary",
+                        "translation_scope": "exact-headword",
+                    },
+                ]
+
+        class SerendipityModel(FakeAtomicModel):
+            def complete_json(
+                self, system: str, prompt: str, *, max_tokens: int = 256
+            ) -> dict[str, Any]:
+                if "ARABIC TRANSLATION" in prompt:
+                    self.assert_candidate = (
+                        'DICTIONARY CANDIDATES: ["موهبة الإكتشاف"]' in prompt
+                    )
+                    return {
+                        "value": {
+                            "term": "موهبة الاكتشاف",
+                            "meaning": "قدرة على اكتشاف أشياء قيمة بالمصادفة",
+                            "reading": "mawhibat al-iktishaf",
+                            "confidence": 0.91,
+                        },
+                        "model": self.model_name,
+                    }
+                completion = super().complete_json(
+                    system, prompt, max_tokens=max_tokens
+                )
+                value = completion.get("value")
+                if isinstance(value, dict) and "definition" in value:
+                    value["definition"] = (
+                        "The chance discovery of something valuable or interesting."
+                    )
+                return completion
+
+        with tempfile.TemporaryDirectory() as temp:
+            store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")
+            plan = PreparationPlanner(store, model="test-qwen-4b").plan_word(
+                "serendipity", display_languages=("en", "ar")
+            )
+            model = SerendipityModel()
+            worker = PreparationWorker(store, SerendipityRetriever(), model)
+            self.assertTrue(all(result.status == "complete" for result in worker.run(2)))
+            job = store.claim_next_job(("prepare-translation",))
+            self.assertIsNotNone(job)
+            worker._prepare_translation(job)
+            self.assertTrue(model.assert_candidate)
+            artifact = store.artifacts_for_subject(
+                plan.subject_key,
+                stage="accepted-translation",
+                validation_state="accepted",
+            )[0]
+            self.assertEqual(artifact["payload"]["term"], "موهبة الإكتشاف")
+            self.assertEqual(
+                artifact["payload"]["normalizations"],
+                ["selected-sole-arabic-dictionary-candidate"],
+            )
+            self.assertEqual(len(artifact["payload"]["dictionary_evidence_ids"]), 1)
+            self.assertEqual(len(artifact["payload"]["evidence_ids"]), 2)
+
     def test_translation_output_is_normalized_before_acceptance(self) -> None:
         class FrenchModel(FakeAtomicModel):
             def complete_json(
