@@ -135,6 +135,98 @@ class StoreTests(unittest.TestCase):
             self.assertEqual(status, "failed")
             self.assertIn("owner process interrupted", error)
 
+    def test_recovery_fails_legacy_ownerless_preparation(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            database = Path(temp) / "knowledge.sqlite3"
+            store = CardStore(database)
+            run_id = store.start_preparation("root", "legacy", "test-model")
+            with closing(sqlite3.connect(database)) as connection:
+                connection.execute(
+                    """UPDATE preparation_runs
+                       SET owner_pid = 0, owner_identity = ''
+                       WHERE run_id = ?""",
+                    (run_id,),
+                )
+                connection.commit()
+
+            self.assertEqual(store.recover_interrupted_preparations(), 1)
+            with closing(sqlite3.connect(database)) as connection:
+                status, error, finished_at = connection.execute(
+                    """SELECT status, error, finished_at
+                       FROM preparation_runs WHERE run_id = ?""",
+                    (run_id,),
+                ).fetchone()
+            self.assertEqual(status, "failed")
+            self.assertEqual(error, "owner process interrupted before completion")
+            self.assertTrue(finished_at)
+
+    def test_recovery_preserves_live_owner_with_ownerless_preparation(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            database = Path(temp) / "knowledge.sqlite3"
+            store = CardStore(database)
+            live_run_id = store.start_preparation("root", "live", "test-model")
+            stale_run_id = store.start_preparation("root", "legacy", "test-model")
+            with closing(sqlite3.connect(database)) as connection:
+                connection.execute(
+                    """UPDATE preparation_runs
+                       SET owner_pid = 0, owner_identity = ''
+                       WHERE run_id = ?""",
+                    (stale_run_id,),
+                )
+                connection.commit()
+
+            self.assertEqual(store.recover_interrupted_preparations(), 1)
+            with closing(sqlite3.connect(database)) as connection:
+                rows = connection.execute(
+                    """SELECT run_id, status, error
+                       FROM preparation_runs WHERE run_id IN (?, ?)""",
+                    (live_run_id, stale_run_id),
+                ).fetchall()
+            states = {run_id: (status, error) for run_id, status, error in rows}
+            self.assertEqual(states[live_run_id], ("running", ""))
+            self.assertEqual(
+                states[stale_run_id],
+                ("failed", "owner process interrupted before completion"),
+            )
+
+    def test_recovery_handles_pre_ownership_preparation_schema(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            database = Path(temp) / "knowledge.sqlite3"
+            run_id = "legacy-running-preparation"
+            with closing(sqlite3.connect(database)) as connection:
+                connection.execute(
+                    """CREATE TABLE preparation_runs (
+                        run_id TEXT PRIMARY KEY,
+                        mode TEXT NOT NULL,
+                        query TEXT NOT NULL,
+                        model TEXT NOT NULL,
+                        status TEXT NOT NULL,
+                        card_id TEXT NOT NULL DEFAULT '',
+                        error TEXT NOT NULL DEFAULT '',
+                        created_at TEXT NOT NULL,
+                        finished_at TEXT NOT NULL DEFAULT ''
+                    )"""
+                )
+                connection.execute(
+                    """INSERT INTO preparation_runs(
+                        run_id, mode, query, model, status, created_at
+                    ) VALUES (?, 'root', 'legacy', 'test-model', 'running', ?)""",
+                    (run_id, "2026-08-29T00:00:00+00:00"),
+                )
+                connection.commit()
+
+            store = CardStore(database)
+            self.assertEqual(store.recover_interrupted_preparations(), 1)
+            with closing(sqlite3.connect(database)) as connection:
+                owner_pid, owner_identity, status, error = connection.execute(
+                    """SELECT owner_pid, owner_identity, status, error
+                       FROM preparation_runs WHERE run_id = ?""",
+                    (run_id,),
+                ).fetchone()
+            self.assertEqual((owner_pid, owner_identity), (0, ""))
+            self.assertEqual(status, "failed")
+            self.assertEqual(error, "owner process interrupted before completion")
+
     def test_archive_removes_card_from_active_carousel(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             database = Path(temp) / "knowledge.sqlite3"

@@ -440,11 +440,14 @@ class CardStore:
         with closing(self._connect()) as connection:
             rows = connection.execute(
                 """SELECT run_id, owner_pid, owner_identity
-                   FROM preparation_runs WHERE status = 'running'
-                     AND owner_pid > 0 AND owner_identity <> ''"""
+                   FROM preparation_runs WHERE status = 'running'"""
             ).fetchall()
             for run_id, owner_pid, owner_identity in rows:
-                if _process_identity(int(owner_pid)) == str(owner_identity):
+                if (
+                    int(owner_pid) > 0
+                    and str(owner_identity)
+                    and _process_identity(int(owner_pid)) == str(owner_identity)
+                ):
                     continue
                 recovered.append(str(run_id))
             if recovered:
