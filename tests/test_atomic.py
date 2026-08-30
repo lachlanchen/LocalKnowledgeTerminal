@@ -1359,6 +1359,212 @@ class AtomicWorkerTests(unittest.TestCase):
             self.assertEqual(len(artifact["payload"]["dictionary_evidence_ids"]), 1)
             self.assertEqual(len(artifact["payload"]["evidence_ids"]), 2)
 
+    def test_sole_freedict_candidate_replaces_repaired_cyrillic_meaning(self) -> None:
+        class SerendipityRetriever(FakeRetriever):
+            def retrieve(self, term: str) -> list[dict[str, Any]]:
+                return [
+                    *super().retrieve(term),
+                    {
+                        "entry_id": "freedict-serendipity",
+                        "corpus_id": "freedict-eng-ara:0.6.3",
+                        "source_title": "FreeDict English-Arabic 0.6.3",
+                        "headword": term,
+                        "definition": "",
+                        "translations": {"ar": ["موهبة الإكتشاف"]},
+                        "source_hash": "freedict-serendipity",
+                        "locator": f"headword {term}",
+                        "kind": "bilingual-dictionary",
+                        "translation_scope": "exact-headword",
+                    },
+                ]
+
+        class CyrillicMeaningModel(FakeAtomicModel):
+            def __init__(self) -> None:
+                self.arabic_calls = 0
+
+            def complete_json(
+                self, system: str, prompt: str, *, max_tokens: int = 256
+            ) -> dict[str, Any]:
+                if (
+                    "TARGET LANGUAGE: Arabic" in prompt
+                    or "ARABIC SCRIPT REPAIR" in prompt
+                ):
+                    self.arabic_calls += 1
+                    return {
+                        "value": {
+                            "term": "موهبة الإكتشاف",
+                            "meaning": "الظهور والظهور المفاجئ ل события مفيدة بشكل عشوائي",
+                            "reading": "mawhibat al-iktishaf",
+                            "confidence": 0.91,
+                        },
+                        "model": self.model_name,
+                    }
+                return super().complete_json(system, prompt, max_tokens=max_tokens)
+
+        with tempfile.TemporaryDirectory() as temp:
+            store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")
+            plan = PreparationPlanner(store, model="test-qwen-4b").plan_word_card(
+                "serendipity", display_languages=("en", "ar")
+            )
+            model = CyrillicMeaningModel()
+            results = PreparationWorker(store, SerendipityRetriever(), model).run(3)
+
+            self.assertEqual(results[-1].status, "complete")
+            self.assertEqual(model.arabic_calls, 2)
+            artifact = store.artifacts_for_subject(
+                plan.subject_key,
+                stage="accepted-translation",
+                validation_state="accepted",
+            )[0]
+            payload = artifact["payload"]
+            self.assertEqual(payload["term"], "موهبة الإكتشاف")
+            self.assertEqual(payload["meaning"], payload["term"])
+            self.assertEqual(
+                payload["normalizations"],
+                [
+                    "repaired-arabic-script",
+                    "replaced-mixed-script-arabic-meaning-with-sole-freedict-candidate",
+                ],
+            )
+            self.assertEqual(len(payload["dictionary_evidence_ids"]), 1)
+            self.assertIn(
+                payload["dictionary_evidence_ids"][0], payload["evidence_ids"]
+            )
+
+    def test_mixed_arabic_meaning_does_not_fallback_to_non_freedict_candidate(self) -> None:
+        class OtherDictionaryRetriever(FakeRetriever):
+            def retrieve(self, term: str) -> list[dict[str, Any]]:
+                return [
+                    *super().retrieve(term),
+                    {
+                        "entry_id": "other-serendipity",
+                        "corpus_id": "other-eng-ara:1.0",
+                        "source_title": "Other English-Arabic Dictionary",
+                        "headword": term,
+                        "definition": "",
+                        "translations": {"ar": ["موهبة الإكتشاف"]},
+                        "source_hash": "other-serendipity",
+                        "locator": f"headword {term}",
+                        "kind": "bilingual-dictionary",
+                        "translation_scope": "exact-headword",
+                    },
+                ]
+
+        class MixedMeaningModel(FakeAtomicModel):
+            def complete_json(
+                self, system: str, prompt: str, *, max_tokens: int = 256
+            ) -> dict[str, Any]:
+                if (
+                    "TARGET LANGUAGE: Arabic" in prompt
+                    or "ARABIC SCRIPT REPAIR" in prompt
+                ):
+                    return {
+                        "value": {
+                            "term": "موهبة الإكتشاف",
+                            "meaning": "اكتشاف события مفيدة بالمصادفة",
+                            "reading": "mawhibat al-iktishaf",
+                            "confidence": 0.91,
+                        },
+                        "model": self.model_name,
+                    }
+                return super().complete_json(system, prompt, max_tokens=max_tokens)
+
+        with tempfile.TemporaryDirectory() as temp:
+            store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")
+            plan = PreparationPlanner(store, model="test-qwen-4b").plan_word_card(
+                "serendipity", display_languages=("en", "ar")
+            )
+            results = PreparationWorker(
+                store, OtherDictionaryRetriever(), MixedMeaningModel()
+            ).run(3)
+
+            self.assertEqual(results[-1].status, "retry")
+            self.assertEqual(
+                store.artifacts_for_subject(
+                    plan.subject_key,
+                    stage="accepted-translation",
+                    validation_state="accepted",
+                ),
+                [],
+            )
+            rejected = store.artifacts_for_subject(
+                plan.subject_key,
+                stage="rejected-translation",
+                validation_state="rejected",
+            )
+            self.assertEqual(len(rejected), 1)
+            self.assertFalse(rejected[0]["reusable"])
+
+    def test_mixed_arabic_meaning_does_not_fallback_with_multiple_candidates(self) -> None:
+        class MultipleCandidateRetriever(FakeRetriever):
+            def retrieve(self, term: str) -> list[dict[str, Any]]:
+                return [
+                    *super().retrieve(term),
+                    {
+                        "entry_id": "freedict-serendipity",
+                        "corpus_id": "freedict-eng-ara:0.6.3",
+                        "source_title": "FreeDict English-Arabic 0.6.3",
+                        "headword": term,
+                        "definition": "",
+                        "translations": {
+                            "ar": ["موهبة الإكتشاف", "مصادفة سعيدة"]
+                        },
+                        "source_hash": "freedict-serendipity",
+                        "locator": f"headword {term}",
+                        "kind": "bilingual-dictionary",
+                        "translation_scope": "exact-headword",
+                    },
+                ]
+
+        class MixedMeaningModel(FakeAtomicModel):
+            def complete_json(
+                self, system: str, prompt: str, *, max_tokens: int = 256
+            ) -> dict[str, Any]:
+                if (
+                    "TARGET LANGUAGE: Arabic" in prompt
+                    or "ARABIC SCRIPT REPAIR" in prompt
+                ):
+                    return {
+                        "value": {
+                            "term": "موهبة الإكتشاف",
+                            "meaning": "اكتشاف события مفيدة بالمصادفة",
+                            "reading": "mawhibat al-iktishaf",
+                            "confidence": 0.91,
+                        },
+                        "model": self.model_name,
+                    }
+                return super().complete_json(system, prompt, max_tokens=max_tokens)
+
+        with tempfile.TemporaryDirectory() as temp:
+            store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")
+            plan = PreparationPlanner(store, model="test-qwen-4b").plan_word_card(
+                "serendipity", display_languages=("en", "ar")
+            )
+            results = PreparationWorker(
+                store, MultipleCandidateRetriever(), MixedMeaningModel()
+            ).run(3)
+
+            self.assertEqual(results[-1].status, "retry")
+            self.assertEqual(
+                store.artifacts_for_subject(
+                    plan.subject_key,
+                    stage="accepted-translation",
+                    validation_state="accepted",
+                ),
+                [],
+            )
+            rejected = store.artifacts_for_subject(
+                plan.subject_key,
+                stage="rejected-translation",
+                validation_state="rejected",
+            )
+            self.assertEqual(len(rejected), 1)
+            self.assertFalse(rejected[0]["reusable"])
+            self.assertEqual(
+                rejected[0]["payload"]["candidate"]["meaning"],
+                "اكتشاف события مفيدة بالمصادفة",
+            )
+
     def test_translation_output_is_normalized_before_acceptance(self) -> None:
         class FrenchModel(FakeAtomicModel):
             def complete_json(

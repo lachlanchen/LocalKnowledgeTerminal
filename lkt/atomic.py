@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 from typing import Any, Protocol
 
 from .corpus import CorpusIndex
+from .freedict import FREEDICT_CORPUS_ID
 from .knowledge import KnowledgeStore
 from .jmdict import JapaneseReadingIndex
 from .lexicon import LocalLexiconRag
@@ -3234,6 +3235,7 @@ reading and do not rewrite the Japanese form."""
         evidence_ids = [str(item) for item in meaning.get("evidence_ids", [])]
         candidates: list[str] = []
         candidate_evidence: dict[str, list[str]] = {}
+        freedict_candidate_evidence: dict[str, list[str]] = {}
         for record in records:
             record_evidence_id = str(record.get("knowledge_evidence_id", ""))
             exact_bilingual = (
@@ -3254,6 +3256,13 @@ reading and do not rewrite the Japanese form."""
                     candidate_evidence.setdefault(candidate, []).append(
                         record_evidence_id
                     )
+                    if (
+                        exact_bilingual
+                        and str(record.get("corpus_id", "")) == FREEDICT_CORPUS_ID
+                    ):
+                        freedict_candidate_evidence.setdefault(candidate, []).append(
+                            record_evidence_id
+                        )
 
         prompt = f"""SOURCE TERM: {term['text']}
 ACCEPTED ENGLISH SENSE: {meaning['definition']}
@@ -3312,6 +3321,7 @@ End immediately after the JSON object."""
         usage_note = _clean_usage_note(value.get("usage_note", ""), language)
         normalizations: list[str] = []
         sole_arabic_candidate = ""
+        sole_freedict_arabic_candidate = ""
         if language == "ar":
             valid_candidates = [
                 candidate
@@ -3323,6 +3333,8 @@ End immediately after the JSON object."""
             ]
             if len(valid_candidates) == 1:
                 sole_arabic_candidate = valid_candidates[0]
+                if freedict_candidate_evidence.get(sole_arabic_candidate):
+                    sole_freedict_arabic_candidate = sole_arabic_candidate
                 if translated != sole_arabic_candidate:
                     translated = sole_arabic_candidate
                     normalizations.append("selected-sole-arabic-dictionary-candidate")
@@ -3384,6 +3396,16 @@ End immediately after the JSON object.""",
                     normalizations.append(
                         "removed-source-headword-from-arabic-meaning"
                     )
+        if (
+            language == "ar"
+            and sole_freedict_arabic_candidate
+            and translated == sole_freedict_arabic_candidate
+            and not is_arabic_script_text(translated_meaning)
+        ):
+            translated_meaning = sole_freedict_arabic_candidate
+            normalizations.append(
+                "replaced-mixed-script-arabic-meaning-with-sole-freedict-candidate"
+            )
         if not translated or len(translated) > 160:
             raise ValueError("translation term is empty or too long")
         if not translated_meaning or len(translated_meaning) > 320:
@@ -3394,8 +3416,6 @@ End immediately after the JSON object.""",
             for text in (translated, translated_meaning, reading)
         ):
             raise ValueError("translation contains encoding damage")
-        if candidates and translated not in candidates:
-            raise ValueError("translation did not use a supplied dictionary candidate")
         if language == "ja" and not re.search(
             r"[\u3040-\u30ff\u3400-\u9fff]", translated
         ):
@@ -3455,6 +3475,8 @@ End immediately after the JSON object.""",
             reject_arabic_script("term")
         if language == "ar" and not is_arabic_script_text(translated_meaning):
             reject_arabic_script("meaning")
+        if candidates and translated not in candidates:
+            raise ValueError("translation did not use a supplied dictionary candidate")
         if language == "ar":
             cleaned_meaning = _collapse_repeated_arabic_alternative(
                 translated_meaning
