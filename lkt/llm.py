@@ -700,9 +700,14 @@ class LlamaCppClient:
             ),
         }
         instruction = instructions.get(mode, "Create a grounded learning card")
+        evidence_context = (
+            _evidence_context(evidence, excerpt_limit=400)
+            if mode == "word"
+            else _evidence_context(evidence)
+        )
         user_prompt = (
             f"{instruction} for this request: {query}\n\n"
-            f"BOOK EVIDENCE\n{_evidence_context(evidence)}\n\n"
+            f"BOOK EVIDENCE\n{evidence_context}\n\n"
             "/no_think"
         )
         prompts = {

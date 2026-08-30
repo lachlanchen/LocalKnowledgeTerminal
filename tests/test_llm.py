@@ -187,7 +187,17 @@ class LlmParsingTests(unittest.TestCase):
                 {"message": {"content": json.dumps(valid_content)}}
             ]
         }
-        evidence = [Evidence("entry-1", "abacus", "Greek", "", (1,), "source")]
+        evidence = [
+            Evidence(
+                f"entry-{index}",
+                f"headword-{index}",
+                f"section-{index}",
+                f"locator-{index}",
+                (index,),
+                ("x" * 394) + f"EDGE{index}" + "Z" + f"TAIL{index}",
+            )
+            for index in range(1, 5)
+        ]
         with patch.object(
             client,
             "_request",
@@ -198,8 +208,18 @@ class LlmParsingTests(unittest.TestCase):
         self.assertEqual(request.call_count, 2)
         first_payload = request.call_args_list[0].args[0]
         repair_payload = request.call_args_list[1].args[0]
+        word_prompt = first_payload["messages"][1]["content"]
         self.assertEqual(first_payload["max_tokens"], 1200)
         self.assertNotIn("response_format", first_payload)
+        evidence_positions = []
+        for index in range(1, 5):
+            self.assertIn(f"entry-{index}", word_prompt)
+            self.assertIn(f"headword-{index}", word_prompt)
+            self.assertIn(f"locator-{index}", word_prompt)
+            self.assertIn(f"EDGE{index}Z", word_prompt)
+            self.assertNotIn(f"TAIL{index}", word_prompt)
+            evidence_positions.append(word_prompt.index(f"entry-{index}"))
+        self.assertEqual(evidence_positions, sorted(evidence_positions))
         self.assertEqual(repair_payload["temperature"], 0.0)
         self.assertEqual(repair_payload["max_tokens"], 1600)
         self.assertFalse(

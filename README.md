@@ -318,9 +318,10 @@ sudo ./scripts/select_model.sh 4b
 sudo ./scripts/benchmark_models.sh
 ```
 
-Only one model is loaded at a time. The 8B profile uses a 3,072-token context
-and smaller batch to protect the 8 GB memory boundary. If its server does not
-become healthy, `select_model.sh 8b` restores the 4B profile automatically.
+Only one model is loaded at a time. The default 4B profile uses a 3,072-token
+context; the optional 8B profile uses a 2,048-token context and smaller batch to
+protect the 8 GB memory boundary. If its server does not become healthy,
+`select_model.sh 8b` restores the 4B profile automatically.
 The downloader resumes a partial transfer, verifies the official SHA-256, and
 only then atomically exposes the final GGUF.
 The benchmark activates one model at a time, runs the same bounded multilingual

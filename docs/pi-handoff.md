@@ -1,6 +1,6 @@
 # Raspberry Pi 5 deployment handoff
 
-Verified 2026-08-29 on the private Pi deployment. This file records public-safe
+Verified 2026-08-30 on the private Pi deployment. This file records public-safe
 runtime facts only. Credentials, private source files, model weights, generated
 indexes, and captured screens are not stored in Git.
 
@@ -8,12 +8,12 @@ indexes, and captured screens are not stored in Git.
 
 | Layer | Verified revision/state |
 |---|---|
-| Pi checkout | `6186b9c` (`Balance autonomous deck growth`) |
-| Browser behavior | `6186b9c` (`Balance autonomous deck growth`) |
+| Pi checkout | This repository revision, deployed and verified 2026-08-30 |
+| Browser behavior | Directional tab/card navigation with stale-response protection |
 | Model | `Qwen3-4B-Q4_K_M.gguf`, 2,497,280,256 bytes |
 | Model SHA-256 | `7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5` |
-| llama.cpp package | pinned `v0.3.0`, source commit `c1d0e7a004015f23bc0233470b747b596f29b264` |
-| llama-server self-report | `0.3.0-dev`, GNU 12.2.0, Linux aarch64 |
+| llama.cpp runtime | packaged under `llama.cpp-0.3.0`; exact source commit unavailable from the deployed runtime |
+| llama-server self-report | `0.3.0-dev`, build `0`, commit `unknown`, Linux aarch64 |
 | Kernel | Raspberry Pi aarch64 `6.6.51+rpt-rpi-2712` |
 | Inference profile | one slot, 3,072-token context, batch 128, micro-batch 64 |
 | Background policy | one low-priority atomic job at a time; memory gate before every job; periodic visible-count balancing; one unfinished autonomous lexical subject after existing backlog drains |
@@ -22,11 +22,12 @@ indexes, and captured screens are not stored in Git.
 code matched the runtime revision above, and the Pi worktree was clean.
 `/api/health` returned `ready`, with Qwen reported as local and ready.
 
-The model service is bounded by systemd at `MemoryHigh=5 GiB`,
-`MemoryMax=6 GiB`, `MemorySwapMax=128 MiB`, and `OOMPolicy=stop`. At final audit
-the Pi had about 4.3 GiB available memory. A deliberately observed pathological
-background inference reached the hard ceiling and was restarted without a Pi
-reboot; web data and network state were unaffected.
+The model service is configured with `MemoryHigh=5 GiB`, `MemoryMax=6 GiB`,
+`MemorySwapMax=128 MiB`, and `OOMPolicy=stop`. A read-only 2026-08-30 audit found
+the active 3,072-token model at 6,587,472 KiB RSS (6,731,808 KiB high-water mark),
+with 1,046,736 KiB system memory available. That was 1,840 KiB below the required
+1 GiB reserve, so a 4,096-token profile was rejected without benchmarking or
+changing the runtime. Temperature was 63.9 C and `get_throttled` returned `0x0`.
 
 ## Required local sources
 
