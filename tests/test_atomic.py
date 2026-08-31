@@ -37,6 +37,7 @@ from lkt.atomic import (
     _normalise_grammar_role,
     _plain_letter_key,
     _publication_provenance,
+    _retrieved_component_evidence_ids,
 )
 from lkt.knowledge import KnowledgeStore
 from lkt.jmdict import JapaneseReadingIndex, build_jmdict_index
@@ -601,6 +602,40 @@ class AtomicWorkerTests(unittest.TestCase):
                 },
                 {"surface": "or", "kind": "suffix", "evidence_ids": []},
             ],
+        )
+
+    def test_live_shaped_records_supply_mode_specific_component_evidence(self) -> None:
+        records = [
+            {
+                "knowledge_evidence_id": "root-p0036-t001-r001",
+                "kind": "morphology-root",
+                "headword": "adjacent",
+                "excerpt": (
+                    r"adjacent [\mathrm { ad } (=\) to, near \() + "
+                    r"\mathrm { jac } (=\) throw \()]"
+                ),
+            },
+            {
+                "knowledge_evidence_id": "affix-p0034-t004-r005",
+                "kind": "morphology-affix",
+                "headword": "adjacent",
+                "excerpt": "adjacent [ad (=to, near) + jac (=throw)]",
+            },
+        ]
+
+        self.assertEqual(
+            _retrieved_component_evidence_ids("jac", "root", records),
+            ["root-p0036-t001-r001"],
+        )
+        self.assertEqual(
+            _retrieved_component_evidence_ids("ad-", "prefix", records),
+            ["affix-p0034-t004-r005"],
+        )
+        self.assertEqual(
+            _retrieved_component_evidence_ids("-ent", "suffix", records), []
+        )
+        self.assertEqual(
+            _retrieved_component_evidence_ids("jac", "free", records), []
         )
 
     def test_morpheme_display_notation_is_deterministic(self) -> None:

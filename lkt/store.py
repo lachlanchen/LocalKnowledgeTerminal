@@ -44,6 +44,12 @@ def _text_values(value: Any) -> list[str]:
     return []
 
 
+def _normalized_collection_query(value: Any) -> str:
+    """Return the stable subject key used to compare card revisions."""
+
+    return re.sub(r"\s+", " ", str(value)).strip().casefold()
+
+
 def _ruby_covers(term: str, tokens: Any) -> bool:
     if not _HAN.search(term):
         return True
@@ -390,17 +396,44 @@ class CardStore:
         return json.loads(row[0]) if row else None
 
     def supersede_others(self, mode: str, query: str, keep_card_id: str) -> int:
-        """Keep one accepted revision current for a mode/query collection key."""
+        """Keep one accepted revision current for its persisted collection key.
+
+        ``mode`` and ``query`` remain in the public signature for existing callers,
+        but they are only hints.  The kept card is authoritative so a stale caller
+        cannot supersede a different card mode that happens to share its subject.
+        """
+
+        del mode, query
         timestamp = datetime.now(UTC).isoformat()
         with closing(self._connect()) as connection:
-            cursor = connection.execute(
-                """UPDATE cards SET status = 'superseded', updated_at = ?
-                   WHERE mode = ? AND query = ? AND card_id <> ?
-                     AND status = 'active' AND validation_state = 'accepted'""",
-                (timestamp, mode.strip(), query.strip(), keep_card_id),
-            )
+            kept = connection.execute(
+                "SELECT mode, query FROM cards WHERE card_id = ?", (keep_card_id,)
+            ).fetchone()
+            if kept is None:
+                raise KeyError(keep_card_id)
+            kept_mode = str(kept[0]).strip()
+            kept_query = _normalized_collection_query(kept[1])
+            superseded_ids = [
+                str(row[0])
+                for row in connection.execute(
+                    """SELECT card_id, query FROM cards
+                       WHERE mode = ? AND card_id <> ?
+                         AND status = 'active' AND validation_state = 'accepted'""",
+                    (kept_mode, keep_card_id),
+                )
+                if _normalized_collection_query(row[1]) == kept_query
+            ]
+            if superseded_ids:
+                placeholders = ",".join("?" for _ in superseded_ids)
+                cursor = connection.execute(
+                    f"""UPDATE cards SET status = 'superseded', updated_at = ?
+                        WHERE card_id IN ({placeholders})""",
+                    (timestamp, *superseded_ids),
+                )
+            else:
+                cursor = None
             connection.commit()
-        return int(cursor.rowcount)
+        return int(cursor.rowcount) if cursor is not None else 0
 
     def get(self, card_id: str) -> dict[str, Any] | None:
         with closing(self._connect()) as connection:

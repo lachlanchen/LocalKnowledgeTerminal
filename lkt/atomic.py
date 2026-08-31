@@ -663,6 +663,32 @@ def _explicit_form_evidence_ids(
     return selected
 
 
+def _retrieved_component_evidence_ids(
+    form: Any, kind: Any, records: list[dict[str, Any]]
+) -> list[str]:
+    """Select mode-specific component claims from already retrieved records."""
+
+    component_kind = str(kind).strip().casefold()
+    if component_kind == "root":
+        source_kind = "morphology-root"
+    elif component_kind in {"prefix", "suffix"}:
+        source_kind = "morphology-affix"
+    else:
+        return []
+
+    scoped_records = [
+        {
+            "evidence_id": record.get("knowledge_evidence_id", ""),
+            "headword": record.get("headword", ""),
+            "excerpt": record.get("excerpt", ""),
+        }
+        for record in records
+        if str(record.get("kind", "")).strip().casefold() == source_kind
+        and str(record.get("knowledge_evidence_id", "")).strip()
+    ]
+    return _explicit_form_evidence_ids(form, scoped_records)
+
+
 def _origin_cross_reference_targets(value: Any) -> tuple[str, ...]:
     """Return bounded Word Origins targets from a pure ``see ...`` entry."""
 
@@ -1574,6 +1600,12 @@ claims may cite only supplied evidence IDs; model knowledge must cite none."""
                         part["evidence_ids"].append(evidence_id)
 
         for part in cleaned:
+            retrieved = _retrieved_component_evidence_ids(
+                part["canonical_form"], part["kind"], records
+            )
+            part["evidence_ids"] = list(
+                dict.fromkeys([*retrieved, *part["evidence_ids"]])
+            )
             direct = (
                 self.retriever.component_evidence(
                     part["canonical_form"], part["kind"]

@@ -318,6 +318,52 @@ class StoreTests(unittest.TestCase):
             )
             self.assertIsNone(store.find_active("word", "inspection"))
 
+    def test_supersession_uses_kept_card_mode_and_normalized_subject(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            database = Path(temp) / "knowledge.sqlite3"
+            store = CardStore(database)
+            rows = (
+                ("knowledge", "knowledge", "inspection"),
+                ("origin", "word", "inspection"),
+                ("old-root", "root", "  INSPECTION  "),
+                ("new-root", "root", "inspection"),
+                ("affix", "affix", "inspection"),
+            )
+            with closing(sqlite3.connect(database)) as connection:
+                for card_id, mode, query in rows:
+                    connection.execute(
+                        """INSERT INTO cards(
+                            card_id, mode, query, title, created_at, payload,
+                            status, revision_of, updated_at, validation_state,
+                            validation_errors
+                        ) VALUES (?, ?, ?, ?, 'now', ?, 'active', '', 'now',
+                                  'accepted', '[]')""",
+                        (
+                            card_id,
+                            mode,
+                            query,
+                            card_id,
+                            json.dumps(
+                                {"card_id": card_id, "mode": mode, "query": query}
+                            ),
+                        ),
+                    )
+                connection.commit()
+
+            self.assertEqual(
+                store.supersede_others("knowledge", "inspection", "new-root"),
+                1,
+            )
+            with closing(sqlite3.connect(database)) as connection:
+                statuses = dict(
+                    connection.execute("SELECT card_id, status FROM cards")
+                )
+            self.assertEqual(statuses["old-root"], "superseded")
+            self.assertEqual(statuses["new-root"], "active")
+            self.assertEqual(statuses["knowledge"], "active")
+            self.assertEqual(statuses["origin"], "active")
+            self.assertEqual(statuses["affix"], "active")
+
     def test_revision_preserves_source_and_supersedes_old_card(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             database = Path(temp) / "knowledge.sqlite3"
