@@ -331,6 +331,20 @@ class WebInputTests(unittest.TestCase):
         self.assertIn("part.scrollHeight <= part.clientHeight + 1", script)
         self.assertIn("const meaningRatio = meaning ? baseMeaning / baseTerm : 0", script)
         self.assertIn("badges.forEach(fitGraphNodeCopy)", script)
+        derivative_filter = script.index("const derivativeNodeIds = new Set()")
+        normalized_nodes = script.index("const nodes = view.nodes.map", derivative_filter)
+        normalized_edges = script.index("const edges = displayEdges.map", normalized_nodes)
+        self.assertLess(derivative_filter, normalized_nodes)
+        self.assertLess(normalized_nodes, normalized_edges)
+        self.assertIn(
+            'if (relationship !== "shares-component") return true;', script
+        )
+        self.assertIn("if (source) derivativeNodeIds.add(source)", script)
+        self.assertIn("!derivativeNodeIds.has(node.id)", script)
+        self.assertIn(
+            'if (!["word", "root", "affix"].includes(card.mode)) return [];',
+            script,
+        )
         self.assertIn("const GRAPH_DERIVATIVE_LIMIT = 6", script)
         self.assertIn("for (const item of card.related_terms || [])", script)
         self.assertIn("derivatives.length >= GRAPH_DERIVATIVE_LIMIT", script)

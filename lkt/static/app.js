@@ -993,8 +993,18 @@ function renderLegacyOriginGraph(card) {
 function normalizeLexicalView(card, view) {
   if (!view || !Array.isArray(view.nodes) || !view.nodes.length) return null;
   const rawEdges = Array.isArray(view.edges) ? view.edges : [];
+  const derivativeNodeIds = new Set();
+  const displayEdges = rawEdges.filter((edge) => {
+    const relationship = String(
+      edge?.relation || edge?.relationship || "related",
+    ).trim().toLocaleLowerCase();
+    if (relationship !== "shares-component") return true;
+    const source = String(edge?.source || edge?.source_entity_id || "");
+    if (source) derivativeNodeIds.add(source);
+    return false;
+  });
   const componentKinds = new Map();
-  rawEdges.forEach((edge) => {
+  displayEdges.forEach((edge) => {
     const properties = edge?.properties && typeof edge.properties === "object"
       ? edge.properties
       : {};
@@ -1023,10 +1033,10 @@ function normalizeLexicalView(card, view) {
       basis: String(node?.basis || payload.basis || (evidenceIds.length ? "book" : "model")),
       evidence_ids: evidenceIds,
     };
-  }).filter((node) => node.id);
+  }).filter((node) => node.id && !derivativeNodeIds.has(node.id));
   if (!nodes.length) return null;
   const ids = new Set(nodes.map((node) => node.id));
-  const edges = rawEdges.map((edge, index) => ({
+  const edges = displayEdges.map((edge, index) => ({
     ...edge,
     id: String(edge?.id || edge?.assertion_id || `lexical-edge-${index}`),
     source: String(edge?.source || edge?.source_entity_id || ""),
@@ -1698,7 +1708,7 @@ function repelGraphNodes(cy, centerId, iterations = 160, selectedNodes = null) {
 const GRAPH_DERIVATIVE_LIMIT = 6;
 
 function normalizedGraphDerivatives(card, data) {
-  if (!["root", "affix"].includes(card.mode)) return [];
+  if (!["word", "root", "affix"].includes(card.mode)) return [];
   const center = (data?.nodes || []).find((node) => node.id === data.center_id);
   const excluded = new Set(
     [center?.form, card.english?.term, card.title, card.query]

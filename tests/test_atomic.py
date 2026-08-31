@@ -991,6 +991,19 @@ class AtomicWorkerTests(unittest.TestCase):
         self.assertEqual(
             _clean_morpheme_meaning("to look, to see"), "to look or to see"
         )
+        self.assertEqual(
+            _clean_morpheme_meaning(
+                ["pull", "lead", "carry", "draw", "give birth", "off-spring"]
+            ),
+            "pull or lead or carry or draw or give birth",
+        )
+        self.assertEqual(
+            _clean_morpheme_meaning(
+                "one two three four five six seven eight nine or more words"
+            ),
+            "one two three four five six seven eight nine",
+        )
+        self.assertEqual(_clean_morpheme_meaning([]), "")
         self.assertEqual(_plain_letter_key("dēcēdere"), "decedere")
         self.assertEqual(
             _explicit_form_evidence_ids(

@@ -578,14 +578,35 @@ def _morpheme_display_form(surface: str, kind: str) -> str:
 
 
 def _clean_morpheme_meaning(value: Any) -> str:
-    """Keep a model meaning as one short, punctuation-free English phrase."""
+    """Keep a useful meaning within the accepted ten-word display contract."""
+
+    def cleaned_text(item: Any) -> str:
+        text = re.sub(r"\s*[,;/]\s*", " or ", str(item).strip())
+        return re.sub(r"\s+", " ", text).strip(" .:-")
+
+    def bounded_words(text: str) -> str:
+        words = text.split()[:10]
+        while words and words[-1].casefold() in {"and", "or"}:
+            words.pop()
+        return " ".join(words)
 
     if isinstance(value, (list, tuple)):
-        text = " or ".join(str(item).strip() for item in value if str(item).strip())
-    else:
-        text = str(value).strip()
-    text = re.sub(r"\s*[,;/]\s*", " or ", text)
-    return re.sub(r"\s+", " ", text).strip(" .:-")
+        alternatives: list[str] = []
+        word_count = 0
+        for item in value:
+            alternative = cleaned_text(item)
+            if not alternative:
+                continue
+            alternative_words = alternative.split()
+            added_words = len(alternative_words) + (1 if alternatives else 0)
+            if word_count + added_words > 10:
+                if not alternatives:
+                    return bounded_words(alternative)
+                break
+            alternatives.append(alternative)
+            word_count += added_words
+        return " or ".join(alternatives)
+    return bounded_words(cleaned_text(value))
 
 
 def _augment_exact_free_draft(
