@@ -589,20 +589,204 @@ class AtomicWorkerTests(unittest.TestCase):
                     "surface": "pre",
                     "kind": "",
                     "evidence_ids": ["evidence-predecessor"],
+                    "meaning": "before",
                 },
                 {
                     "surface": "de",
                     "kind": "",
                     "evidence_ids": ["evidence-predecessor"],
+                    "meaning": "down",
                 },
                 {
                     "surface": "cess",
                     "kind": "root",
                     "evidence_ids": ["evidence-predecessor"],
+                    "meaning": "go",
                 },
                 {"surface": "or", "kind": "suffix", "evidence_ids": []},
             ],
         )
+
+    def test_late_component_formula_requires_exact_full_word_ownership(self) -> None:
+        records = [
+            {
+                "headword": "TAIN",
+                "kind": "morphology-root",
+                "knowledge_evidence_id": "evidence-tain",
+                "component_hint": "root",
+                "component_surface": "tain",
+                "excerpt": "TAIN: abstain [abs (=away) + tain (=hold)]",
+            }
+        ]
+
+        self.assertEqual(
+            _book_decomposition_shape("abstain", records),
+            [
+                {
+                    "surface": "abs",
+                    "kind": "prefix",
+                    "evidence_ids": ["evidence-tain"],
+                    "meaning": "away",
+                },
+                {
+                    "surface": "tain",
+                    "kind": "root",
+                    "evidence_ids": ["evidence-tain"],
+                    "meaning": "hold",
+                },
+            ],
+        )
+        self.assertEqual(_book_decomposition_shape("abstainer", records), [])
+
+    def test_late_exact_formula_augments_free_draft_and_keeps_derivatives(self) -> None:
+        derivative_terms = [
+            "contain",
+            "retain",
+            "detain",
+            "sustain",
+            "maintain",
+            "obtain",
+            "pertain",
+            "entertain",
+        ]
+
+        class AbstainRetriever(FakeRetriever):
+            def retrieve(self, term: str) -> list[dict[str, Any]]:
+                return [
+                    {
+                        "entry_id": "dictionary-abstain-1",
+                        "corpus_id": "test-dictionary:1.0",
+                        "source_title": "Test Dictionary",
+                        "headword": term,
+                        "part_of_speech": "verb",
+                        "definition": "to choose not to do something",
+                        "source_hash": "abstain-dictionary",
+                        "locator": "sense 1",
+                    }
+                ]
+
+            def component_evidence(
+                self, form: str, kind: str
+            ) -> list[dict[str, Any]]:
+                if form.strip("-").casefold() != "tain" or kind != "root":
+                    return []
+                return [
+                    {
+                        "entry_id": "root-tain-abstain",
+                        "corpus_id": "test-roots:1.0",
+                        "source_title": "Test Root Dictionary",
+                        "headword": "TAIN",
+                        "excerpt": "TAIN: abstain [abs (=away) + tain (=hold)]",
+                        "source_hash": "tain-root",
+                        "locator": "root TAIN",
+                        "kind": "morphology-root",
+                    }
+                ]
+
+        class AbstainModel(FakeAtomicModel):
+            def complete_json(
+                self, system: str, prompt: str, *, max_tokens: int = 256
+            ) -> dict[str, Any]:
+                if "LINGUISTIC REVIEW OF A LEXICAL STRUCTURE DRAFT" in prompt:
+                    raise AssertionError("an exact formula should augment without rejection")
+                if "MORPHEME SPLIT" in prompt:
+                    return {
+                        "value": {
+                            "parts": [
+                                {
+                                    "surface": "abstain",
+                                    "canonical_form": "abstain",
+                                    "kind": "free",
+                                    "language": "en",
+                                    "meaning": "choose not to act",
+                                    "confidence": 0.8,
+                                    "evidence_ids": [],
+                                }
+                            ],
+                            "derivatives": [
+                                {
+                                    "term": term,
+                                    "note": "shares the tain root",
+                                    "component_forms": ["tain"],
+                                }
+                                for term in derivative_terms
+                            ],
+                        },
+                        "model": self.model_name,
+                    }
+                return super().complete_json(system, prompt, max_tokens=max_tokens)
+
+        with tempfile.TemporaryDirectory() as temp:
+            store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")
+            plan = PreparationPlanner(store, model="test-local-qwen").plan_word(
+                "abstain", display_languages=("en",)
+            )
+            worker = PreparationWorker(
+                store, AbstainRetriever(), AbstainModel(), FakePronouncer()
+            )
+            for job_type in ("retrieve-evidence", "prepare-meaning", "split-morphemes"):
+                result = worker.run_once((job_type,))
+                self.assertIsNotNone(result)
+                self.assertEqual(result.status, "complete")
+
+            draft = store.artifacts_for_subject(
+                plan.subject_key,
+                stage="model-morpheme-draft",
+                validation_state="candidate",
+            )[-1]["payload"]["value"]
+            self.assertEqual(
+                [(part["surface"], part["kind"]) for part in draft["parts"]],
+                [("abstain", "free")],
+            )
+            accepted = store.artifacts_for_subject(
+                plan.subject_key,
+                stage="accepted-morpheme-split",
+                validation_state="accepted",
+            )[-1]["payload"]
+            self.assertEqual(
+                [
+                    (part["surface"], part["kind"], part["meaning"])
+                    for part in accepted["parts"]
+                ],
+                [("abs", "prefix", "away"), ("tain", "root", "hold")],
+            )
+            evidence_sets = {
+                tuple(part["evidence_ids"]) for part in accepted["parts"]
+            }
+            self.assertEqual(len(evidence_sets), 1)
+            self.assertTrue(next(iter(evidence_sets)))
+            self.assertEqual(
+                [item["term"] for item in accepted["related_terms"]],
+                derivative_terms,
+            )
+            view = store.lexical_subgraph(
+                plan.subject_entity_id,
+                "word",
+                {"nodes": 32, "edges": 48, "depth": 4},
+            )
+            component_edges = [
+                edge for edge in view["edges"] if edge["relation"] == "has-component"
+            ]
+            derivative_edges = [
+                edge
+                for edge in view["edges"]
+                if edge["relation"] == "shares-component"
+            ]
+            self.assertEqual(len(component_edges), 2)
+            self.assertTrue(
+                all(edge["basis"] == "book" and edge["evidence_ids"] for edge in component_edges)
+            )
+            self.assertEqual(len(derivative_edges), 8)
+            self.assertTrue(
+                all(
+                    edge["basis"] == "model" and edge["evidence_ids"] == []
+                    for edge in derivative_edges
+                )
+            )
+            self.assertEqual(
+                {edge["source"] for edge in derivative_edges},
+                {item["term_id"] for item in accepted["related_terms"]},
+            )
 
     def test_live_shaped_records_supply_mode_specific_component_evidence(self) -> None:
         records = [
@@ -2587,6 +2771,14 @@ class AtomicWorkerTests(unittest.TestCase):
                     json.dumps(composed_card, ensure_ascii=False),
                 )
             origin_card = cards_by_mode["word"]
+            self.assertEqual(
+                origin_card["related_terms"],
+                [
+                    {"term": "spectator", "note": "shares the spect root"},
+                    {"term": "inward", "note": "shares the in- prefix"},
+                    {"term": "decision", "note": "shares the -ion suffix"},
+                ],
+            )
             graph = origin_card["extensions"]["morphology_graph"]
             self.assertEqual(len(graph["nodes"]), 6)
             self.assertEqual(len(graph["edges"]), 5)

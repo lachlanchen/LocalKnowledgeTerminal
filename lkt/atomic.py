@@ -467,17 +467,24 @@ def _book_decomposition_shape(
     word = re.sub(r"[^A-Za-z]", "", letters).casefold()
     if not word:
         return []
-    component = re.compile(r"(?<![A-Za-z])([A-Za-z]{1,14})\s*[（(][^（）()]{1,90}[）)]")
+    component = re.compile(
+        r"(?<![A-Za-z])([A-Za-z]{1,14})\s*[（(]([^（）()]{1,90})[）)]"
+    )
     candidates: list[tuple[int, int, list[dict[str, Any]]]] = []
     for record in records:
         headword = re.sub(
             r"[^A-Za-z]", "", str(record.get("headword", ""))
         ).casefold()
-        if headword != word or not str(record.get("kind", "")).startswith(
-            "morphology-"
-        ):
+        if not str(record.get("kind", "")).startswith("morphology-"):
             continue
-        excerpt = str(record.get("excerpt", ""))
+        excerpt = re.sub(
+            r"\(\s*=\\\)\s*(.*?)\s*\\\(\s*\)",
+            lambda match: f"(={match.group(1)})",
+            str(record.get("excerpt", "")),
+        )
+        excerpt = re.sub(
+            r"\\mathrm\s*\{\s*([A-Za-z]{1,14})\s*\}", r"\1", excerpt
+        )
         matches = list(component.finditer(excerpt))
         for start in range(len(matches)):
             run = [matches[start]]
@@ -493,6 +500,12 @@ def _book_decomposition_shape(
             position = word.find(fixed)
             if position < 0:
                 continue
+            # A component entry may explicitly spell out another whole word,
+            # such as TAIN documenting ``ab + tain``.  It must cover the full
+            # requested word; partial formulas from other entries are not an
+            # ownership signal and remain only retrieval context.
+            if headword != word and fixed != word:
+                continue
             end = position + len(fixed)
             evidence_ids = [
                 str(record.get("knowledge_evidence_id", ""))
@@ -506,14 +519,18 @@ def _book_decomposition_shape(
                         "evidence_ids": [],
                     }
                 )
-            shape.extend(
-                {
+            for surface, match in zip(surfaces, run, strict=True):
+                meaning = _clean_morpheme_meaning(
+                    re.sub(r"^[=＝]\s*", "", match.group(2))
+                )
+                item = {
                     "surface": surface,
                     "kind": "",
                     "evidence_ids": evidence_ids,
                 }
-                for surface in surfaces
-            )
+                if meaning and re.fullmatch(r"[A-Za-z][A-Za-z -]*", meaning):
+                    item["meaning"] = meaning
+                shape.append(item)
             if end < len(word):
                 # When the reviewed formula stops before a trailing derivation,
                 # its final named component is the lexical root and the
@@ -526,6 +543,23 @@ def _book_decomposition_shape(
                         "evidence_ids": [],
                     }
                 )
+            hint_kind = str(record.get("component_hint", "")).strip().casefold()
+            hint_surface = re.sub(
+                r"[^A-Za-z]", "", str(record.get("component_surface", ""))
+            ).casefold()
+            if hint_kind == "root" and hint_surface:
+                for item in shape:
+                    if item["surface"] == hint_surface:
+                        item["kind"] = "root"
+                roots = [
+                    index for index, item in enumerate(shape) if item["kind"] == "root"
+                ]
+                if len(roots) == 1:
+                    root_index = roots[0]
+                    for index, item in enumerate(shape):
+                        if item["kind"]:
+                            continue
+                        item["kind"] = "prefix" if index < root_index else "suffix"
             candidates.append((len(fixed), len(surfaces), shape))
     if not candidates:
         return []
@@ -552,6 +586,69 @@ def _clean_morpheme_meaning(value: Any) -> str:
         text = str(value).strip()
     text = re.sub(r"\s*[,;/]\s*", " or ", text)
     return re.sub(r"\s+", " ", text).strip(" .:-")
+
+
+def _augment_exact_free_draft(
+    value: Any,
+    required_shape: list[dict[str, Any]],
+    letters: str,
+) -> Any:
+    """Overlay a complete exact book formula on one weak whole-word draft.
+
+    The raw model response is stored before this normalization.  This narrow
+    repair never invents provenance: every accepted component must be present
+    in one full-word formula and carry an existing book evidence identifier.
+    """
+
+    if not isinstance(value, dict):
+        return value
+    parts = value.get("parts")
+    if not isinstance(parts, list) or len(parts) != 1 or not isinstance(parts[0], dict):
+        return value
+    original = parts[0]
+    surface = re.sub(r"[^A-Za-z]", "", str(original.get("surface", "")))
+    if surface.casefold() != letters or str(original.get("kind", "")).casefold() != "free":
+        return value
+    if len(required_shape) < 2 or "".join(
+        str(item.get("surface", "")).casefold() for item in required_shape
+    ) != letters:
+        return value
+    if any(
+        str(item.get("kind", "")) not in {"prefix", "root", "suffix"}
+        or not str(item.get("meaning", ""))
+        or not isinstance(item.get("evidence_ids"), list)
+        or not any(str(evidence_id) for evidence_id in item["evidence_ids"])
+        for item in required_shape
+    ):
+        return value
+    language = str(original.get("language", "en")).strip().casefold()
+    if language not in {"en", "la"}:
+        language = "en"
+    try:
+        confidence = float(original.get("confidence", 0.0))
+    except (TypeError, ValueError):
+        return value
+    augmented = [
+        {
+            "surface": str(item["surface"]),
+            "canonical_form": _morpheme_display_form(
+                str(item["surface"]), str(item["kind"])
+            ),
+            "kind": str(item["kind"]),
+            "language": language,
+            "meaning": str(item["meaning"]),
+            "confidence": confidence,
+            # The validated required-shape path attaches the stored evidence.
+            # The model response itself is never made to claim that citation.
+            "evidence_ids": [],
+        }
+        for item in required_shape
+    ]
+    return {
+        **value,
+        "parts": augmented,
+        "augmentation": "exact-full-word-book-formula",
+    }
 
 
 def _normalise_derivative_terms(
@@ -1518,6 +1615,7 @@ translations, examples, markdown, or claims absent from the evidence."""
                                 "component_end": end,
                             }
                         )
+            explicit_shape = _book_decomposition_shape(letters, records)
         allowed_evidence = {
             str(record.get("knowledge_evidence_id", "")) for record in records
         }
@@ -1618,6 +1716,12 @@ This array may be empty."""
             language=source["language"],
             validation_state="candidate",
         )
+        first_draft_derivatives: list[Any] = []
+        if isinstance(value, dict):
+            proposed = value.get("derivatives", value.get("related_terms", []))
+            if isinstance(proposed, list):
+                first_draft_derivatives = list(proposed)
+        value = _augment_exact_free_draft(value, required_shape, letters)
 
         def draft_needs_review(candidate: Any) -> bool:
             if not isinstance(candidate, dict):
@@ -1627,10 +1731,11 @@ This array may be empty."""
                 return True
             if not all(isinstance(item, dict) for item in draft_parts):
                 return True
-            surfaces = "".join(
+            draft_surfaces = [
                 re.sub(r"[^A-Za-z]", "", str(item.get("surface", "")))
                 for item in draft_parts
-            )
+            ]
+            surfaces = "".join(draft_surfaces)
             kinds = {
                 str(item.get("kind", "")).strip().casefold()
                 for item in draft_parts
@@ -1638,6 +1743,9 @@ This array may be empty."""
             return (
                 surfaces.casefold() != letters
                 or not kinds.intersection({"root", "free"})
+                or bool(required_shape)
+                and [surface.casefold() for surface in draft_surfaces]
+                != [str(item["surface"]).casefold() for item in required_shape]
             )
 
         if draft_needs_review(value):
@@ -1662,6 +1770,21 @@ claims may cite only supplied evidence IDs; model knowledge must cite none."""
                 max_tokens=512,
             )
             value = reviewed.get("value")
+            if isinstance(value, dict):
+                reviewed_derivatives = value.get(
+                    "derivatives", value.get("related_terms", [])
+                )
+                value = {
+                    **value,
+                    "derivatives": [
+                        *first_draft_derivatives,
+                        *(
+                            reviewed_derivatives
+                            if isinstance(reviewed_derivatives, list)
+                            else []
+                        ),
+                    ],
+                }
             self.store.save_job_artifact(
                 job["job_id"],
                 "model-morpheme-review-draft",
@@ -3603,6 +3726,13 @@ reading and do not rewrite the Japanese form."""
         word_lexical_view = self._lexical_view(
             center_id, "word", [center_id]
         )
+        word_related_terms = _derivative_terms_for_view(
+            [split["payload"], origin["payload"]],
+            str(source["text"]),
+            parts,
+            parts,
+            limit=8,
+        )
 
         def ruby(language: str) -> list[dict[str, str]]:
             return [
@@ -3657,7 +3787,7 @@ reading and do not rewrite the Japanese form."""
                 "ruby_tokens": ruby("zh"),
             },
             memory_hook="",
-            related_terms=[],
+            related_terms=word_related_terms,
             evidence=evidence,
             model="accepted atomic knowledge",
             created_at=datetime.now(UTC).isoformat(),
