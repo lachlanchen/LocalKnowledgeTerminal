@@ -27,6 +27,12 @@ machine, then delivers a data/privacy map, a small browser proof from a usable
 representative sample, and a go/no-go recommendation. Hardware, shipping,
 custom OCR, and production deployment are outside that fixed scope.
 
+To see exactly what those three deliverables look like without sharing any
+customer material, read the
+[sample collection-fit report](docs/sample-fit-report.md). It applies the
+format to LKT's own documented reference collection and is explicitly not a
+customer result or paid-engagement claim.
+
 ## Six independent experiences, one card contract
 
 - **Word Origin** uses its own one-entry retriever and prompt to make a bounded,
