@@ -18,6 +18,15 @@ on an 8 GB Raspberry Pi 5 with Qwen3-8B as an optional slower profile; retrieval
 inference, history,
 and the browser GUI operate without a cloud API.
 
+## Try it with one collection
+
+If you already have a bounded private book or dictionary collection, the
+[founding USD 250 collection-fit sprint](https://lazying.art/lkt/) starts with a
+free fit check. It covers one collection, one language goal, and one existing
+machine, then delivers a data/privacy map, a small browser proof from a usable
+representative sample, and a go/no-go recommendation. Hardware, shipping,
+custom OCR, and production deployment are outside that fixed scope.
+
 ## Six independent experiences, one card contract
 
 - **Word Origin** uses its own one-entry retriever and prompt to make a bounded,
