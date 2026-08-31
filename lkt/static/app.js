@@ -1281,30 +1281,27 @@ function graphNodeCopyFits(copy) {
 
 function fitGraphNodeCopy(box) {
   const copy = box.querySelector(".graph-node-copy");
+  const term = box.querySelector(".graph-node-term");
   const meaning = box.querySelector(".graph-node-meaning");
-  if (!copy || copy.clientWidth <= 1 || copy.clientHeight <= 1) return;
-  const baseTerm = Number(box.dataset.graphTermSize) || 18;
-  const baseMeaning = Number(box.dataset.graphMeaningSize) || 13.5;
-  const meaningRatio = meaning ? baseMeaning / baseTerm : 0;
-  const applySize = (termSize) => {
-    box.style.setProperty("--graph-term-size", `${termSize}px`);
-    if (meaning) {
-      box.style.setProperty(
-        "--graph-meaning-size",
-        `${Math.max(1, termSize * meaningRatio)}px`,
-      );
+  if (!copy || !term || copy.clientWidth <= 1 || copy.clientHeight <= 1) return;
+
+  const fitPart = (part, property, upperLimit) => {
+    if (!part || part.clientWidth <= 1 || part.clientHeight <= 1) return;
+    let lower = 1;
+    let upper = upperLimit;
+    for (let pass = 0; pass < 11; pass += 1) {
+      const candidate = (lower + upper) / 2;
+      box.style.setProperty(property, `${candidate}px`);
+      const fits = part.scrollWidth <= part.clientWidth + 1
+        && part.scrollHeight <= part.clientHeight + 1;
+      if (fits) lower = candidate;
+      else upper = candidate;
     }
+    box.style.setProperty(property, `${lower}px`);
   };
 
-  let lower = 1;
-  let upper = 160;
-  for (let pass = 0; pass < 11; pass += 1) {
-    const candidate = (lower + upper) / 2;
-    applySize(candidate);
-    if (graphNodeCopyFits(copy)) lower = candidate;
-    else upper = candidate;
-  }
-  applySize(lower);
+  fitPart(term, "--graph-term-size", 160);
+  fitPart(meaning, "--graph-meaning-size", 120);
 }
 
 function updateGraphNodeBadges() {
@@ -1357,7 +1354,10 @@ function updateGraphNodeBadges() {
     box.style.setProperty("--graph-badge-size", `${10 * scale}px`);
     box.append(element("i", "graph-node-type", type.toLocaleUpperCase()));
     if (language) box.append(element("i", "graph-node-language", language));
-    const copy = element("span", "graph-node-copy");
+    const copy = element(
+      "span",
+      `graph-node-copy${node.data("meaning") ? " has-meaning" : ""}`,
+    );
     const term = element("strong", "graph-node-term", node.data("form") || "—");
     term.dir = "auto";
     copy.append(term);
@@ -1536,7 +1536,7 @@ function semanticGraphPositions(data, canvasWidth = 1280) {
 function layoutGraphForCanvas() {
   if (!originCy || !originGraphData) return;
   const graphNodes = originCy.nodes().map((node) => node);
-  if (graphNodes.length >= 4) {
+  if (graphNodes.length >= 7) {
     layoutClockwiseGraphNodes(graphNodes, originGraphData.center_id);
   } else {
     const positions = semanticGraphPositions(originGraphData, $("#origin-canvas").clientWidth);

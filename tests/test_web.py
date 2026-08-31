@@ -227,7 +227,7 @@ class WebInputTests(unittest.TestCase):
         self.assertIn("layoutGraphForCurrentFocus(focus)", script)
         self.assertIn("clockwiseGraphOrder", script)
         self.assertIn("layoutClockwiseGraphNodes", script)
-        self.assertIn("graphNodes.length >= 4", script)
+        self.assertIn("graphNodes.length >= 7", script)
         self.assertIn("placeRows(components, -140", script)
         self.assertIn("canvasWidth * .32", script)
         self.assertIn("layoutGraphForCanvas", script)
@@ -329,7 +329,9 @@ class WebInputTests(unittest.TestCase):
         )
         self.assertIn("part.scrollWidth <= part.clientWidth + 1", script)
         self.assertIn("part.scrollHeight <= part.clientHeight + 1", script)
-        self.assertIn("const meaningRatio = meaning ? baseMeaning / baseTerm : 0", script)
+        self.assertIn('fitPart(term, "--graph-term-size", 160)', script)
+        self.assertIn('fitPart(meaning, "--graph-meaning-size", 120)', script)
+        self.assertIn('graphNodes.length >= 7', script)
         self.assertIn("badges.forEach(fitGraphNodeCopy)", script)
         derivative_filter = script.index("const derivativeNodeIds = new Set()")
         normalized_nodes = script.index("const nodes = view.nodes.map", derivative_filter)
@@ -360,6 +362,8 @@ class WebInputTests(unittest.TestCase):
         self.assertLess(canvas, rails)
         self.assertIn('grid-template-areas: "left viewport right"', style)
         self.assertIn('grid-template-areas: "viewport" "derivatives"', style)
+        self.assertIn('.graph-node-copy.has-meaning', style)
+        self.assertIn('grid-template-rows: minmax(0, .85fr) minmax(0, 1.15fr)', style)
 
     def test_graph_prefers_canonical_lexical_view_with_legacy_fallback(self) -> None:
         script = (
