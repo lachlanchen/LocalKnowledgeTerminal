@@ -1131,6 +1131,66 @@ class AtomicWorkerTests(unittest.TestCase):
                 },
             )
 
+    def test_low_confidence_origin_is_retained_without_weakening_shape_checks(self) -> None:
+        class LowConfidenceOriginModel(FakeAtomicModel):
+            def complete_json(
+                self, system: str, prompt: str, *, max_tokens: int = 256
+            ) -> dict[str, Any]:
+                if "ONE ORIGIN BRANCH" not in prompt:
+                    return super().complete_json(system, prompt, max_tokens=max_tokens)
+                component_id = re.findall(
+                    r'"component_id": "([^"]+)"', prompt
+                )[0]
+                return {
+                    "value": {
+                        "component_id": component_id,
+                        "steps": [
+                            {
+                                "form": "*spok-",
+                                "language": "ine-pro",
+                                "period": "Proto-Indo-European",
+                                "meaning": "look",
+                                "confidence": 0.2,
+                                "evidence_ids": [],
+                            }
+                        ],
+                    },
+                    "model": self.model_name,
+                }
+
+        with tempfile.TemporaryDirectory() as temp:
+            store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")
+            plan = PreparationPlanner(store, model="test").plan_word(
+                "inspection", display_languages=("en",)
+            )
+            results = PreparationWorker(
+                store, FakeRetriever(), LowConfidenceOriginModel()
+            ).run(4)
+
+            self.assertEqual(results[-1].job_type, "expand-origin-branches")
+            self.assertEqual(results[-1].status, "complete")
+            accepted = store.artifacts_for_subject(
+                plan.subject_key,
+                stage="accepted-origin-branches",
+                validation_state="accepted",
+            )
+            self.assertEqual(len(accepted), 1)
+            low_steps = [
+                step
+                for branch in accepted[0]["payload"]["branches"]
+                for step in branch["steps"]
+                if step["form"] == "*spok-"
+            ]
+            self.assertTrue(low_steps)
+            self.assertTrue(
+                all(
+                    step["confidence"] == 0.2
+                    and step["basis"] == "model"
+                    and step["evidence_ids"] == []
+                    for step in low_steps
+                )
+            )
+
     def test_origin_record_can_anchor_a_named_subentry(self) -> None:
         self.assertTrue(
             _origin_source_record_matches(

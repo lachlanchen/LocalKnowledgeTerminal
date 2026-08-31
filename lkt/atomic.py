@@ -2446,8 +2446,6 @@ chain. Return JSON only."""
                 confidence = max(
                     0.0, min(float(raw.get("confidence", 0.0)), 1.0)
                 )
-                if confidence < 0.65:
-                    raise ValueError("origin confidence is below threshold")
                 selected = [
                     evidence_id
                     for evidence_id in _explicit_form_evidence_ids(form, focus_evidence)
