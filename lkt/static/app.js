@@ -31,6 +31,8 @@ let sentenceSlideTimer = null;
 let graphFocusTimer = null;
 let graphViewportFitTimer = null;
 let chromeTimer = null;
+let knowledgeTickerFrame = null;
+let knowledgeTickerRevision = 0;
 let ambientRouting = false;
 let ambientModeIndex = 0;
 let userActivityRevision = 0;
@@ -548,6 +550,137 @@ function fitSentenceSlide() {
   }
 }
 
+const KNOWLEDGE_TICKER_SELECTORS = ["[data-overflow-role]:not(#evidence-list)"];
+const knowledgeTickerMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+
+function restoreKnowledgeTickerLane(lane) {
+  const primary = lane.querySelector(
+    ".knowledge-ticker-copy:not([aria-hidden='true'])",
+  );
+  if (primary) lane.replaceChildren(...Array.from(primary.childNodes));
+  lane.classList.remove("knowledge-ticker-lane", "is-overflowing");
+  lane.removeAttribute("data-motion-axis");
+  lane.style.removeProperty("--ticker-gap");
+  lane.style.removeProperty("--ticker-shift");
+  lane.style.removeProperty("--ticker-shift-y");
+  lane.style.removeProperty("--ticker-duration");
+  lane.removeAttribute("tabindex");
+  lane.onkeydown = null;
+}
+
+function resetKnowledgeTickers() {
+  if (knowledgeTickerFrame !== null) window.cancelAnimationFrame(knowledgeTickerFrame);
+  knowledgeTickerFrame = null;
+  knowledgeTickerRevision += 1;
+  all(".knowledge-ticker-lane").forEach(restoreKnowledgeTickerLane);
+}
+
+function fitKnowledgeTickerLane(lane) {
+  restoreKnowledgeTickerLane(lane);
+  if (!lane.textContent.trim() || lane.clientWidth <= 1 || lane.closest(".hidden")) return;
+
+  const axis = lane.dataset.overflowRole === "term" ? "horizontal" : "vertical";
+  lane.classList.add("knowledge-ticker-lane");
+  lane.dataset.motionAxis = axis;
+  const track = document.createElement(lane.id === "evidence-list" ? "div" : "span");
+  track.className = "knowledge-ticker-track";
+  const copy = document.createElement(lane.id === "evidence-list" ? "div" : "span");
+  copy.className = "knowledge-ticker-copy";
+  copy.dir = getComputedStyle(lane).direction === "rtl" ? "rtl" : "ltr";
+  while (lane.firstChild) copy.append(lane.firstChild);
+  track.append(copy);
+  lane.append(track);
+
+  const copyWidth = Math.ceil(Math.max(copy.scrollWidth, copy.getBoundingClientRect().width));
+  const copyHeight = Math.ceil(Math.max(copy.scrollHeight, copy.getBoundingClientRect().height));
+  const overflowing = axis === "horizontal"
+    ? copyWidth > lane.clientWidth + 1
+    : copyHeight > lane.clientHeight + 1;
+  if (!overflowing) return;
+
+  const travel = axis === "horizontal" ? copyWidth : copyHeight;
+  const gap = axis === "horizontal"
+    ? Math.max(36, Math.min(96, Math.round(lane.clientWidth * .12)))
+    : Math.max(18, Math.min(44, Math.round(lane.clientHeight * .16)));
+  const duplicate = copy.cloneNode(true);
+  duplicate.setAttribute("aria-hidden", "true");
+  track.append(duplicate);
+  lane.style.setProperty("--ticker-gap", `${gap}px`);
+  lane.style.setProperty("--ticker-shift", `${-(copyWidth + gap)}px`);
+  lane.style.setProperty("--ticker-shift-y", `${-(copyHeight + gap)}px`);
+  lane.style.setProperty(
+    "--ticker-duration",
+    `${Math.max(10, axis === "horizontal" ? (copyWidth + gap) / 34 : (travel + gap) / 24).toFixed(2)}s`,
+  );
+  lane.classList.add("is-overflowing");
+
+  if (knowledgeTickerMotion.matches) {
+    lane.tabIndex = 0;
+    lane.onkeydown = (event) => {
+      const keys = axis === "horizontal"
+        ? ["ArrowLeft", "ArrowRight", "Home", "End"]
+        : ["ArrowUp", "ArrowDown", "Home", "End"];
+      if (!keys.includes(event.key)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.key === "Home") lane.scrollTo({ left: 0, top: 0 });
+      if (event.key === "End") lane.scrollTo({ left: lane.scrollWidth, top: lane.scrollHeight });
+      if (event.key === "ArrowLeft") lane.scrollBy({ left: -lane.clientWidth * .65 });
+      if (event.key === "ArrowRight") lane.scrollBy({ left: lane.clientWidth * .65 });
+      if (event.key === "ArrowUp") lane.scrollBy({ top: -lane.clientHeight * .65 });
+      if (event.key === "ArrowDown") lane.scrollBy({ top: lane.clientHeight * .65 });
+    };
+  }
+}
+
+function refreshKnowledgeTickers() {
+  knowledgeTickerFrame = null;
+  const morphologyMode = ["root", "affix"].includes(activeCard?.mode);
+  if (activeCard?.mode !== "knowledge" && !morphologyMode) return;
+  const lanes = activeCard.mode === "knowledge"
+    ? KNOWLEDGE_TICKER_SELECTORS.flatMap((selector) => all(selector))
+    : [$("#evidence-list")];
+  lanes
+    .filter((lane) => lane && !lane.closest(".hidden") && lane.getClientRects().length)
+    .forEach(fitKnowledgeTickerLane);
+}
+
+function scheduleKnowledgeTickers() {
+  if (knowledgeTickerFrame !== null) return;
+  knowledgeTickerFrame = window.requestAnimationFrame(refreshKnowledgeTickers);
+}
+
+function startKnowledgeTickers() {
+  const revision = knowledgeTickerRevision;
+  scheduleKnowledgeTickers();
+  if (document.fonts?.ready) {
+    document.fonts.ready.then(() => {
+      if (revision === knowledgeTickerRevision) scheduleKnowledgeTickers();
+    });
+  }
+}
+
+function setMorphologyEvidenceExpanded(expanded) {
+  const cardView = $("#card-view");
+  const morphologyMode = ["root", "affix"].includes(activeCard?.mode);
+  const toggle = $("#evidence-toggle");
+  cardView.classList.toggle("evidence-expanded", morphologyMode && expanded);
+  toggle.hidden = !morphologyMode;
+  toggle.setAttribute("aria-expanded", String(morphologyMode && expanded));
+  toggle.textContent = expanded ? "COLLAPSE" : "EXPAND";
+}
+
+function toggleMorphologyEvidencePanel() {
+  if (!["root", "affix"].includes(activeCard?.mode)) return;
+  resetKnowledgeTickers();
+  setMorphologyEvidenceExpanded(!$("#card-view").classList.contains("evidence-expanded"));
+  startKnowledgeTickers();
+  scheduleGraphViewportFit(120);
+}
+
+window.addEventListener("resize", scheduleKnowledgeTickers);
+knowledgeTickerMotion.addEventListener?.("change", scheduleKnowledgeTickers);
+
 function restartTransition(node, className) {
   node.classList.remove(className);
   void node.offsetWidth;
@@ -1031,6 +1164,39 @@ function clearGraphNodeBadges() {
   $("#graph-node-badges").replaceChildren();
 }
 
+function graphNodeCopyFits(copy) {
+  return copy.scrollWidth <= copy.clientWidth + 1
+    && copy.scrollHeight <= copy.clientHeight + 1;
+}
+
+function fitGraphNodeCopy(box) {
+  const copy = box.querySelector(".graph-node-copy");
+  const meaning = box.querySelector(".graph-node-meaning");
+  if (!copy || copy.clientWidth <= 1 || copy.clientHeight <= 1) return;
+  const baseTerm = Number(box.dataset.graphTermSize) || 18;
+  const baseMeaning = Number(box.dataset.graphMeaningSize) || 13.5;
+  const meaningRatio = meaning ? baseMeaning / baseTerm : 0;
+  const applySize = (termSize) => {
+    box.style.setProperty("--graph-term-size", `${termSize}px`);
+    if (meaning) {
+      box.style.setProperty(
+        "--graph-meaning-size",
+        `${Math.max(1, termSize * meaningRatio)}px`,
+      );
+    }
+  };
+
+  let lower = 1;
+  let upper = 160;
+  for (let pass = 0; pass < 11; pass += 1) {
+    const candidate = (lower + upper) / 2;
+    applySize(candidate);
+    if (graphNodeCopyFits(copy)) lower = candidate;
+    else upper = candidate;
+  }
+  applySize(lower);
+}
+
 function updateGraphNodeBadges() {
   graphNodeBadgeFrame = null;
   const layer = $("#graph-node-badges");
@@ -1040,7 +1206,7 @@ function updateGraphNodeBadges() {
     layer.replaceChildren();
     return;
   }
-  const graphRect = graph.getBoundingClientRect();
+  const graphRect = layer.getBoundingClientRect();
   const canvasRect = canvas.getBoundingClientRect();
   const offsetX = canvasRect.left - graphRect.left;
   const offsetY = canvasRect.top - graphRect.top;
@@ -1066,6 +1232,8 @@ function updateGraphNodeBadges() {
     box.style.setProperty("--graph-node-scale", scale);
     box.style.setProperty("--graph-term-size", `${node.data("termFontSize") * scale}px`);
     box.style.setProperty("--graph-meaning-size", `${node.data("meaningFontSize") * scale}px`);
+    box.dataset.graphTermSize = String(node.data("termFontSize") * scale);
+    box.dataset.graphMeaningSize = String(node.data("meaningFontSize") * scale);
     box.style.setProperty("--graph-copy-top", `${32 * scale}px`);
     box.style.setProperty("--graph-copy-side", `${10 * scale}px`);
     box.style.setProperty("--graph-copy-bottom", `${10 * scale}px`);
@@ -1092,6 +1260,7 @@ function updateGraphNodeBadges() {
     badges.push(box);
   });
   layer.replaceChildren(...badges);
+  badges.forEach(fitGraphNodeCopy);
 }
 
 function scheduleGraphNodeBadges() {
@@ -1426,6 +1595,66 @@ function repelGraphNodes(cy, centerId, iterations = 160, selectedNodes = null) {
   }
 }
 
+const GRAPH_DERIVATIVE_LIMIT = 6;
+
+function normalizedGraphDerivatives(card, data) {
+  if (!["root", "affix"].includes(card.mode)) return [];
+  const center = (data?.nodes || []).find((node) => node.id === data.center_id);
+  const excluded = new Set(
+    [center?.form, card.english?.term, card.title, card.query]
+      .map((value) => String(value || "").trim().normalize("NFKC").toLocaleLowerCase())
+      .filter(Boolean),
+  );
+  const seen = new Set(excluded);
+  const derivatives = [];
+  for (const item of card.related_terms || []) {
+    const term = String(typeof item === "string" ? item : item?.term || "").trim();
+    const key = term.normalize("NFKC").toLocaleLowerCase();
+    if (!term || seen.has(key)) continue;
+    seen.add(key);
+    derivatives.push({
+      term,
+      note: String(typeof item === "object" && item ? item.note || "" : "").trim(),
+    });
+    if (derivatives.length >= GRAPH_DERIVATIVE_LIMIT) break;
+  }
+  return derivatives;
+}
+
+function graphDerivativeCard(item, index) {
+  const card = element("article", "graph-derivative-card");
+  card.style.order = String(index);
+  const label = element("span", "graph-derivative-label", "DERIVED WORD");
+  const term = element("strong", "graph-derivative-term", item.term);
+  term.dir = "auto";
+  card.append(label, term);
+  if (item.note) {
+    const note = element("small", "graph-derivative-note", item.note);
+    note.dir = "auto";
+    card.append(note);
+  }
+  return card;
+}
+
+function renderGraphDerivativeRails(card, data) {
+  const layout = $("#graph-layout");
+  const rails = $("#graph-derivative-rails");
+  const left = $("#graph-derivatives-left");
+  const right = $("#graph-derivatives-right");
+  const derivatives = normalizedGraphDerivatives(card, data);
+  const leftCards = [];
+  const rightCards = [];
+  derivatives.forEach((item, index) => {
+    (index % 2 === 0 ? leftCards : rightCards).push(graphDerivativeCard(item, index));
+  });
+  left.replaceChildren(...leftCards);
+  right.replaceChildren(...rightCards);
+  left.hidden = leftCards.length === 0;
+  right.hidden = rightCards.length === 0;
+  rails.hidden = derivatives.length === 0;
+  layout.classList.toggle("has-derivatives", derivatives.length > 0);
+}
+
 function renderOriginGraph(card) {
   const graph = $("#origin-graph");
   const canvas = $("#origin-canvas");
@@ -1440,6 +1669,7 @@ function renderOriginGraph(card) {
   canvas.replaceChildren();
   overview.replaceChildren();
   const data = unifiedGraph(card);
+  renderGraphDerivativeRails(card, data);
   const enabled = ["word", "root", "affix"].includes(card.mode)
     && Array.isArray(data?.nodes) && data.nodes.length > 1;
   graph.classList.toggle("hidden", !enabled);
@@ -1497,6 +1727,7 @@ function renderOriginGraph(card) {
   repelGraphNodes(originCy, data.center_id);
   fitGraphView({ wholeGraph: true });
   originCy.on("render", scheduleGraphNodeBadges);
+  if (document.fonts?.ready) document.fonts.ready.then(scheduleGraphNodeBadges);
   const overviewNodes = graphNodes.map((item) => ({
     ...item,
     position: originCy.$id(item.data.id).position(),
@@ -1613,16 +1844,19 @@ function startAlternateLoop(card) {
     }
     alternateIndex += 1;
     showAlternate(card, alternateIndex);
+    scheduleKnowledgeTickers();
   }, INNER_SLIDE_DWELL_MS);
 }
 
 function renderCard(card, refreshHistory = true) {
+  resetKnowledgeTickers();
   setMode(card.mode, true);
   activeCardId = card.card_id;
   activeCard = card;
   const copy = MODE_COPY[card.mode] || MODE_COPY.word;
   const cardView = $("#card-view");
   cardView.className = `card-view mode-${card.mode}`;
+  setMorphologyEvidenceExpanded(false);
   text("#card-mode", copy.card);
   text("#card-model", `${card.model} · LOCAL`);
   const primaryTitle = ["answer", "question"].includes(card.mode)
@@ -1670,7 +1904,6 @@ function renderCard(card, refreshHistory = true) {
 
   const tokens = Array.isArray(card.japanese.ruby_tokens) ? card.japanese.ruby_tokens : [];
   renderRuby("#japanese-ruby", tokens, card.japanese.term, card.japanese.reading);
-
   const points = $("#key-points");
   points.replaceChildren(...(card.key_points || []).map((item) => element("li", "", item)));
 
@@ -1712,6 +1945,8 @@ function renderCard(card, refreshHistory = true) {
     evidence.append(section);
   });
   show("card");
+  startKnowledgeTickers();
+  if (["root", "affix"].includes(card.mode)) scheduleGraphViewportFit(120);
   restartTransition(cardView, "card-switch-enter");
   updateCarouselChrome();
   if (refreshHistory) loadHistory();
@@ -2366,6 +2601,7 @@ document.addEventListener("keydown", (event) => {
 });
 document.addEventListener("focusin", () => noteActivity(true));
 window.addEventListener("resize", () => scheduleGraphViewportFit(120), { passive: true });
+$("#evidence-toggle").addEventListener("click", toggleMorphologyEvidencePanel);
 
 const initialParameters = new URLSearchParams(location.search);
 const initialMode = MODE_COPY[initialParameters.get("mode")]

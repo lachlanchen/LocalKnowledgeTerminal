@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+import unicodedata
 from dataclasses import asdict, dataclass
 from typing import Any, Iterable
 
@@ -23,6 +24,8 @@ class DeckSeedResult:
     prepared: int = 0
     total: int = 0
     message: str = ""
+    round_id: str = ""
+    discoveries: tuple[dict[str, str], ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -176,7 +179,7 @@ class AutonomousDeckSeeder:
 
 
 class AutonomousLexicalSeeder:
-    """Queue one unseen lexical plan for all four lexical product modes."""
+    """Claim one bounded lexical batch for all four lexical product modes."""
 
     MODES = ("knowledge", "word", "root", "affix")
 
@@ -196,20 +199,166 @@ class AutonomousLexicalSeeder:
         self.prompt_version = prompt_version
 
     def _planned_keys(self) -> set[str]:
-        planned = self.knowledge.planned_term_keys("en")
+        durable_lookup = getattr(
+            self.knowledge, "discovered_or_planned_term_keys", None
+        )
+        planned = (
+            durable_lookup("en")
+            if callable(durable_lookup)
+            else self.knowledge.planned_term_keys("en")
+        )
         for card in self.store.accepted_for_modes(self.MODES):
-            query = str(card.get("query", "")).strip().casefold()
+            query = self._key(card.get("query", ""))
             if query:
                 planned.add(query)
         return planned
 
+    @staticmethod
+    def _key(value: Any) -> str:
+        return " ".join(
+            unicodedata.normalize("NFKC", str(value)).casefold().split()
+        )
+
+    def _investigation_groups(self, excluded: set[str]) -> list[dict[str, Any]]:
+        lookup = getattr(self.knowledge, "investigation_suggestion_groups", None)
+        if not callable(lookup):
+            return []
+        return list(lookup(excluded, language="en"))
+
+    def _select_discovery_batch(
+        self, seed: str, excluded: set[str]
+    ) -> list[dict[str, str]]:
+        """Select every source before durable claims or lexical planning."""
+
+        selections: list[dict[str, str]] = []
+        blocked = set(excluded)
+        groups = self._investigation_groups(blocked)
+        if groups:
+            group = groups[0]
+            for suggestion in list(group.get("terms", ()))[:2]:
+                term = str(suggestion.get("term", "")).strip()
+                key = self._key(term)
+                if not key or key in blocked:
+                    continue
+                selections.append(
+                    {
+                        "language": "en",
+                        "term": term,
+                        "source_kind": "qa-investigation",
+                        "source_entity_id": str(group.get("source_entity_id", "")),
+                        "source_artifact_id": str(group.get("source_artifact_id", "")),
+                        "source_entry_id": "",
+                    }
+                )
+                blocked.add(key)
+
+        base_seed = seed.strip() or f"{time.time_ns()}:lexical:{len(blocked)}"
+        attempts = 0
+        while len(selections) < 5 and attempts < 25:
+            evidence = self.corpus.draw_unseen_word(
+                f"{base_seed}:word-origins:{attempts}", blocked
+            )
+            attempts += 1
+            if evidence is None:
+                break
+            key = self._key(evidence.headword)
+            if not key or key in blocked:
+                continue
+            selections.append(
+                {
+                    "language": "en",
+                    "term": str(evidence.headword).strip(),
+                    "source_kind": "word-origins",
+                    "source_entity_id": "",
+                    "source_artifact_id": "",
+                    "source_entry_id": str(evidence.entry_id),
+                }
+            )
+            blocked.add(key)
+        return selections
+
+    def _plan_claimed_round(
+        self,
+        discoveries: list[dict[str, Any]],
+        *,
+        progress: dict[str, Any],
+        source_fingerprint: str,
+    ) -> DeckSeedResult:
+        round_id = str(discoveries[0].get("round_id", "")) if discoveries else ""
+        planner = PreparationPlanner(
+            self.knowledge,
+            model=self.model,
+            prompt_version=self.prompt_version,
+            source_fingerprint=source_fingerprint,
+        )
+        queued_jobs = 0
+        for discovery in discoveries:
+            try:
+                plan = planner.plan_word(str(discovery["term"]))
+                queued_jobs += len(plan.jobs)
+                self.knowledge.mark_lexical_discovery_planned(
+                    str(discovery["discovery_id"])
+                )
+            except Exception as exc:
+                return DeckSeedResult(
+                    status="deferred",
+                    mode="lexical",
+                    prepared=int(progress["planned"]),
+                    total=int(progress["total"]),
+                    message=(
+                        f"lexical discovery round {round_id} remains recoverable: "
+                        f"{str(exc)[:240]}"
+                    ),
+                    round_id=round_id,
+                    discoveries=tuple(
+                        {
+                            "term": str(item.get("term", "")),
+                            "source_kind": str(item.get("source_kind", "")),
+                        }
+                        for item in discoveries
+                    ),
+                )
+        origin_entry = next(
+            (
+                str(item.get("source_entry_id", ""))
+                for item in discoveries
+                if item.get("source_kind") == "word-origins"
+            ),
+            "",
+        )
+        return DeckSeedResult(
+            status="queued",
+            mode="lexical",
+            source_entry_id=origin_entry,
+            prepared=len(self.corpus.lexical_headwords().intersection(self._planned_keys()))
+            if isinstance(self.corpus.lexical_headwords(), set)
+            else len(
+                {self._key(item) for item in self.corpus.lexical_headwords()}.intersection(
+                    self._planned_keys()
+                )
+            ),
+            total=int(progress["total"]),
+            message=(
+                f"claimed {len(discoveries)} unseen words and queued {queued_jobs} "
+                "missing-only jobs; every term feeds Word, Origin, Root, and Affix"
+            ),
+            round_id=round_id,
+            discoveries=tuple(
+                {
+                    "term": str(item.get("term", "")),
+                    "source_kind": str(item.get("source_kind", "")),
+                }
+                for item in discoveries
+            ),
+        )
+
     def progress(self) -> dict[str, Any]:
-        candidates = {item.casefold() for item in self.corpus.lexical_headwords()}
+        candidates = {self._key(item) for item in self.corpus.lexical_headwords()}
         planned = len(candidates.intersection(self._planned_keys()))
         word_repair_remaining = len(self._missing_word_queries())
         repair_remaining = len(self._missing_origin_queries())
         accepted = {
-            str(card.get("query", "")).strip().casefold()
+            self._key(card.get("query", ""))
             for card in self.store.accepted_for_modes(self.MODES)
             if str(card.get("query", "")).strip()
         }
@@ -298,6 +447,16 @@ class AutonomousLexicalSeeder:
         progress = self.progress()
         total = int(progress["total"])
         source_fingerprint = self.corpus.metadata().get("source_sha256", "")
+        pending_lookup = getattr(
+            self.knowledge, "unplanned_lexical_discoveries", None
+        )
+        pending = list(pending_lookup()) if callable(pending_lookup) else []
+        if pending:
+            return self._plan_claimed_round(
+                pending,
+                progress=progress,
+                source_fingerprint=source_fingerprint,
+            )
         word_repair_version = f"{self.prompt_version}-word-repair-v1"
         terminal_word_repairs = list(self._missing_word_queries())
         for repair_query in self._missing_word_queries(
@@ -353,11 +512,8 @@ class AutonomousLexicalSeeder:
                         f"{repair_query}; accepted language atoms were reused"
                     ),
                 )
-        evidence = self.corpus.draw_unseen_word(
-            seed.strip() or f"{time.time_ns()}:lexical:{len(planned)}",
-            planned,
-        )
-        if evidence is None:
+        selections = self._select_discovery_batch(seed, planned)
+        if not selections:
             # Do not let an exhausted repair monopolize discovery. Once every
             # unseen headword is planned, create a fresh bounded job revision so
             # Knowledge-without-Word cannot become a permanent false completion.
@@ -407,34 +563,30 @@ class AutonomousLexicalSeeder:
                 total=total,
                 message="every eligible Word Origins headword is already planned",
             )
-        planner = PreparationPlanner(
-            self.knowledge,
-            model=self.model,
-            prompt_version=self.prompt_version,
+        claim = self.knowledge.claim_lexical_discovery_round(selections)
+        if claim is None:
+            return DeckSeedResult(
+                status="deferred",
+                mode="lexical",
+                prepared=int(progress["planned"]),
+                total=total,
+                message="another durable discovery claim changed the unseen set",
+            )
+        return self._plan_claimed_round(
+            list(claim["discoveries"]),
+            progress=progress,
             source_fingerprint=source_fingerprint,
-        )
-        plan = planner.plan_word(evidence.headword)
-        return DeckSeedResult(
-            status="queued",
-            mode="lexical",
-            source_entry_id=evidence.entry_id,
-            prepared=min(int(progress["planned"]) + 1, total),
-            total=total,
-            message=(
-                f"queued {len(plan.jobs)} missing-only jobs; one accepted plan "
-                "feeds Word Card, Word Origin, Root, and Affix"
-            ),
         )
 
     def run_bounded_once(self, seed: str = "") -> DeckSeedResult:
-        """Keep autonomous discovery to one unfinished lexical subject at a time."""
+        """Keep autonomous discovery to one unfinished lexical batch at a time."""
 
         active = self.knowledge.active_term_preparation_count()
         if active:
             return DeckSeedResult(
                 status="busy",
                 mode="lexical",
-                message=f"waiting for {active} active lexical plan to finish",
+                message=f"waiting for {active} active lexical plans to finish",
             )
         return self.run_once(seed)
 

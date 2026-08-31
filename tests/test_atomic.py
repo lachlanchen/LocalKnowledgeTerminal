@@ -2415,7 +2415,42 @@ class AtomicWorkerTests(unittest.TestCase):
             store.save_job_artifact(
                 plan.jobs["split-morphemes"],
                 "accepted-morpheme-split",
-                {"term": "inspection", "parts": split_parts},
+                {
+                    "term": "inspection",
+                    "parts": split_parts,
+                    "related_terms": [
+                        {
+                            "term": "spectator",
+                            "note": "shares the spect root",
+                            "component_forms": ["spect"],
+                        },
+                        {
+                            "term": "inward",
+                            "note": "shares the in- prefix",
+                            "component_forms": ["in-"],
+                        },
+                        {
+                            "term": "decision",
+                            "note": "shares the -ion suffix",
+                            "component_forms": ["-ion"],
+                        },
+                        {
+                            "term": "inspection",
+                            "note": "source word must not repeat",
+                            "component_forms": ["spect"],
+                        },
+                        {
+                            "term": "spect",
+                            "note": "bare component must not appear",
+                            "component_forms": ["spect"],
+                        },
+                        {
+                            "term": "<derivative word>",
+                            "note": "placeholder must not appear",
+                            "component_forms": ["spect"],
+                        },
+                    ],
+                },
                 language="en",
                 validation_state="accepted",
                 quality_score=0.8,
@@ -2576,6 +2611,26 @@ class AtomicWorkerTests(unittest.TestCase):
             self.assertEqual(
                 cards_by_mode["root"]["origin_story"],
                 origin_card["origin_story"],
+            )
+            self.assertEqual(
+                cards_by_mode["root"]["related_terms"],
+                [{"term": "spectator", "note": "shares the spect root"}],
+            )
+            self.assertEqual(
+                cards_by_mode["affix"]["related_terms"],
+                [
+                    {"term": "inward", "note": "shares the in- prefix"},
+                    {"term": "decision", "note": "shares the -ion suffix"},
+                ],
+            )
+            self.assertNotIn(
+                "placeholder",
+                json.dumps(
+                    {
+                        "root": cards_by_mode["root"]["related_terms"],
+                        "affix": cards_by_mode["affix"]["related_terms"],
+                    }
+                ),
             )
 
     def test_book_origin_metadata_does_not_require_a_model_completion(self) -> None:

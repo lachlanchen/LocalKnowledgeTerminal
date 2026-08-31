@@ -396,6 +396,96 @@ class KnowledgeStoreTests(unittest.TestCase):
             self.assertNotIn("discovered", store.planned_term_keys("en"))
             self.assertEqual(store.active_term_preparation_count(), 1)
 
+    def test_discovery_claims_are_atomic_unique_and_recoverable(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            database = Path(temp) / "knowledge.sqlite3"
+            store = KnowledgeStore(database)
+            first = store.claim_lexical_discovery_round(
+                [
+                    {"term": "Ａlpha", "source_kind": "qa-investigation"},
+                    {
+                        "term": "Beta",
+                        "source_kind": "word-origins",
+                        "source_entry_id": "origin-beta",
+                    },
+                ]
+            )
+            self.assertIsNotNone(first)
+            assert first is not None
+            self.assertEqual(
+                store.discovered_or_planned_term_keys("en"), {"alpha", "beta"}
+            )
+            self.assertEqual(len(store.unplanned_lexical_discoveries()), 2)
+
+            collision = store.claim_lexical_discovery_round(
+                [
+                    {"term": "gamma", "source_kind": "word-origins"},
+                    {"term": "ALPHA", "source_kind": "word-origins"},
+                ]
+            )
+            self.assertIsNone(collision)
+            self.assertNotIn("gamma", store.discovered_or_planned_term_keys("en"))
+
+            reopened = KnowledgeStore(database)
+            pending = reopened.unplanned_lexical_discoveries()
+            self.assertEqual([item["normalized"] for item in pending], ["alpha", "beta"])
+            reopened.mark_lexical_discovery_planned(pending[0]["discovery_id"])
+            self.assertEqual(
+                [item["normalized"] for item in reopened.unplanned_lexical_discoveries()],
+                ["beta"],
+            )
+
+    def test_investigation_groups_keep_unclaimed_terms_on_the_same_source(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")
+            source_id = store.upsert_content_item(
+                "question",
+                "en",
+                "Would a technological breakthrough justify compromise?",
+                source_key="question-100",
+                status="accepted",
+            )
+            terms = []
+            for ordinal, text in enumerate(
+                ("technological", "breakthrough", "compromise")
+            ):
+                term_id = store.upsert_term("en", text, status="accepted")
+                store.add_edge(
+                    source_id,
+                    term_id,
+                    "contains-investigation-term",
+                    basis="model",
+                    properties={"ordinal": ordinal},
+                )
+                terms.append({"term_id": term_id, "term": text, "ordinal": ordinal})
+            job_id = store.enqueue_job(
+                "extract-investigation-terms",
+                f"content:{source_id}",
+                subject_entity_id=source_id,
+                language="en",
+            )
+            artifact_id = store.save_job_artifact(
+                job_id,
+                "accepted-investigation-terms",
+                {"terms": terms},
+                language="en",
+                validation_state="accepted",
+            )
+
+            groups = store.investigation_suggestion_groups()
+            self.assertEqual(len(groups), 1)
+            self.assertEqual(groups[0]["source_artifact_id"], artifact_id)
+            self.assertEqual(
+                [item["term"] for item in groups[0]["terms"]],
+                ["technological", "breakthrough", "compromise"],
+            )
+            remaining = store.investigation_suggestion_groups(
+                {"technological", "breakthrough"}
+            )
+            self.assertEqual(
+                [item["term"] for item in remaining[0]["terms"]], ["compromise"]
+            )
+
     def test_terminal_failure_cascades_through_queued_dependencies(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")

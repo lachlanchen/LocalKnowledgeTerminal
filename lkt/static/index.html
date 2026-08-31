@@ -80,9 +80,9 @@
           <main class="card-main">
             <section class="word-card-hero" id="word-card-hero" aria-label="English word">
               <div class="word-card-label">ENGLISH · WORD + SOUND</div>
-              <h1 id="word-card-term"></h1>
-              <div class="word-card-phonetic" id="word-card-phonetic"></div>
-              <p id="word-card-definition"></p>
+              <h1 id="word-card-term" data-overflow-role="term"></h1>
+              <div class="word-card-phonetic" id="word-card-phonetic" data-overflow-role="term"></div>
+              <p id="word-card-definition" data-overflow-role="meaning"></p>
             </section>
 
             <section class="sentence-carousel" id="sentence-carousel" aria-label="Multilingual sentence slides">
@@ -110,9 +110,17 @@
                 <strong id="graph-focus-headline"></strong>
                 <span id="graph-focus-explanation"></span>
               </div>
-              <div class="origin-canvas" id="origin-canvas" role="img" aria-label="Interactive directed ancestry graph"></div>
-              <div class="graph-node-badges" id="graph-node-badges" aria-hidden="true"></div>
-              <div class="graph-overview" id="graph-overview" aria-label="Complete graph overview"></div>
+              <div class="graph-layout" id="graph-layout">
+                <div class="graph-viewport" id="graph-viewport">
+                  <div class="origin-canvas" id="origin-canvas" role="img" aria-label="Interactive directed ancestry graph"></div>
+                  <div class="graph-node-badges" id="graph-node-badges" aria-hidden="true"></div>
+                  <div class="graph-overview" id="graph-overview" aria-label="Complete graph overview"></div>
+                </div>
+                <div class="graph-derivative-rails" id="graph-derivative-rails" hidden>
+                  <aside class="graph-derivative-rail graph-derivative-left" id="graph-derivatives-left" aria-label="Derived words on the left"></aside>
+                  <aside class="graph-derivative-rail graph-derivative-right" id="graph-derivatives-right" aria-label="Derived words on the right"></aside>
+                </div>
+              </div>
               <div class="graph-focus-annotations hidden" id="graph-focus-annotations" aria-label="Accepted multilingual meanings"></div>
               <footer class="graph-focus-controls" id="graph-focus-controls">
                 <button id="previous-graph-focus" type="button" aria-label="Previous graph area">←</button>
@@ -133,13 +141,13 @@
                 <span>ENGLISH · PRONUNCIATION</span><h2 id="english-term"></h2><small id="english-pronunciation"></small><p id="english-meaning"></p>
               </article>
               <article class="language-block japanese-block">
-                <span>日本語 · FURIGANA</span><h2 id="japanese-ruby"></h2><p id="japanese-meaning"></p>
+                <span>日本語 · FURIGANA</span><h2 id="japanese-ruby" data-overflow-role="term"></h2><p id="japanese-meaning" data-overflow-role="meaning"></p>
               </article>
               <article class="language-block chinese-block">
-                <span>中文 · PINYIN</span><h2 id="chinese-term"></h2><small id="chinese-pinyin"></small><p id="chinese-meaning"></p>
+                <span>中文 · PINYIN</span><h2 id="chinese-term" data-overflow-role="term"></h2><small id="chinese-pinyin" data-overflow-role="term"></small><p id="chinese-meaning" data-overflow-role="meaning"></p>
               </article>
               <article class="language-block alternate-block hidden" id="alternate-block">
-                <span id="alternate-label">FRANÇAIS</span><h2 id="alternate-term"></h2><small id="alternate-reading"></small><p id="alternate-meaning"></p>
+                <span id="alternate-label">FRANÇAIS</span><h2 id="alternate-term" data-overflow-role="term"></h2><small id="alternate-reading" data-overflow-role="term"></small><p id="alternate-meaning" data-overflow-role="meaning"></p>
               </article>
             </section>
 
@@ -150,12 +158,13 @@
             <section class="related-section"><p class="section-label">CONTINUE WITH</p><div id="related-terms"></div></section>
           </main>
 
-          <aside class="evidence-panel">
+          <aside class="evidence-panel" id="evidence-panel">
             <header class="evidence-head">
               <span class="book-icon">B</span>
               <div><p>BOOK EVIDENCE</p><strong id="evidence-title">Word Origins</strong></div>
+              <button class="evidence-toggle" id="evidence-toggle" type="button" aria-controls="evidence-panel" aria-expanded="false" hidden>EXPAND</button>
             </header>
-            <div id="evidence-list"></div>
+            <div id="evidence-list" data-overflow-role="evidence"></div>
             <footer class="evidence-actions">
               <div class="grounded-seal"><span>✓</span><div><strong id="grounded-label">Grounded in the book</strong><small>Citations come from retrieval, not the model.</small></div></div>
               <button id="discuss-card" type="button">Discuss this card →</button>

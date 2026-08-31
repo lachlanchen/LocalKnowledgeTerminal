@@ -261,12 +261,13 @@ class AutonomousDeckTests(unittest.TestCase):
             )
 
             first = seeder.run_once("lexical-cycle")
-            second = seeder.run_once("lexical-cycle")
             complete = seeder.run_once("lexical-cycle")
 
             self.assertEqual(first.status, "queued")
-            self.assertEqual(second.status, "queued")
-            self.assertNotEqual(first.source_entry_id, second.source_entry_id)
+            self.assertEqual(len(first.discoveries), 2)
+            self.assertEqual(
+                {item["source_kind"] for item in first.discoveries}, {"word-origins"}
+            )
             self.assertEqual(complete.status, "complete")
             self.assertGreater(knowledge.status()["queued_jobs"], 20)
             self.assertEqual(
@@ -280,6 +281,96 @@ class AutonomousDeckTests(unittest.TestCase):
                     "complete": True,
                     "modes": ["knowledge", "word", "root", "affix"],
                 },
+            )
+
+    def test_lexical_batch_prefers_two_investigations_then_fills_origins(self) -> None:
+        class BatchCorpus:
+            def __init__(self) -> None:
+                self.words = ("alpha", "beta", "gamma", "delta")
+                self.exclusions: list[set[str]] = []
+
+            def lexical_headwords(self) -> tuple[str, ...]:
+                return self.words
+
+            def metadata(self) -> dict[str, str]:
+                return {"source_sha256": "batch-corpus"}
+
+            def draw_unseen_word(
+                self, _seed: str, excluded: set[str]
+            ) -> SimpleNamespace | None:
+                self.exclusions.append(set(excluded))
+                word = next((item for item in self.words if item not in excluded), None)
+                if word is None:
+                    return None
+                return SimpleNamespace(headword=word, entry_id=f"origin-{word}")
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            knowledge = KnowledgeStore(root / "knowledge.sqlite3")
+            cards = CardStore(root / "cards.sqlite3")
+            source_id = knowledge.upsert_content_item(
+                "answer",
+                "en",
+                "Consider patience and perspective.",
+                source_key="answer-batch",
+                status="accepted",
+            )
+            accepted_terms = []
+            for ordinal, term in enumerate(("patience", "perspective", "consider")):
+                term_id = knowledge.upsert_term("en", term, status="accepted")
+                knowledge.add_edge(
+                    source_id,
+                    term_id,
+                    "contains-investigation-term",
+                    basis="model",
+                    properties={"ordinal": ordinal},
+                )
+                accepted_terms.append(
+                    {"term_id": term_id, "term": term, "ordinal": ordinal}
+                )
+            extraction = knowledge.enqueue_job(
+                "extract-investigation-terms",
+                f"content:{source_id}",
+                subject_entity_id=source_id,
+                language="en",
+            )
+            knowledge.save_job_artifact(
+                extraction,
+                "accepted-investigation-terms",
+                {"terms": accepted_terms},
+                language="en",
+                validation_state="accepted",
+            )
+            corpus = BatchCorpus()
+            result = AutonomousLexicalSeeder(
+                corpus, cards, knowledge, model="local-qwen-test"
+            ).run_once("five-word-round")
+
+            self.assertEqual(result.status, "queued")
+            self.assertEqual(len(result.discoveries), 5)
+            self.assertEqual(
+                [item["term"] for item in result.discoveries[:2]],
+                ["patience", "perspective"],
+            )
+            self.assertEqual(
+                [item["source_kind"] for item in result.discoveries],
+                ["qa-investigation", "qa-investigation"]
+                + ["word-origins"] * 3,
+            )
+            self.assertTrue(
+                all({"patience", "perspective"}.issubset(item) for item in corpus.exclusions)
+            )
+            self.assertEqual(
+                [item["term"] for item in knowledge.investigation_suggestion_groups(
+                    knowledge.discovered_or_planned_term_keys("en")
+                )[0]["terms"]],
+                ["consider"],
+            )
+            self.assertEqual(
+                AutonomousLexicalSeeder(
+                    corpus, cards, knowledge, model="local-qwen-test"
+                ).run_bounded_once("next-round").status,
+                "busy",
             )
 
     def test_seed_coordinator_alternates_independent_sources(self) -> None:

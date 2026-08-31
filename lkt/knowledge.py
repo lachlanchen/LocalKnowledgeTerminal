@@ -359,6 +359,37 @@ class KnowledgeStore:
                 CREATE INDEX IF NOT EXISTS idx_job_artifacts
                     ON job_artifacts(job_id, created_at);
 
+                CREATE TABLE IF NOT EXISTS lexical_discovery_rounds (
+                    round_id TEXT PRIMARY KEY,
+                    status TEXT NOT NULL DEFAULT 'claimed'
+                        CHECK(status IN ('claimed', 'planned')),
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS lexical_discoveries (
+                    discovery_id TEXT PRIMARY KEY,
+                    round_id TEXT NOT NULL REFERENCES lexical_discovery_rounds(round_id)
+                        ON DELETE CASCADE,
+                    language TEXT NOT NULL,
+                    term TEXT NOT NULL,
+                    normalized TEXT NOT NULL,
+                    source_kind TEXT NOT NULL
+                        CHECK(source_kind IN ('qa-investigation', 'word-origins')),
+                    source_entity_id TEXT NOT NULL DEFAULT '',
+                    source_artifact_id TEXT NOT NULL DEFAULT '',
+                    source_entry_id TEXT NOT NULL DEFAULT '',
+                    ordinal INTEGER NOT NULL,
+                    planned_at TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL,
+                    UNIQUE(language, normalized),
+                    UNIQUE(round_id, ordinal)
+                );
+                CREATE INDEX IF NOT EXISTS idx_lexical_discoveries_round
+                    ON lexical_discoveries(round_id, ordinal);
+                CREATE INDEX IF NOT EXISTS idx_lexical_discoveries_pending
+                    ON lexical_discoveries(planned_at, created_at);
+
                 CREATE TABLE IF NOT EXISTS worker_heartbeat (
                     worker_key TEXT PRIMARY KEY,
                     status TEXT NOT NULL
@@ -424,7 +455,7 @@ class KnowledgeStore:
                 )
             connection.execute(
                 "INSERT OR REPLACE INTO schema_meta(key, value) VALUES (?, ?)",
-                ("schema_version", "2"),
+                ("schema_version", "3"),
             )
             connection.commit()
 
@@ -2059,6 +2090,268 @@ class KnowledgeStore:
             for row in rows
         ]
         return sorted(values, key=lambda item: (int(item.get("ordinal", 999)), item["term"]))
+
+    def investigation_suggestion_groups(
+        self,
+        excluded: Iterable[str] = (),
+        *,
+        language: str = "en",
+    ) -> list[dict[str, Any]]:
+        """Return accepted Q/A suggestion groups that still contain unseen terms."""
+
+        language = _language(language)
+        excluded_keys = {_normalise(str(value)) for value in excluded if str(value).strip()}
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """SELECT content.entity_id AS source_entity_id,
+                          content.source_key, content.kind,
+                          source.created_at AS source_created_at,
+                          artifact.artifact_id AS source_artifact_id,
+                          artifact.payload AS artifact_payload,
+                          term.entity_id AS term_id, term.text AS term,
+                          term.normalized, edge.confidence, edge.properties
+                   FROM content_items AS content
+                   JOIN entities AS source ON source.entity_id = content.entity_id
+                   JOIN entity_edges AS edge
+                     ON edge.source_entity_id = content.entity_id
+                    AND edge.relation = 'contains-investigation-term'
+                    AND edge.status = 'accepted'
+                   JOIN terms AS term ON term.entity_id = edge.target_entity_id
+                   JOIN entities AS target ON target.entity_id = term.entity_id
+                   JOIN job_artifacts AS artifact ON artifact.artifact_id = (
+                       SELECT candidate.artifact_id
+                       FROM job_artifacts AS candidate
+                       JOIN preparation_jobs AS extraction
+                         ON extraction.job_id = candidate.job_id
+                       WHERE extraction.subject_entity_id = content.entity_id
+                         AND extraction.job_type = 'extract-investigation-terms'
+                         AND candidate.stage = 'accepted-investigation-terms'
+                         AND candidate.validation_state = 'accepted'
+                       ORDER BY candidate.created_at DESC, candidate.artifact_id DESC
+                       LIMIT 1
+                   )
+                   WHERE content.language = ?
+                     AND content.kind IN ('answer', 'question')
+                     AND source.status = 'accepted' AND target.status = 'accepted'
+                     AND term.language = ? AND term.kind = 'word'
+                   ORDER BY source.created_at, content.entity_id,
+                            artifact.artifact_id, term.normalized""",
+                (language, language),
+            ).fetchall()
+
+        groups: dict[tuple[str, str], dict[str, Any]] = {}
+        for row in rows:
+            payload = json.loads(row["artifact_payload"])
+            accepted_ids = {
+                str(item.get("term_id", ""))
+                for item in payload.get("terms", [])
+                if isinstance(item, dict)
+            }
+            term_id = str(row["term_id"])
+            normalized = _normalise(str(row["normalized"]))
+            if term_id not in accepted_ids or normalized in excluded_keys:
+                continue
+            key = (str(row["source_entity_id"]), str(row["source_artifact_id"]))
+            group = groups.setdefault(
+                key,
+                {
+                    "source_entity_id": key[0],
+                    "source_artifact_id": key[1],
+                    "source_key": str(row["source_key"]),
+                    "kind": str(row["kind"]),
+                    "source_created_at": str(row["source_created_at"]),
+                    "terms": [],
+                },
+            )
+            properties = json.loads(row["properties"])
+            group["terms"].append(
+                {
+                    "term_id": term_id,
+                    "term": str(row["term"]),
+                    "normalized": normalized,
+                    "confidence": float(row["confidence"]),
+                    "ordinal": int(properties.get("ordinal", 999)),
+                }
+            )
+        output = list(groups.values())
+        for group in output:
+            group["terms"].sort(
+                key=lambda item: (item["ordinal"], item["normalized"])
+            )
+        return sorted(
+            output,
+            key=lambda item: (
+                item["source_created_at"],
+                item["source_entity_id"],
+                item["source_artifact_id"],
+            ),
+        )
+
+    def discovered_or_planned_term_keys(self, language: str = "en") -> set[str]:
+        """Return durable discovery claims plus every term with a real plan."""
+
+        language = _language(language)
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """SELECT normalized FROM lexical_discoveries WHERE language = ?
+                   UNION
+                   SELECT term.normalized FROM terms AS term
+                   JOIN preparation_jobs AS job
+                     ON job.subject_entity_id = term.entity_id
+                    AND job.subject_key = 'term:' || term.entity_id
+                   WHERE term.language = ? AND term.kind = 'word'""",
+                (language, language),
+            ).fetchall()
+        return {str(row["normalized"]) for row in rows}
+
+    def claim_lexical_discovery_round(
+        self, selections: Iterable[dict[str, Any]]
+    ) -> dict[str, Any] | None:
+        """Atomically reserve one complete, globally unique lexical batch."""
+
+        prepared: list[dict[str, Any]] = []
+        seen: set[tuple[str, str]] = set()
+        for raw in selections:
+            language = _language(str(raw.get("language", "en")))
+            term = unicodedata.normalize("NFKC", str(raw.get("term", ""))).strip()
+            normalized = _normalise(term)
+            source_kind = str(raw.get("source_kind", "")).strip()
+            if not normalized:
+                raise ValueError("a lexical discovery needs a non-empty term")
+            if source_kind not in {"qa-investigation", "word-origins"}:
+                raise ValueError(f"invalid lexical discovery source: {source_kind!r}")
+            key = (language, normalized)
+            if key in seen:
+                raise ValueError(f"duplicate lexical discovery: {term!r}")
+            seen.add(key)
+            prepared.append(
+                {
+                    "language": language,
+                    "term": term,
+                    "normalized": normalized,
+                    "source_kind": source_kind,
+                    "source_entity_id": str(raw.get("source_entity_id", "")).strip(),
+                    "source_artifact_id": str(raw.get("source_artifact_id", "")).strip(),
+                    "source_entry_id": str(raw.get("source_entry_id", "")).strip(),
+                }
+            )
+        if not 1 <= len(prepared) <= 5:
+            raise ValueError("a lexical discovery round needs one to five terms")
+
+        timestamp = _now()
+        round_id = f"lexical-round-{uuid.uuid4()}"
+        with closing(self._connect()) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            for item in prepared:
+                collision = connection.execute(
+                    """SELECT 1 FROM lexical_discoveries
+                       WHERE language = ? AND normalized = ?
+                       UNION ALL
+                       SELECT 1 FROM terms AS term
+                       JOIN preparation_jobs AS job
+                         ON job.subject_entity_id = term.entity_id
+                        AND job.subject_key = 'term:' || term.entity_id
+                       WHERE term.language = ? AND term.normalized = ?
+                         AND term.kind = 'word'
+                       LIMIT 1""",
+                    (
+                        item["language"],
+                        item["normalized"],
+                        item["language"],
+                        item["normalized"],
+                    ),
+                ).fetchone()
+                if collision is not None:
+                    connection.rollback()
+                    return None
+            connection.execute(
+                """INSERT INTO lexical_discovery_rounds(
+                       round_id, status, created_at, updated_at
+                   ) VALUES (?, 'claimed', ?, ?)""",
+                (round_id, timestamp, timestamp),
+            )
+            discoveries: list[dict[str, Any]] = []
+            for ordinal, item in enumerate(prepared):
+                discovery_id = _identifier(
+                    "lexical-discovery",
+                    f"{item['language']}:{item['normalized']}",
+                )
+                connection.execute(
+                    """INSERT INTO lexical_discoveries(
+                           discovery_id, round_id, language, term, normalized,
+                           source_kind, source_entity_id, source_artifact_id,
+                           source_entry_id, ordinal, planned_at, created_at
+                       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?)""",
+                    (
+                        discovery_id,
+                        round_id,
+                        item["language"],
+                        item["term"],
+                        item["normalized"],
+                        item["source_kind"],
+                        item["source_entity_id"],
+                        item["source_artifact_id"],
+                        item["source_entry_id"],
+                        ordinal,
+                        timestamp,
+                    ),
+                )
+                discoveries.append(
+                    {"discovery_id": discovery_id, "round_id": round_id, **item}
+                )
+            connection.commit()
+        return {"round_id": round_id, "discoveries": discoveries}
+
+    def unplanned_lexical_discoveries(self) -> list[dict[str, Any]]:
+        """Return the oldest claimed round until every claim has a plan."""
+
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                """SELECT round_id FROM lexical_discoveries
+                   WHERE planned_at = '' ORDER BY created_at, round_id LIMIT 1"""
+            ).fetchone()
+            if row is None:
+                return []
+            rows = connection.execute(
+                """SELECT discovery_id, round_id, language, term, normalized,
+                          source_kind, source_entity_id, source_artifact_id,
+                          source_entry_id, ordinal, created_at
+                   FROM lexical_discoveries
+                   WHERE round_id = ? AND planned_at = ''
+                   ORDER BY ordinal""",
+                (row["round_id"],),
+            ).fetchall()
+        return [dict(item) for item in rows]
+
+    def mark_lexical_discovery_planned(self, discovery_id: str) -> None:
+        """Checkpoint one claimed term after its idempotent DAG exists."""
+
+        timestamp = _now()
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                "SELECT round_id FROM lexical_discoveries WHERE discovery_id = ?",
+                (discovery_id,),
+            ).fetchone()
+            if row is None:
+                raise ValueError(f"unknown lexical discovery: {discovery_id!r}")
+            round_id = str(row["round_id"])
+            connection.execute(
+                """UPDATE lexical_discoveries SET planned_at = ?
+                   WHERE discovery_id = ?""",
+                (timestamp, discovery_id),
+            )
+            remaining = connection.execute(
+                """SELECT 1 FROM lexical_discoveries
+                   WHERE round_id = ? AND planned_at = '' LIMIT 1""",
+                (round_id,),
+            ).fetchone()
+            if remaining is None:
+                connection.execute(
+                    """UPDATE lexical_discovery_rounds
+                       SET status = 'planned', updated_at = ? WHERE round_id = ?""",
+                    (timestamp, round_id),
+                )
+            connection.commit()
 
     def artifacts_for_subject(
         self,

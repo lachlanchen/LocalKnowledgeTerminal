@@ -554,6 +554,147 @@ def _clean_morpheme_meaning(value: Any) -> str:
     return re.sub(r"\s+", " ", text).strip(" .:-")
 
 
+def _normalise_derivative_terms(
+    values: Any,
+    parts: list[dict[str, Any]],
+    source_term: str,
+    *,
+    limit: int = 8,
+) -> list[dict[str, Any]]:
+    """Keep bounded model/RAG derivative suggestions without semantic vetoes."""
+
+    if not isinstance(values, list):
+        return []
+    part_by_form: dict[str, dict[str, Any]] = {}
+    excluded = {_plain_letter_key(source_term)}
+    for part in parts:
+        for field in ("canonical_form", "surface"):
+            key = _plain_letter_key(part.get(field, ""))
+            if key:
+                part_by_form[key] = part
+                excluded.add(key)
+
+    output: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for value in values:
+        if not isinstance(value, dict):
+            continue
+        term = unicodedata.normalize(
+            "NFKC", str(value.get("term", value.get("word", "")))
+        )
+        term = re.sub(r"\s+", " ", term).strip()
+        key = _plain_letter_key(term)
+        if (
+            not key
+            or key in excluded
+            or key in seen
+            or not re.fullmatch(r"[A-Za-z][A-Za-z'-]*", term)
+            or key in {"derivativeword", "example", "placeholder", "term", "word"}
+        ):
+            continue
+        note = re.sub(
+            r"\s+",
+            " ",
+            str(value.get("note", value.get("relationship", ""))),
+        ).strip()[:180]
+        supplied_forms = value.get(
+            "component_forms", value.get("components", value.get("component_form", []))
+        )
+        if isinstance(supplied_forms, str):
+            supplied_forms = [supplied_forms]
+        matched_parts = [
+            part_by_form[key]
+            for key in dict.fromkeys(
+                _plain_letter_key(item)
+                for item in supplied_forms
+                if _plain_letter_key(item)
+            )
+            if key in part_by_form
+        ] if isinstance(supplied_forms, list) else []
+        output.append(
+            {
+                "term": term,
+                "note": note,
+                "component_forms": list(
+                    dict.fromkeys(
+                        str(part.get("canonical_form", ""))
+                        for part in matched_parts
+                        if str(part.get("canonical_form", ""))
+                    )
+                ),
+                "component_ids": list(
+                    dict.fromkeys(
+                        str(part.get("morpheme_id", ""))
+                        for part in matched_parts
+                        if str(part.get("morpheme_id", ""))
+                    )
+                ),
+                "component_kinds": list(
+                    dict.fromkeys(
+                        str(part.get("kind", ""))
+                        for part in matched_parts
+                        if str(part.get("kind", ""))
+                    )
+                ),
+            }
+        )
+        seen.add(key)
+        if len(output) >= limit:
+            break
+    return output
+
+
+def _derivative_terms_for_view(
+    payloads: list[dict[str, Any]],
+    source_term: str,
+    all_parts: list[dict[str, Any]],
+    relevant_parts: list[dict[str, Any]],
+    *,
+    limit: int = 6,
+) -> list[dict[str, str]]:
+    """Select accepted derivative words associated with a Root/Affix view."""
+
+    relevant_forms = {
+        _plain_letter_key(part.get(field, ""))
+        for part in relevant_parts
+        for field in ("canonical_form", "surface")
+        if _plain_letter_key(part.get(field, ""))
+    }
+    relevant_ids = {
+        str(part.get("morpheme_id", ""))
+        for part in relevant_parts
+        if str(part.get("morpheme_id", ""))
+    }
+    relevant_kinds = {
+        str(part.get("kind", ""))
+        for part in relevant_parts
+        if str(part.get("kind", ""))
+    }
+    raw: list[Any] = []
+    for payload in payloads:
+        for field in ("related_terms", "derivatives"):
+            values = payload.get(field, []) if isinstance(payload, dict) else []
+            if isinstance(values, list):
+                raw.extend(values)
+
+    selected: list[dict[str, Any]] = []
+    for item in _normalise_derivative_terms(raw, all_parts, source_term, limit=24):
+        forms = {_plain_letter_key(value) for value in item["component_forms"]}
+        ids = set(item["component_ids"])
+        kinds = set(item["component_kinds"])
+        associated = bool(forms or ids or kinds)
+        if associated and not (
+            forms.intersection(relevant_forms)
+            or ids.intersection(relevant_ids)
+            or kinds.intersection(relevant_kinds)
+        ):
+            continue
+        selected.append({"term": item["term"], "note": item["note"]})
+        if len(selected) >= limit:
+            break
+    return selected
+
+
 def _derived_origin_view_specs(
     parts: list[dict[str, Any]],
 ) -> tuple[tuple[str, set[str], set[str], str], ...]:
@@ -1444,7 +1585,14 @@ canonical form must end in `-`; a suffix canonical form must begin with `-`.
 Meaning must be one plain phrase, never a stringified list. Distinguish productive
 word structure from historical ancestry; history belongs to the next RAG task.
 Use an empty evidence_ids array for model knowledge. Never merge, shorten, rename,
-or reclassify a required reviewed-book part."""
+or reclassify a required reviewed-book part.
+
+Also return `derivatives`, an array of at most 8 useful English derivative or
+related words which genuinely share one analyzed root, prefix, or suffix. Each
+item has `term`, a short `note`, and `component_forms`, an array copied exactly
+from the relevant parts' canonical_form values. Use the retrieved books and your
+linguistic knowledge. Do not include TERM, a bare component form, or placeholders.
+This array may be empty."""
         completion = self.model.complete_json(
             (
                 "You fill metadata for a fixed, book-anchored morphology split."
@@ -1455,7 +1603,7 @@ or reclassify a required reviewed-book part."""
                 )
             ),
             prompt,
-            max_tokens=384 if explicit_shape else 320,
+            max_tokens=512 if explicit_shape else 448,
         )
         value = completion.get("value")
         self.store.save_job_artifact(
@@ -1501,8 +1649,9 @@ FIRST DRAFT: {json.dumps(value, ensure_ascii=False)}
 {shape_instruction}
 
 Independently review the draft using the retrieved evidence and linguistic
-judgment. Return exactly one JSON object with `parts` in the same schema as the
-first task. Correct a wrongly labelled prefix, root, suffix, or free base. Never
+judgment. Return exactly one JSON object with `parts` and `derivatives` in the
+same schema as the first task. Correct a wrongly labelled prefix, root, suffix,
+or free base. Never
 force a decomposition to satisfy a template. If a reliable synchronic split is
 not established, return one whole-TERM `free` part. Every letter must be covered
 exactly once, and the answer must contain a root or free lexical base. Book-backed
@@ -1510,7 +1659,7 @@ claims may cite only supplied evidence IDs; model knowledge must cite none."""
             reviewed = self.model.complete_json(
                 "You are the second-pass linguist reviewing RAG evidence, not a string splitter.",
                 review_prompt,
-                max_tokens=384,
+                max_tokens=512,
             )
             value = reviewed.get("value")
             self.store.save_job_artifact(
@@ -1671,6 +1820,13 @@ claims may cite only supplied evidence IDs; model knowledge must cite none."""
             "term_id": source["entity_id"],
             "term": source["text"],
             "parts": accepted_parts,
+            "related_terms": _normalise_derivative_terms(
+                value.get("derivatives", value.get("related_terms", []))
+                if isinstance(value, dict)
+                else [],
+                accepted_parts,
+                str(source["text"]),
+            ),
             "model": completion.get("model", self.model.model_name),
             "metrics": completion.get("metrics", {}),
         }
@@ -3438,6 +3594,12 @@ reading and do not rewrite the Japanese form."""
                 str(part["canonical_form"]) for part in relevant_parts
             )
             derived.subtitle = f"{derived_mode.upper()} · {source['text']}"
+            derived.related_terms = _derivative_terms_for_view(
+                [split["payload"], origin["payload"]],
+                str(source["text"]),
+                parts,
+                relevant_parts,
+            )
             if derived_mode == "affix":
                 derived.origin_story = _affix_origin_story(relevant_parts)
             derived.created_at = datetime.now(UTC).isoformat()

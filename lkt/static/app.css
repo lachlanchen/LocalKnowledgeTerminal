@@ -794,6 +794,57 @@ body.display-mode .card-view { border-radius: 0; }
 .mode-knowledge .language-block small { font-size: clamp(17px, 1.3vw, 22px); }
 .mode-knowledge .language-block p { font-size: clamp(15px, 1.05vw, 18px); line-height: 1.35; }
 
+.knowledge-ticker-lane {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.knowledge-ticker-track {
+  display: inline-flex;
+  width: max-content;
+  max-width: none;
+  align-items: baseline;
+  column-gap: var(--ticker-gap, 0px);
+  direction: ltr;
+  font: inherit;
+  line-height: inherit;
+  vertical-align: top;
+  will-change: transform;
+}
+.knowledge-ticker-copy {
+  display: inline-block;
+  min-width: max-content;
+  flex: 0 0 auto;
+  font: inherit;
+  line-height: inherit;
+  unicode-bidi: isolate;
+}
+.knowledge-ticker-lane.is-overflowing .knowledge-ticker-track {
+  animation: knowledge-bank-roll var(--ticker-duration, 12s) linear infinite;
+}
+.knowledge-ticker-lane.is-overflowing:hover .knowledge-ticker-track,
+.knowledge-ticker-lane.is-overflowing:focus .knowledge-ticker-track {
+  animation-play-state: paused;
+}
+@keyframes knowledge-bank-roll {
+  from { transform: translate3d(0, 0, 0); }
+  to { transform: translate3d(var(--ticker-shift), 0, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .knowledge-ticker-lane.is-overflowing {
+    overflow-x: auto;
+    scroll-behavior: auto;
+    scrollbar-width: none;
+  }
+  .knowledge-ticker-lane.is-overflowing::-webkit-scrollbar { display: none; }
+  .knowledge-ticker-lane.is-overflowing .knowledge-ticker-track {
+    animation: none;
+    transform: none;
+  }
+}
+
 .mode-answer .card-main,
 .mode-question .card-main {
   display: block;
@@ -1008,6 +1059,79 @@ body.display-mode .card-view { border-radius: 0; }
 .mode-question .language-grid { display: none !important; }
 
 /* Unified recursive graph experiences: one full graph, many focus slides. */
+.graph-layout {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  grid-template-areas: "viewport";
+  grid-template-columns: minmax(0, 1fr);
+  gap: clamp(8px, 1vw, 14px);
+}
+.graph-layout.has-derivatives {
+  grid-template-areas: "left viewport right";
+  grid-template-columns: minmax(118px, 170px) minmax(0, 1fr) minmax(118px, 170px);
+}
+.graph-viewport {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  grid-area: viewport;
+}
+.graph-viewport .origin-canvas { width: 100%; height: 100%; min-height: 0; }
+.graph-derivative-rails { display: contents; }
+.graph-derivative-rails[hidden],
+.graph-derivative-rail[hidden] { display: none !important; }
+.graph-derivative-left { grid-area: left; }
+.graph-derivative-right { grid-area: right; }
+.graph-derivative-rail {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  align-content: center;
+  gap: clamp(7px, .8vh, 11px);
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding-block: 4px;
+  scrollbar-width: none;
+}
+.graph-derivative-rail::-webkit-scrollbar { display: none; }
+.graph-derivative-card {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--mode-accent) 26%, #dce5f6);
+  border-top: 4px solid var(--mode-accent);
+  border-radius: 14px;
+  padding: 10px 11px 11px;
+  background: color-mix(in srgb, var(--mode-soft) 72%, #ffffff);
+  box-shadow: 0 6px 16px rgba(23, 33, 61, .08);
+}
+.graph-derivative-label {
+  display: block;
+  overflow: hidden;
+  color: var(--mode-accent);
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: .12em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.graph-derivative-term {
+  display: block;
+  margin-top: 5px;
+  overflow-wrap: anywhere;
+  color: #17213d;
+  font: 850 clamp(15px, 1.25vw, 21px)/1.12 var(--sans);
+}
+.graph-derivative-note {
+  display: block;
+  margin-top: 5px;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  color: #52607d;
+  font: 650 clamp(10px, .75vw, 12px)/1.3 var(--sans);
+}
 .card-view.mode-root { --mode-accent: #8b3dff; --mode-soft: #f2eaff; }
 .card-view.mode-affix { --mode-accent: #00a98f; --mode-soft: #e5faf4; }
 .mode[data-mode="root"].active span { color: #b891ff; }
@@ -1179,13 +1303,13 @@ body.display-mode .card-view { border-radius: 0; }
   justify-content: center;
   flex-direction: column;
   gap: var(--graph-copy-gap, 7px);
-  overflow: visible;
+  overflow: hidden;
   text-align: center;
 }
 .graph-node-term {
   display: block;
   width: 100%;
-  overflow: visible;
+  overflow: hidden;
   color: #11182b;
   font: 950 var(--graph-term-size, 18px)/1.05 var(--sans);
   letter-spacing: -.01em;
@@ -1197,7 +1321,7 @@ body.display-mode .card-view { border-radius: 0; }
 .graph-node-meaning {
   display: block;
   width: 100%;
-  overflow: visible;
+  overflow: hidden;
   color: #263653;
   font: 650 var(--graph-meaning-size, 13.5px)/1.18 var(--sans);
   overflow-wrap: anywhere;
@@ -1260,6 +1384,24 @@ body.display-mode .card-view { border-radius: 0; }
 
 @media (max-width: 900px) {
   .graph-focus-annotations { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .graph-layout.has-derivatives {
+    grid-template-areas: "viewport" "derivatives";
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto;
+  }
+  .graph-derivative-rails {
+    display: flex;
+    min-width: 0;
+    grid-area: derivatives;
+    gap: 8px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding-top: 5px;
+    scrollbar-width: none;
+  }
+  .graph-derivative-rails::-webkit-scrollbar { display: none; }
+  .graph-derivative-rail { display: contents; }
+  .graph-derivative-card { width: min(210px, 72vw); flex: 0 0 min(210px, 72vw); }
 }
 
 /* Ruby needs air above each base character on a small display. */
@@ -1456,4 +1598,135 @@ body.chrome-collapsed:not(.display-mode) .stage { padding: 4px 7px; }
   .settings-language-options { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .settings-language-options label { min-height: 62px; }
   .settings-mode-options { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* Adaptive card motion keeps the established type scale and moves only measured overflow. */
+.knowledge-ticker-lane[data-motion-axis="horizontal"] { white-space: nowrap; }
+.knowledge-ticker-lane[data-motion-axis="horizontal"] > .knowledge-ticker-track {
+  display: flex;
+  width: max-content;
+  max-width: none;
+  flex-direction: row;
+  gap: var(--ticker-gap, 0);
+}
+.knowledge-ticker-lane[data-motion-axis="horizontal"] .knowledge-ticker-copy {
+  display: block;
+  width: max-content;
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+.knowledge-ticker-lane[data-motion-axis="vertical"] {
+  overflow: hidden;
+  white-space: normal;
+  scrollbar-width: none;
+}
+.knowledge-ticker-lane[data-motion-axis="vertical"]::-webkit-scrollbar { display: none; }
+.knowledge-ticker-lane[data-motion-axis="vertical"] > .knowledge-ticker-track {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  gap: var(--ticker-gap, 0);
+}
+.knowledge-ticker-lane[data-motion-axis="vertical"] .knowledge-ticker-copy {
+  display: block;
+  width: 100%;
+  flex: 0 0 auto;
+  white-space: normal;
+}
+.knowledge-ticker-lane.is-overflowing[data-motion-axis="vertical"] > .knowledge-ticker-track {
+  animation: knowledge-bank-roll-vertical var(--ticker-duration) linear infinite;
+}
+.knowledge-ticker-lane.is-overflowing[data-motion-axis="horizontal"] > .knowledge-ticker-track {
+  animation: knowledge-bank-roll var(--ticker-duration) linear infinite;
+}
+.knowledge-ticker-lane.is-overflowing:hover > .knowledge-ticker-track,
+.knowledge-ticker-lane.is-overflowing:focus-within > .knowledge-ticker-track { animation-play-state: paused; }
+@keyframes knowledge-bank-roll-vertical {
+  to { transform: translateY(var(--ticker-shift-y)); }
+}
+.mode-knowledge [data-overflow-role="meaning"] { block-size: 3em; }
+
+/* Morphology cards trade a compact evidence rail for a wider graph until expanded. */
+.evidence-toggle {
+  min-width: 58px;
+  margin-left: auto;
+  border: 1px solid color-mix(in srgb, var(--mode-accent) 46%, #9ba8bd);
+  border-radius: 999px;
+  padding: 7px 9px;
+  background: rgba(255, 255, 255, .54);
+  color: var(--mode-accent);
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: .08em;
+}
+.evidence-toggle[hidden] { display: none; }
+.card-view.mode-root,
+.card-view.mode-affix {
+  grid-template-columns: minmax(0, 1fr) minmax(118px, 12%);
+  transition: grid-template-columns .32s ease;
+}
+.card-view.mode-root.evidence-expanded,
+.card-view.mode-affix.evidence-expanded { grid-template-columns: minmax(0, 1fr) minmax(270px, 23%); }
+.mode-root .evidence-panel,
+.mode-affix .evidence-panel {
+  overflow: hidden;
+  padding: clamp(14px, 1.35vw, 22px) clamp(9px, 1vw, 16px);
+}
+.mode-root:not(.evidence-expanded) .evidence-head,
+.mode-affix:not(.evidence-expanded) .evidence-head { gap: 6px; }
+.mode-root:not(.evidence-expanded) .book-icon,
+.mode-affix:not(.evidence-expanded) .book-icon,
+.mode-root:not(.evidence-expanded) .evidence-actions,
+.mode-affix:not(.evidence-expanded) .evidence-actions { display: none; }
+.mode-root:not(.evidence-expanded) .evidence-head > div,
+.mode-affix:not(.evidence-expanded) .evidence-head > div { min-width: 0; }
+.mode-root:not(.evidence-expanded) .evidence-head strong,
+.mode-affix:not(.evidence-expanded) .evidence-head strong {
+  display: block;
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mode-root #evidence-list,
+.mode-affix #evidence-list { margin-top: 4px; }
+.mode-root #evidence-list .evidence,
+.mode-affix #evidence-list .evidence {
+  min-height: auto;
+  flex: 0 0 auto;
+  overflow: visible;
+}
+.mode-root #evidence-list .evidence blockquote,
+.mode-affix #evidence-list .evidence blockquote {
+  display: block;
+  overflow: visible;
+  -webkit-box-orient: initial;
+  -webkit-line-clamp: initial;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .knowledge-ticker-lane.is-overflowing > .knowledge-ticker-track { animation: none; }
+  .knowledge-ticker-lane.is-overflowing { overflow: auto; }
+  .card-view.mode-root,
+  .card-view.mode-affix { transition: none; }
+}
+
+@media (max-width: 700px) {
+  .card-view.mode-root,
+  .card-view.mode-affix,
+  .card-view.mode-root.evidence-expanded,
+  .card-view.mode-affix.evidence-expanded {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) minmax(112px, 22vh);
+  }
+  .card-view.mode-root.evidence-expanded,
+  .card-view.mode-affix.evidence-expanded { grid-template-rows: minmax(0, 1fr) minmax(190px, 42vh); }
+  .mode-root .evidence-panel,
+  .mode-affix .evidence-panel {
+    border-top: 1px solid var(--line);
+    border-left: 0;
+    padding: 10px 14px;
+  }
+  .mode-root .evidence-head,
+  .mode-affix .evidence-head { padding-bottom: 7px; }
 }

@@ -232,7 +232,18 @@ class WebInputTests(unittest.TestCase):
         self.assertIn("canvasWidth * .32", script)
         self.assertIn("layoutGraphForCanvas", script)
         self.assertNotIn("-webkit-line-clamp: 3", style)
-        self.assertIn("overflow: visible", style)
+        self.assertRegex(
+            style,
+            r"\.graph-node-copy\s*\{[^}]*overflow: hidden;",
+        )
+        self.assertRegex(
+            style,
+            r"\.graph-node-term\s*\{[^}]*overflow: hidden;",
+        )
+        self.assertRegex(
+            style,
+            r"\.graph-node-meaning\s*\{[^}]*overflow: hidden;",
+        )
         self.assertIn('id="graph-node-badges"', page)
         self.assertIn('id="fit-graph"', page)
         self.assertIn("resetGraphAutofit", script)
@@ -271,6 +282,58 @@ class WebInputTests(unittest.TestCase):
         self.assertIn('requested_mode in _ATOMIC_WORD_MODES', source)
         self.assertIn('extensions["grammar_analyses"]', source)
 
+    def test_word_card_tickers_move_only_measured_overflow(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        script = (root / "lkt" / "static" / "app.js").read_text(encoding="utf-8")
+        style = (root / "lkt" / "static" / "app.css").read_text(encoding="utf-8")
+        page = (root / "lkt" / "static" / "index.html").read_text(encoding="utf-8")
+        self.assertIn("const KNOWLEDGE_TICKER_SELECTORS", script)
+        self.assertIn('[data-overflow-role]:not(#evidence-list)', script)
+        self.assertIn('lane.dataset.overflowRole === "term"', script)
+        self.assertIn("copyWidth > lane.clientWidth + 1", script)
+        self.assertIn("copyHeight > lane.clientHeight + 1", script)
+        self.assertIn('duplicate.setAttribute("aria-hidden", "true")', script)
+        self.assertIn('lane.classList.add("is-overflowing")', script)
+        self.assertIn('lane.dataset.motionAxis = axis', script)
+        self.assertIn('"--ticker-duration",', script)
+        self.assertIn("(copyWidth + gap) / 34", script)
+        self.assertIn("(travel + gap) / 24", script)
+        self.assertIn("document.fonts.ready.then", script)
+        self.assertIn('window.addEventListener("resize", scheduleKnowledgeTickers)', script)
+        self.assertIn("knowledge-bank-roll", style)
+        self.assertIn("knowledge-bank-roll-vertical", style)
+        self.assertIn('data-overflow-role="term"', page)
+        self.assertIn('data-overflow-role="meaning"', page)
+        self.assertIn("prefers-reduced-motion: reduce", style)
+        self.assertIn("scrollbar-width: none", style)
+        self.assertNotIn("fitKnowledgeTickerFont", script)
+
+    def test_graph_copy_autofits_and_derivatives_stay_outside_canvas(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        script = (root / "lkt" / "static" / "app.js").read_text(encoding="utf-8")
+        style = (root / "lkt" / "static" / "app.css").read_text(encoding="utf-8")
+        page = (root / "lkt" / "static" / "index.html").read_text(encoding="utf-8")
+        self.assertIn("function fitGraphNodeCopy(box)", script)
+        self.assertIn("copy.scrollWidth <= copy.clientWidth + 1", script)
+        self.assertIn("copy.scrollHeight <= copy.clientHeight + 1", script)
+        self.assertIn("const meaningRatio = meaning ? baseMeaning / baseTerm : 0", script)
+        self.assertIn("badges.forEach(fitGraphNodeCopy)", script)
+        self.assertIn("const GRAPH_DERIVATIVE_LIMIT = 6", script)
+        self.assertIn("for (const item of card.related_terms || [])", script)
+        self.assertIn("derivatives.length >= GRAPH_DERIVATIVE_LIMIT", script)
+        self.assertIn('element("strong", "graph-derivative-term", item.term)', script)
+        self.assertIn('id="graph-layout"', page)
+        self.assertIn('id="graph-viewport"', page)
+        self.assertIn('id="graph-derivatives-left"', page)
+        self.assertIn('id="graph-derivatives-right"', page)
+        viewport = page.index('id="graph-viewport"')
+        canvas = page.index('id="origin-canvas"')
+        rails = page.index('id="graph-derivative-rails"')
+        self.assertLess(viewport, canvas)
+        self.assertLess(canvas, rails)
+        self.assertIn('grid-template-areas: "left viewport right"', style)
+        self.assertIn('grid-template-areas: "viewport" "derivatives"', style)
+
     def test_bare_ambient_tour_crosses_accepted_mode_decks(self) -> None:
         root = Path(__file__).resolve().parents[1]
         script = (root / "lkt" / "static" / "app.js").read_text(encoding="utf-8")
@@ -295,6 +358,7 @@ class WebInputTests(unittest.TestCase):
         root = Path(__file__).resolve().parents[1]
         script = (root / "lkt" / "static" / "app.js").read_text(encoding="utf-8")
         style = (root / "lkt" / "static" / "app.css").read_text(encoding="utf-8")
+        page = (root / "lkt" / "static" / "index.html").read_text(encoding="utf-8")
         self.assertIn("evidenceItems.forEach((item) => {", script)
         self.assertNotIn("(card.evidence || []).slice(0, 1)", script)
         self.assertIn("metadata.push(pagesLabel(item.pages));", script)
@@ -303,6 +367,15 @@ class WebInputTests(unittest.TestCase):
         self.assertNotIn("Source location recorded by corpus", script)
         self.assertIn("#evidence-list { display: flex; min-height: 0;", style)
         self.assertIn(".evidence-list-many .evidence", style)
+        self.assertIn("function setMorphologyEvidenceExpanded(expanded)", script)
+        self.assertIn("toggleMorphologyEvidencePanel", script)
+        self.assertIn("scheduleGraphViewportFit(120)", script)
+        self.assertIn('id="evidence-toggle"', page)
+        self.assertIn('aria-controls="evidence-panel"', page)
+        self.assertIn(".card-view.mode-root.evidence-expanded", style)
+        self.assertIn("minmax(118px, 12%)", style)
+        self.assertIn("minmax(270px, 23%)", style)
+        self.assertIn(".mode-root #evidence-list .evidence blockquote", style)
 
     def test_old_cards_receive_chinese_ruby_without_database_migration(self) -> None:
         card = {"chinese": {"simplified": "中国", "pinyin": "zhōng guó"}}
