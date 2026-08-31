@@ -937,6 +937,107 @@ class KnowledgeStoreTests(unittest.TestCase):
             self.assertEqual(statuses[assertion_a], "archived")
             self.assertEqual(statuses[assertion_b], "accepted")
 
+    def test_accepted_split_reconciliation_is_scoped_and_idempotent(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")
+            subject = store.upsert_term("en", "inspection")
+            old_free = store.upsert_morpheme("en", "inspection", "free", "examination")
+            old_suffix = store.upsert_morpheme("en", "-old", "suffix", "stale")
+            derivative = store.upsert_term("en", "inspector")
+            history = store.add_historical_form(
+                "la", "inspectio", period_label="Latin"
+            )
+            store.link_morpheme(subject, old_free, 0, "inspection", basis="model")
+            store.link_morpheme(subject, old_suffix, 2, "old", basis="model")
+            old_component = store.accept_relation_assertion(
+                subject, subject, old_free, "has-component", basis="model"
+            )
+            old_derivative = store.accept_relation_assertion(
+                subject,
+                derivative,
+                old_free,
+                "shares-component",
+                basis="model",
+            )
+            retained_history = store.accept_relation_assertion(
+                subject,
+                old_free,
+                history,
+                "developed-into",
+                basis="model",
+                properties={"modes": ["word"]},
+            )
+
+            prefix = store.upsert_morpheme("en", "in-", "prefix", "in")
+            root = store.upsert_morpheme("la", "spect", "root", "look")
+            store.link_morpheme(subject, prefix, 0, "in", basis="book")
+            store.link_morpheme(subject, root, 1, "spect", basis="book")
+            current_component_ids = [
+                store.accept_relation_assertion(
+                    subject, subject, prefix, "has-component", basis="book"
+                ),
+                store.accept_relation_assertion(
+                    subject, subject, root, "has-component", basis="book"
+                ),
+                store.accept_relation_assertion(
+                    subject, derivative, root, "shares-component", basis="model"
+                ),
+            ]
+
+            first = store.reconcile_accepted_lexical_split(
+                subject,
+                active_assertion_ids=current_component_ids,
+                active_component_ids=[prefix, root],
+                component_count=2,
+            )
+            revision = store.lexical_subgraph(
+                subject, "word", {"nodes": 16, "edges": 24, "depth": 4}
+            )["graph_revision"]
+            self.assertEqual(first["assertions_retired"], 2)
+            self.assertEqual(first["trailing_ordinals_removed"], 1)
+            with closing(store._connect()) as connection:
+                statuses = {
+                    row["assertion_id"]: row["status"]
+                    for row in connection.execute(
+                        """SELECT assertion_id, status FROM relation_assertions
+                           WHERE assertion_id IN (?, ?, ?)""",
+                        (old_component, old_derivative, retained_history),
+                    )
+                }
+                ordinals = [
+                    int(row["ordinal"])
+                    for row in connection.execute(
+                        """SELECT ordinal FROM term_morphemes
+                           WHERE term_id = ? ORDER BY ordinal""",
+                        (subject,),
+                    )
+                ]
+            self.assertEqual(statuses[old_component], "archived")
+            self.assertEqual(statuses[old_derivative], "archived")
+            self.assertEqual(statuses[retained_history], "accepted")
+            self.assertEqual(ordinals, [0, 1])
+
+            replay = store.reconcile_accepted_lexical_split(
+                subject,
+                active_assertion_ids=current_component_ids,
+                active_component_ids=[prefix, root],
+                component_count=2,
+            )
+            self.assertEqual(
+                replay,
+                {
+                    "assertions_retired": 0,
+                    "legacy_edges_retired": 0,
+                    "trailing_ordinals_removed": 0,
+                },
+            )
+            self.assertEqual(
+                store.lexical_subgraph(
+                    subject, "word", {"nodes": 16, "edges": 24, "depth": 4}
+                )["graph_revision"],
+                revision,
+            )
+
     def test_lexical_subgraph_is_connected_bounded_and_deterministic(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")

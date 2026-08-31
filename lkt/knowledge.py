@@ -958,6 +958,95 @@ class KnowledgeStore:
                 connection.rollback()
                 raise
 
+    def reconcile_accepted_lexical_split(
+        self,
+        subject_entity_id: str,
+        *,
+        active_assertion_ids: Iterable[str],
+        active_component_ids: Iterable[str],
+        component_count: int,
+    ) -> dict[str, int]:
+        """Retire only stale assertions and links from one accepted resplit.
+
+        Replacement assertions and ordinal rows are written first by the
+        worker.  This final subject-scoped reconciliation leaves historical
+        assertions, canonical entities, artifacts, revisions, and cards intact.
+        """
+
+        subject_entity_id = str(subject_entity_id).strip()
+        if not subject_entity_id:
+            raise ValueError("lexical split subject is empty")
+        component_count = int(component_count)
+        if component_count < 1:
+            raise ValueError("accepted lexical split has no components")
+        kept_assertions = {
+            str(assertion_id).strip()
+            for assertion_id in active_assertion_ids
+            if str(assertion_id).strip()
+        }
+        kept_components = sorted(
+            {
+                str(component_id).strip()
+                for component_id in active_component_ids
+                if str(component_id).strip()
+            }
+        )
+        if not kept_components:
+            raise ValueError("accepted lexical split has no canonical components")
+
+        timestamp = _now()
+        with closing(self._connect()) as connection:
+            try:
+                connection.execute("BEGIN IMMEDIATE")
+                current_assertions = {
+                    str(row["assertion_id"])
+                    for row in connection.execute(
+                        """SELECT assertion_id FROM relation_assertions
+                           WHERE subject_entity_id = ? AND status = 'accepted'
+                             AND relation IN ('has-component', 'shares-component')""",
+                        (subject_entity_id,),
+                    )
+                }
+                stale_assertions = sorted(current_assertions - kept_assertions)
+                retired_assertions = 0
+                if stale_assertions:
+                    placeholders = ",".join("?" for _ in stale_assertions)
+                    cursor = connection.execute(
+                        f"""UPDATE relation_assertions
+                            SET status = 'archived', revision = revision + 1,
+                                updated_at = ?
+                            WHERE assertion_id IN ({placeholders})
+                              AND subject_entity_id = ? AND status = 'accepted'""",
+                        (timestamp, *stale_assertions, subject_entity_id),
+                    )
+                    retired_assertions = int(cursor.rowcount)
+
+                component_placeholders = ",".join("?" for _ in kept_components)
+                edge_cursor = connection.execute(
+                    f"""UPDATE entity_edges
+                        SET status = 'archived', updated_at = ?
+                        WHERE source_entity_id = ? AND relation = 'has-component'
+                          AND status = 'accepted'
+                          AND target_entity_id NOT IN ({component_placeholders})""",
+                    (timestamp, subject_entity_id, *kept_components),
+                )
+                ordinal_cursor = connection.execute(
+                    """DELETE FROM term_morphemes
+                       WHERE term_id = ? AND ordinal >= ?""",
+                    (subject_entity_id, component_count),
+                )
+                if retired_assertions:
+                    self._advance_relation_graph_revision(connection)
+                connection.commit()
+                return {
+                    "assertions_retired": retired_assertions,
+                    "legacy_edges_retired": int(edge_cursor.rowcount),
+                    "trailing_ordinals_removed": int(ordinal_cursor.rowcount),
+                }
+            except Exception:
+                connection.rollback()
+                raise
+
     def lexical_subgraph(
         self,
         subject_entity_id: str,

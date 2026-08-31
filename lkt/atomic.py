@@ -1902,6 +1902,8 @@ claims may cite only supplied evidence IDs; model knowledge must cite none."""
             # the linguistic analysis is wrong.
 
         accepted_parts: list[dict[str, Any]] = []
+        active_assertion_ids: list[str] = []
+        active_component_ids: list[str] = []
         for ordinal, part in enumerate(cleaned):
             basis = "book" if part["evidence_ids"] else "model"
             confidence = min(
@@ -1927,23 +1929,26 @@ claims may cite only supplied evidence IDs; model knowledge must cite none."""
             component_modes.append(
                 "root" if part["kind"] in {"root", "free"} else "affix"
             )
-            self.store.accept_relation_assertion(
-                source["entity_id"],
-                source["entity_id"],
-                morpheme_id,
-                "has-component",
-                basis=basis,
-                confidence=confidence,
-                properties={
-                    "ordinal": ordinal,
-                    "surface": part["surface"],
-                    "component_kind": part["kind"],
-                    "canonical_form": part["canonical_form"],
-                    "meaning": part["meaning"],
-                    "language": part["language"],
-                    "modes": component_modes,
-                },
-                evidence_ids=part["evidence_ids"],
+            active_component_ids.append(morpheme_id)
+            active_assertion_ids.append(
+                self.store.accept_relation_assertion(
+                    source["entity_id"],
+                    source["entity_id"],
+                    morpheme_id,
+                    "has-component",
+                    basis=basis,
+                    confidence=confidence,
+                    properties={
+                        "ordinal": ordinal,
+                        "surface": part["surface"],
+                        "component_kind": part["kind"],
+                        "canonical_form": part["canonical_form"],
+                        "meaning": part["meaning"],
+                        "language": part["language"],
+                        "modes": component_modes,
+                    },
+                    evidence_ids=part["evidence_ids"],
+                )
             )
             for evidence_id in part["evidence_ids"]:
                 self.store.link_evidence(
@@ -1999,26 +2004,34 @@ claims may cite only supplied evidence IDs; model knowledge must cite none."""
                     if component["kind"] in {"root", "free"}
                     else "affix"
                 )
-                self.store.accept_relation_assertion(
-                    source["entity_id"],
-                    derivative_id,
-                    component_id,
-                    "shares-component",
-                    basis="model",
-                    confidence=0.55,
-                    properties={
-                        "source_term_id": source["entity_id"],
-                        "component_id": component_id,
-                        "component_kind": component["kind"],
-                        "note": str(related.get("note", "")),
-                        "proposal": True,
-                        "modes": derivative_modes,
-                    },
-                    evidence_ids=[],
+                active_assertion_ids.append(
+                    self.store.accept_relation_assertion(
+                        source["entity_id"],
+                        derivative_id,
+                        component_id,
+                        "shares-component",
+                        basis="model",
+                        confidence=0.55,
+                        properties={
+                            "source_term_id": source["entity_id"],
+                            "component_id": component_id,
+                            "component_kind": component["kind"],
+                            "note": str(related.get("note", "")),
+                            "proposal": True,
+                            "modes": derivative_modes,
+                        },
+                        evidence_ids=[],
+                    )
                 )
             persisted_related_terms.append(
                 {**related, "term_id": derivative_id}
             )
+        self.store.reconcile_accepted_lexical_split(
+            source["entity_id"],
+            active_assertion_ids=active_assertion_ids,
+            active_component_ids=active_component_ids,
+            component_count=len(accepted_parts),
+        )
         accepted = {
             "term_id": source["entity_id"],
             "term": source["text"],

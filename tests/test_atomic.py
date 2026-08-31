@@ -41,7 +41,7 @@ from lkt.atomic import (
 )
 from lkt.knowledge import KnowledgeStore
 from lkt.jmdict import JapaneseReadingIndex, build_jmdict_index
-from lkt.models import Evidence
+from lkt.models import Card, Evidence
 from lkt.preparation import PreparationPlanner
 from lkt.store import CardStore
 
@@ -718,16 +718,178 @@ class AtomicWorkerTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temp:
             store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")
-            plan = PreparationPlanner(store, model="test-local-qwen").plan_word(
-                "abstain", display_languages=("en",)
-            )
+            plan = PreparationPlanner(
+                store,
+                model="test-local-qwen",
+                prompt_version="interactive-origin-graph-v4",
+            ).plan_word("abstain", display_languages=("en",))
             worker = PreparationWorker(
                 store, AbstainRetriever(), AbstainModel(), FakePronouncer()
             )
-            for job_type in ("retrieve-evidence", "prepare-meaning", "split-morphemes"):
+            for job_type in ("retrieve-evidence", "prepare-meaning"):
                 result = worker.run_once((job_type,))
                 self.assertIsNotNone(result)
                 self.assertEqual(result.status, "complete")
+
+            old_free = store.upsert_morpheme(
+                "en", "abstain", "free", "choose not to act", status="accepted"
+            )
+            old_derivative_term = store.upsert_term(
+                "en", "forbear", status="accepted"
+            )
+            old_history = store.add_historical_form(
+                "la", "abstinere", period_label="Latin", status="accepted"
+            )
+            store.link_morpheme(
+                plan.subject_entity_id,
+                old_free,
+                0,
+                "abstain",
+                basis="model",
+                confidence=0.8,
+            )
+            old_component_assertion = store.accept_relation_assertion(
+                plan.subject_entity_id,
+                plan.subject_entity_id,
+                old_free,
+                "has-component",
+                basis="model",
+                confidence=0.8,
+                properties={"modes": ["knowledge", "word", "root"]},
+            )
+            old_derivative_assertion = store.accept_relation_assertion(
+                plan.subject_entity_id,
+                old_derivative_term,
+                old_free,
+                "shares-component",
+                basis="model",
+                properties={"modes": ["knowledge", "word", "root"]},
+            )
+            retained_history_assertion = store.accept_relation_assertion(
+                plan.subject_entity_id,
+                old_free,
+                old_history,
+                "developed-into",
+                basis="model",
+                properties={"modes": ["word", "root"]},
+            )
+            old_split_artifact = store.save_job_artifact(
+                plan.jobs["split-morphemes"],
+                "accepted-morpheme-split",
+                {
+                    "term_id": plan.subject_entity_id,
+                    "term": "abstain",
+                    "parts": [
+                        {
+                            "morpheme_id": old_free,
+                            "surface": "abstain",
+                            "canonical_form": "abstain",
+                            "kind": "free",
+                            "language": "en",
+                            "meaning": "choose not to act",
+                            "ordinal": 0,
+                            "basis": "model",
+                            "confidence": 0.8,
+                            "evidence_ids": [],
+                        }
+                    ],
+                    "related_terms": [
+                        {
+                            "term_id": old_derivative_term,
+                            "term": "forbear",
+                            "note": "old weak association",
+                            "component_forms": ["abstain"],
+                            "component_ids": [old_free],
+                            "component_kinds": ["free"],
+                        }
+                    ],
+                    "model": "old-qwen",
+                    "metrics": {},
+                },
+                language="en",
+                validation_state="accepted",
+                quality_score=0.8,
+            )
+            old_graph_revision = store.lexical_subgraph(
+                plan.subject_entity_id,
+                "word",
+                {"nodes": 16, "edges": 24, "depth": 4},
+            )["graph_revision"]
+            cards = CardStore(Path(temp) / "cards.sqlite3")
+            old_card = Card(
+                card_id="old-abstain-word",
+                mode="word",
+                query="abstain",
+                title="abstain",
+                subtitle="old free analysis",
+                summary_en="to choose not to act",
+                origin_story="",
+                key_points=[],
+                english={"term": "abstain", "pronunciation": "", "meaning": "to refrain"},
+                japanese={"term": "", "reading": "", "meaning": "", "ruby_tokens": []},
+                chinese={"simplified": "", "traditional": "", "pinyin": "", "meaning": "", "ruby_tokens": []},
+                memory_hook="",
+                related_terms=[{"term": "forbear", "note": "old weak association"}],
+                evidence=[],
+                model="old-qwen",
+                created_at="2026-08-31T00:00:00+00:00",
+                extensions={"lexical_view": {"graph_revision": old_graph_revision}},
+            )
+            cards.save(old_card)
+            old_card_payload = cards.get(old_card.card_id)
+
+            split_job = {
+                "job_id": plan.jobs["split-morphemes"],
+                "subject_entity_id": plan.subject_entity_id,
+                "subject_key": plan.subject_key,
+                "prompt_version": "interactive-origin-graph-v4",
+            }
+            first_split_artifact = worker._split_morphemes(split_job)
+            first_graph_revision = store.lexical_subgraph(
+                plan.subject_entity_id,
+                "word",
+                {"nodes": 32, "edges": 48, "depth": 4},
+            )["graph_revision"]
+            replay_split_artifact = worker._split_morphemes(split_job)
+            replay_graph_revision = store.lexical_subgraph(
+                plan.subject_entity_id,
+                "word",
+                {"nodes": 32, "edges": 48, "depth": 4},
+            )["graph_revision"]
+            self.assertEqual(replay_graph_revision, first_graph_revision)
+            self.assertNotEqual(first_split_artifact, replay_split_artifact)
+            self.assertEqual(cards.get(old_card.card_id), old_card_payload)
+            split_artifacts = store.artifacts_for_subject(
+                plan.subject_key, stage="accepted-morpheme-split"
+            )
+            self.assertIn(
+                old_split_artifact,
+                {artifact["artifact_id"] for artifact in split_artifacts},
+            )
+            self.assertEqual(
+                next(
+                    artifact["validation_state"]
+                    for artifact in split_artifacts
+                    if artifact["artifact_id"] == old_split_artifact
+                ),
+                "superseded",
+            )
+            with store._connect() as connection:
+                stale_statuses = {
+                    row["assertion_id"]: row["status"]
+                    for row in connection.execute(
+                        """SELECT assertion_id, status FROM relation_assertions
+                           WHERE assertion_id IN (?, ?, ?)""",
+                        (
+                            old_component_assertion,
+                            old_derivative_assertion,
+                            retained_history_assertion,
+                        ),
+                    )
+                }
+            self.assertEqual(stale_statuses[old_component_assertion], "archived")
+            self.assertEqual(stale_statuses[old_derivative_assertion], "archived")
+            self.assertEqual(stale_statuses[retained_history_assertion], "accepted")
 
             draft = store.artifacts_for_subject(
                 plan.subject_key,
