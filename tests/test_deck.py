@@ -111,40 +111,43 @@ class AutonomousDeckTests(unittest.TestCase):
         ]
         self.assertTrue(seeder._plan_has_pending_work(queued))
 
-    def test_morphology_seeder_grows_each_polished_book_independently(self) -> None:
+    def test_morphology_seeder_queues_each_book_through_atomic_planning(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             roots = make_morphology_index(root, "root")
             affixes = make_morphology_index(root, "affix")
             cards = CardStore(root / "cards.sqlite3")
-            service = CardService(
-                make_index(root),
-                _MorphologyModel(),
+            root_knowledge = KnowledgeStore(root / "root-knowledge.sqlite3")
+            root_seeder = AutonomousMorphologySeeder(
+                {"root": roots, "affix": affixes},
                 cards,
-                morphology={"root": roots, "affix": affixes},
+                root_knowledge,
+                model="local-qwen-test",
+                modes=("root",),
             )
-            seeder = AutonomousMorphologySeeder(service, cards)
-
-            first = seeder.run_mode("root", "stable-cycle")
-            second = seeder.run_mode("root", "stable-cycle")
-            affix = seeder.run_mode("affix", "stable-cycle")
-
-            self.assertEqual((first.status, second.status, affix.status), ("prepared", "prepared", "prepared"))
-            self.assertNotEqual(first.source_entry_id, second.source_entry_id)
-            self.assertEqual(len(cards.accepted_for_modes(("root",))), 2)
-            self.assertEqual(len(cards.accepted_for_modes(("affix",))), 1)
-            first_card = cards.get(first.card_id)
-            self.assertIsNotNone(first_card)
-            run_id = first_card["extensions"]["preparation_run_id"]
-            self.assertEqual(
-                [item["stage"] for item in cards.preparation_artifacts(run_id)],
-                [
-                    "retrieved-evidence",
-                    "cleaned-model-draft",
-                    "normalized-card",
-                    "published-card",
-                ],
+            affix_knowledge = KnowledgeStore(root / "affix-knowledge.sqlite3")
+            affix_seeder = AutonomousMorphologySeeder(
+                {"root": roots, "affix": affixes},
+                cards,
+                affix_knowledge,
+                model="local-qwen-test",
+                modes=("affix",),
             )
+
+            root_result = root_seeder.run_mode("root", "stable-cycle")
+            busy_result = root_seeder.run_mode("root", "stable-cycle")
+            affix_result = affix_seeder.run_mode("affix", "stable-cycle")
+
+            self.assertEqual(root_result.status, "queued")
+            self.assertEqual(busy_result.status, "busy")
+            self.assertEqual(affix_result.status, "queued")
+            self.assertTrue(root_result.source_entry_id)
+            self.assertTrue(affix_result.source_entry_id)
+            self.assertEqual(root_result.card_id, "")
+            self.assertEqual(affix_result.card_id, "")
+            self.assertGreater(root_knowledge.status()["queued_jobs"], 0)
+            self.assertGreater(affix_knowledge.status()["queued_jobs"], 0)
+            self.assertEqual(cards.accepted_for_modes(("root", "affix")), [])
 
     def test_balances_modes_and_never_repeats_a_source_record(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

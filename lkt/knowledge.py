@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import sqlite3
@@ -263,6 +264,43 @@ class KnowledgeStore:
                 CREATE INDEX IF NOT EXISTS idx_edges_target
                     ON entity_edges(target_entity_id, relation, status);
 
+                CREATE TABLE IF NOT EXISTS relation_assertions (
+                    assertion_id TEXT PRIMARY KEY,
+                    subject_entity_id TEXT NOT NULL REFERENCES entities(entity_id),
+                    source_entity_id TEXT NOT NULL REFERENCES entities(entity_id),
+                    target_entity_id TEXT NOT NULL REFERENCES entities(entity_id),
+                    relation TEXT NOT NULL,
+                    basis TEXT NOT NULL DEFAULT 'model'
+                        CHECK(basis IN ('book', 'model', 'reviewed', 'derived')),
+                    confidence REAL NOT NULL DEFAULT 0.5
+                        CHECK(confidence >= 0 AND confidence <= 1),
+                    status TEXT NOT NULL DEFAULT 'accepted'
+                        CHECK(status IN ('draft', 'accepted', 'rejected', 'archived')),
+                    properties_json TEXT NOT NULL DEFAULT '{}',
+                    revision INTEGER NOT NULL DEFAULT 1 CHECK(revision >= 1),
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    UNIQUE(
+                        subject_entity_id, source_entity_id,
+                        target_entity_id, relation
+                    )
+                );
+                CREATE INDEX IF NOT EXISTS idx_relation_assertions_subject
+                    ON relation_assertions(subject_entity_id, status, relation);
+                CREATE INDEX IF NOT EXISTS idx_relation_assertions_source
+                    ON relation_assertions(source_entity_id, status, relation);
+                CREATE INDEX IF NOT EXISTS idx_relation_assertions_target
+                    ON relation_assertions(target_entity_id, status, relation);
+
+                CREATE TABLE IF NOT EXISTS assertion_evidence (
+                    assertion_id TEXT NOT NULL REFERENCES relation_assertions(assertion_id)
+                        ON DELETE CASCADE,
+                    evidence_id TEXT NOT NULL REFERENCES evidence_records(evidence_id),
+                    PRIMARY KEY(assertion_id, evidence_id)
+                );
+                CREATE INDEX IF NOT EXISTS idx_assertion_evidence_record
+                    ON assertion_evidence(evidence_id, assertion_id);
+
                 CREATE TABLE IF NOT EXISTS entity_properties (
                     property_id TEXT PRIMARY KEY,
                     entity_id TEXT NOT NULL REFERENCES entities(entity_id) ON DELETE CASCADE,
@@ -454,8 +492,80 @@ class KnowledgeStore:
                              (quality_score >= 0 AND quality_score <= 1))"""
                 )
             connection.execute(
+                "INSERT OR IGNORE INTO schema_meta(key, value) VALUES (?, ?)",
+                ("relation_graph_revision", "0"),
+            )
+            backfilled = 0
+            legacy_edges = connection.execute(
+                """SELECT edge_id, source_entity_id, target_entity_id, relation,
+                          basis, confidence, properties, created_at, updated_at
+                   FROM entity_edges WHERE status = 'accepted'
+                   ORDER BY edge_id"""
+            ).fetchall()
+            for edge in legacy_edges:
+                try:
+                    properties = json.loads(edge["properties"])
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    continue
+                if not isinstance(properties, dict):
+                    continue
+                subject_entity_id = ""
+                for key in ("term_id", "subject"):
+                    candidate = properties.get(key)
+                    if isinstance(candidate, str) and candidate.strip():
+                        subject_entity_id = candidate.strip()
+                        break
+                if not subject_entity_id:
+                    continue
+                subject = connection.execute(
+                    "SELECT 1 FROM entities WHERE entity_id = ?",
+                    (subject_entity_id,),
+                ).fetchone()
+                if subject is None:
+                    continue
+                assertion_key = (
+                    f"{subject_entity_id}:{edge['source_entity_id']}:"
+                    f"{edge['relation']}:{edge['target_entity_id']}"
+                )
+                assertion_id = _identifier("assertion", assertion_key)
+                cursor = connection.execute(
+                    """INSERT INTO relation_assertions(
+                           assertion_id, subject_entity_id, source_entity_id,
+                           target_entity_id, relation, basis, confidence, status,
+                           properties_json, revision, created_at, updated_at
+                       ) VALUES (?, ?, ?, ?, ?, ?, ?, 'accepted', ?, 1, ?, ?)
+                       ON CONFLICT(
+                           subject_entity_id, source_entity_id,
+                           target_entity_id, relation
+                       ) DO NOTHING""",
+                    (
+                        assertion_id,
+                        subject_entity_id,
+                        edge["source_entity_id"],
+                        edge["target_entity_id"],
+                        edge["relation"],
+                        edge["basis"],
+                        max(0.0, min(float(edge["confidence"]), 1.0)),
+                        json.dumps(
+                            properties,
+                            ensure_ascii=False,
+                            sort_keys=True,
+                            separators=(",", ":"),
+                        ),
+                        edge["created_at"],
+                        edge["updated_at"],
+                    ),
+                )
+                backfilled += int(cursor.rowcount)
+            if backfilled:
+                connection.execute(
+                    """UPDATE schema_meta
+                       SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT)
+                       WHERE key = 'relation_graph_revision'"""
+                )
+            connection.execute(
                 "INSERT OR REPLACE INTO schema_meta(key, value) VALUES (?, ?)",
-                ("schema_version", "3"),
+                ("schema_version", "4"),
             )
             connection.commit()
 
@@ -636,6 +746,408 @@ class KnowledgeStore:
             )
             connection.commit()
         return edge_id
+
+    @staticmethod
+    def _advance_relation_graph_revision(connection: sqlite3.Connection) -> int:
+        connection.execute(
+            """UPDATE schema_meta
+               SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT)
+               WHERE key = 'relation_graph_revision'"""
+        )
+        row = connection.execute(
+            "SELECT value FROM schema_meta WHERE key = 'relation_graph_revision'"
+        ).fetchone()
+        return int(row["value"]) if row is not None else 0
+
+    def accept_relation_assertion(
+        self,
+        subject_entity_id: str,
+        source_entity_id: str,
+        target_entity_id: str,
+        relation: str,
+        *,
+        basis: str = "model",
+        confidence: float = 0.5,
+        properties: dict[str, Any] | None = None,
+        evidence_ids: Iterable[str] = (),
+    ) -> str:
+        """Atomically accept one subject's claim about canonical topology.
+
+        Model assertions are always uncited. Other bases retain only evidence
+        records already present in this store, so callers cannot create dangling
+        or invented provenance while accepting a useful model result.
+        """
+
+        subject_entity_id = str(subject_entity_id).strip()
+        source_entity_id = str(source_entity_id).strip()
+        target_entity_id = str(target_entity_id).strip()
+        relation = relation.strip().lower().replace(" ", "-")
+        basis = basis.strip().lower()
+        if not relation:
+            raise ValueError("assertion relation is empty")
+        if source_entity_id == target_entity_id:
+            raise ValueError("self assertions are not accepted knowledge")
+        if basis not in {"book", "model", "reviewed", "derived"}:
+            raise ValueError(f"invalid assertion basis: {basis!r}")
+        if properties is not None and not isinstance(properties, dict):
+            raise ValueError("assertion properties must be an object")
+        confidence = max(0.0, min(float(confidence), 1.0))
+        properties_json = json.dumps(
+            properties or {},
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        requested_evidence = sorted(
+            {
+                str(evidence_id).strip()
+                for evidence_id in evidence_ids
+                if str(evidence_id).strip()
+            }
+        )
+        assertion_key = (
+            f"{subject_entity_id}:{source_entity_id}:{relation}:{target_entity_id}"
+        )
+        assertion_id = _identifier("assertion", assertion_key)
+        timestamp = _now()
+
+        with closing(self._connect()) as connection:
+            try:
+                connection.execute("BEGIN IMMEDIATE")
+                required_entities = {
+                    subject_entity_id,
+                    source_entity_id,
+                    target_entity_id,
+                }
+                placeholders = ",".join("?" for _ in required_entities)
+                present_entities = {
+                    str(row["entity_id"])
+                    for row in connection.execute(
+                        f"SELECT entity_id FROM entities WHERE entity_id IN ({placeholders})",
+                        sorted(required_entities),
+                    )
+                }
+                if present_entities != required_entities:
+                    missing = sorted(required_entities - present_entities)
+                    raise ValueError(
+                        "unknown relation assertion entities: " + ", ".join(missing)
+                    )
+
+                valid_evidence: list[str] = []
+                if basis != "model" and requested_evidence:
+                    evidence_placeholders = ",".join("?" for _ in requested_evidence)
+                    valid_evidence = sorted(
+                        str(row["evidence_id"])
+                        for row in connection.execute(
+                            f"""SELECT evidence_id FROM evidence_records
+                                WHERE evidence_id IN ({evidence_placeholders})""",
+                            requested_evidence,
+                        )
+                    )
+
+                existing = connection.execute(
+                    """SELECT assertion_id, basis, confidence, status,
+                              properties_json, revision
+                       FROM relation_assertions
+                       WHERE subject_entity_id = ? AND source_entity_id = ?
+                         AND target_entity_id = ? AND relation = ?""",
+                    (
+                        subject_entity_id,
+                        source_entity_id,
+                        target_entity_id,
+                        relation,
+                    ),
+                ).fetchone()
+                current_evidence: list[str] = []
+                if existing is not None:
+                    assertion_id = str(existing["assertion_id"])
+                    current_evidence = [
+                        str(row["evidence_id"])
+                        for row in connection.execute(
+                            """SELECT evidence_id FROM assertion_evidence
+                               WHERE assertion_id = ? ORDER BY evidence_id""",
+                            (assertion_id,),
+                        )
+                    ]
+                unchanged = bool(
+                    existing is not None
+                    and existing["basis"] == basis
+                    and float(existing["confidence"]) == confidence
+                    and existing["status"] == "accepted"
+                    and existing["properties_json"] == properties_json
+                    and current_evidence == valid_evidence
+                )
+                if unchanged:
+                    connection.commit()
+                    return assertion_id
+
+                if existing is None:
+                    connection.execute(
+                        """INSERT INTO relation_assertions(
+                               assertion_id, subject_entity_id, source_entity_id,
+                               target_entity_id, relation, basis, confidence, status,
+                               properties_json, revision, created_at, updated_at
+                           ) VALUES (?, ?, ?, ?, ?, ?, ?, 'accepted', ?, 1, ?, ?)""",
+                        (
+                            assertion_id,
+                            subject_entity_id,
+                            source_entity_id,
+                            target_entity_id,
+                            relation,
+                            basis,
+                            confidence,
+                            properties_json,
+                            timestamp,
+                            timestamp,
+                        ),
+                    )
+                else:
+                    connection.execute(
+                        """UPDATE relation_assertions
+                           SET basis = ?, confidence = ?, status = 'accepted',
+                               properties_json = ?, revision = revision + 1,
+                               updated_at = ?
+                           WHERE assertion_id = ?""",
+                        (
+                            basis,
+                            confidence,
+                            properties_json,
+                            timestamp,
+                            assertion_id,
+                        ),
+                    )
+                    connection.execute(
+                        "DELETE FROM assertion_evidence WHERE assertion_id = ?",
+                        (assertion_id,),
+                    )
+                connection.executemany(
+                    """INSERT INTO assertion_evidence(assertion_id, evidence_id)
+                       VALUES (?, ?)""",
+                    [(assertion_id, evidence_id) for evidence_id in valid_evidence],
+                )
+                self._advance_relation_graph_revision(connection)
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+        return assertion_id
+
+    def retire_relation_assertion(
+        self, subject_entity_id: str, assertion_id: str
+    ) -> bool:
+        """Archive one contextual assertion without changing another subject."""
+
+        timestamp = _now()
+        with closing(self._connect()) as connection:
+            try:
+                connection.execute("BEGIN IMMEDIATE")
+                cursor = connection.execute(
+                    """UPDATE relation_assertions
+                       SET status = 'archived', revision = revision + 1,
+                           updated_at = ?
+                       WHERE assertion_id = ? AND subject_entity_id = ?
+                         AND status = 'accepted'""",
+                    (timestamp, assertion_id.strip(), subject_entity_id.strip()),
+                )
+                changed = bool(cursor.rowcount)
+                if changed:
+                    self._advance_relation_graph_revision(connection)
+                connection.commit()
+                return changed
+            except Exception:
+                connection.rollback()
+                raise
+
+    def lexical_subgraph(
+        self,
+        subject_entity_id: str,
+        mode: str = "word",
+        limits: dict[str, int] | None = None,
+    ) -> dict[str, Any]:
+        """Return a deterministic, bounded projection for one lexical subject."""
+
+        subject_entity_id = subject_entity_id.strip()
+        mode = mode.strip().lower() or "word"
+        if limits is not None and not isinstance(limits, dict):
+            raise ValueError("subgraph limits must be an object")
+        requested_limits = limits or {}
+
+        def bounded_limit(
+            primary: str, alias: str, default: int, minimum: int, maximum: int
+        ) -> int:
+            raw = requested_limits.get(primary, requested_limits.get(alias, default))
+            try:
+                value = int(raw)
+            except (TypeError, ValueError) as error:
+                raise ValueError(f"invalid subgraph {primary} limit") from error
+            return max(minimum, min(value, maximum))
+
+        max_nodes = bounded_limit("nodes", "max_nodes", 64, 1, 256)
+        max_edges = bounded_limit("edges", "max_edges", 96, 0, 512)
+        max_depth = bounded_limit("depth", "max_depth", 4, 0, 12)
+        scan_limit = min(4096, max(256, max_edges * 16))
+
+        with closing(self._connect()) as connection:
+            subject = connection.execute(
+                """SELECT entity_id FROM entities
+                   WHERE entity_id = ? AND status = 'accepted'""",
+                (subject_entity_id,),
+            ).fetchone()
+            if subject is None:
+                raise ValueError(f"unknown accepted lexical subject: {subject_entity_id!r}")
+            rows = connection.execute(
+                """SELECT assertion.assertion_id, assertion.source_entity_id,
+                          assertion.target_entity_id, assertion.relation,
+                          assertion.basis, assertion.confidence,
+                          assertion.properties_json, assertion.revision,
+                          assertion.created_at, assertion.updated_at
+                   FROM relation_assertions AS assertion
+                   JOIN entities AS source
+                     ON source.entity_id = assertion.source_entity_id
+                    AND source.status = 'accepted'
+                   JOIN entities AS target
+                     ON target.entity_id = assertion.target_entity_id
+                    AND target.status = 'accepted'
+                   WHERE assertion.subject_entity_id = ?
+                     AND assertion.status = 'accepted'
+                   ORDER BY assertion.relation, assertion.source_entity_id,
+                            assertion.target_entity_id, assertion.assertion_id
+                   LIMIT ?""",
+                (subject_entity_id, scan_limit),
+            ).fetchall()
+
+            candidates: list[dict[str, Any]] = []
+            for row in rows:
+                properties = json.loads(row["properties_json"])
+                declared_modes = properties.get("modes", properties.get("mode", ()))
+                if isinstance(declared_modes, str):
+                    declared_modes = [declared_modes]
+                if isinstance(declared_modes, (list, tuple, set)):
+                    normalized_modes = {
+                        str(item).strip().lower() for item in declared_modes if str(item).strip()
+                    }
+                    if normalized_modes and mode not in normalized_modes and mode != "all":
+                        continue
+                candidates.append({**dict(row), "properties": properties})
+
+            adjacency: dict[str, list[dict[str, Any]]] = {}
+            for candidate in candidates:
+                adjacency.setdefault(candidate["source_entity_id"], []).append(candidate)
+                adjacency.setdefault(candidate["target_entity_id"], []).append(candidate)
+            for adjacent in adjacency.values():
+                adjacent.sort(key=lambda item: item["assertion_id"])
+
+            node_depth = {subject_entity_id: 0}
+            queue = [subject_entity_id]
+            selected: dict[str, dict[str, Any]] = {}
+            cursor = 0
+            while cursor < len(queue) and len(selected) < max_edges:
+                current = queue[cursor]
+                cursor += 1
+                depth = node_depth[current]
+                if depth >= max_depth:
+                    continue
+                for candidate in adjacency.get(current, ()):
+                    assertion_id = str(candidate["assertion_id"])
+                    if assertion_id in selected:
+                        continue
+                    source_id = str(candidate["source_entity_id"])
+                    target_id = str(candidate["target_entity_id"])
+                    other = target_id if source_id == current else source_id
+                    if other not in node_depth:
+                        if len(node_depth) >= max_nodes:
+                            continue
+                        node_depth[other] = depth + 1
+                        queue.append(other)
+                    selected[assertion_id] = candidate
+                    if len(selected) >= max_edges:
+                        break
+
+            selected_ids = sorted(selected)
+            evidence_by_assertion: dict[str, list[str]] = {
+                assertion_id: [] for assertion_id in selected_ids
+            }
+            if selected_ids:
+                placeholders = ",".join("?" for _ in selected_ids)
+                for link in connection.execute(
+                    f"""SELECT assertion_id, evidence_id FROM assertion_evidence
+                        WHERE assertion_id IN ({placeholders})
+                        ORDER BY assertion_id, evidence_id""",
+                    selected_ids,
+                ):
+                    evidence_by_assertion[str(link["assertion_id"])].append(
+                        str(link["evidence_id"])
+                    )
+
+            node_ids = sorted(node_depth)
+            node_placeholders = ",".join("?" for _ in node_ids)
+            nodes = [
+                {
+                    "id": str(row["entity_id"]),
+                    "type": str(row["entity_type"]),
+                    "key": str(row["canonical_key"]),
+                    "label": str(row["label"]),
+                    "quality": row["quality_score"],
+                    "payload": json.loads(row["payload"]),
+                }
+                for row in connection.execute(
+                    f"""SELECT entity_id, entity_type, canonical_key, label,
+                               quality_score, payload
+                        FROM entities WHERE entity_id IN ({node_placeholders})
+                        ORDER BY entity_id""",
+                    node_ids,
+                )
+            ]
+            edges = [
+                {
+                    "id": assertion_id,
+                    "assertion_id": assertion_id,
+                    "subject_entity_id": subject_entity_id,
+                    "source": str(selected[assertion_id]["source_entity_id"]),
+                    "target": str(selected[assertion_id]["target_entity_id"]),
+                    "relation": str(selected[assertion_id]["relation"]),
+                    "basis": str(selected[assertion_id]["basis"]),
+                    "confidence": float(selected[assertion_id]["confidence"]),
+                    "properties": selected[assertion_id]["properties"],
+                    "evidence_ids": evidence_by_assertion[assertion_id],
+                    "revision": int(selected[assertion_id]["revision"]),
+                    "created_at": str(selected[assertion_id]["created_at"]),
+                    "updated_at": str(selected[assertion_id]["updated_at"]),
+                }
+                for assertion_id in selected_ids
+            ]
+            revision_row = connection.execute(
+                "SELECT value FROM schema_meta WHERE key = 'relation_graph_revision'"
+            ).fetchone()
+            graph_revision = int(revision_row["value"]) if revision_row else 0
+
+        applied_limits = {
+            "nodes": max_nodes,
+            "edges": max_edges,
+            "depth": max_depth,
+        }
+        truncated = len(selected) < len(candidates)
+        projection = {
+            "subject_entity_id": subject_entity_id,
+            "mode": mode,
+            "limits": applied_limits,
+            "truncated": truncated,
+            "nodes": nodes,
+            "edges": edges,
+        }
+        projection_hash = hashlib.sha256(
+            json.dumps(
+                projection,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
+        return {
+            **projection,
+            "graph_revision": graph_revision,
+            "projection_hash": projection_hash,
+        }
 
     def link_morpheme(
         self,
@@ -2725,6 +3237,8 @@ class KnowledgeStore:
             "grammar_parts",
             "content_items",
             "entity_edges",
+            "relation_assertions",
+            "assertion_evidence",
             "preparation_jobs",
             "job_dependencies",
             "inquiry_events",
@@ -2739,10 +3253,13 @@ class KnowledgeStore:
                     "SELECT COUNT(*) FROM preparation_jobs WHERE status = 'queued'"
                 ).fetchone()[0]
             )
+            version = connection.execute(
+                "SELECT value FROM schema_meta WHERE key = 'schema_version'"
+            ).fetchone()
         return {
             "ready": True,
             "database": str(self.database),
-            "schema_version": "2",
+            "schema_version": str(version["value"]) if version else "4",
             "counts": counts,
             "queued_jobs": queued,
         }

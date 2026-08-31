@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import json
 import unittest
-from types import SimpleNamespace
+from contextlib import redirect_stdout
+from io import StringIO
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 from lkt.atomic import MODEL_FREE_ATOMIC_JOBS
-from lkt.cli import run_atomic_watch
+from lkt.cli import command_generate, run_atomic_watch
 
 
 class _StopAfterWaits:
@@ -30,6 +34,76 @@ class _Worker:
         self.calls += 1
         self.job_type_filters.append(job_types)
         return self.results.pop(0) if self.results else None
+
+
+class GenerateCommandTests(unittest.TestCase):
+    def test_lexical_modes_queue_one_shared_atomic_plan_without_card_service(self) -> None:
+        settings = SimpleNamespace(
+            knowledge_db="knowledge.sqlite3",
+            llm_model="local-qwen-test",
+        )
+        knowledge = Mock()
+        knowledge.jobs_for_subject.return_value = [
+            {"job_id": "retrieve-1", "status": "queued"}
+        ]
+        planner = Mock()
+        planner.plan_word.return_value = SimpleNamespace(
+            subject_entity_id="term-1",
+            subject_key="term:term-1",
+            jobs={"retrieve-evidence": "retrieve-1"},
+        )
+        with (
+            patch("lkt.cli._settings", return_value=settings),
+            patch("lkt.cli.KnowledgeStore", return_value=knowledge),
+            patch("lkt.cli.PreparationPlanner", return_value=planner),
+            patch("lkt.cli._service") as service,
+        ):
+            for mode in ("knowledge", "word", "root", "affix"):
+                output = StringIO()
+                with self.subTest(mode=mode), redirect_stdout(output):
+                    self.assertEqual(
+                        command_generate(SimpleNamespace(query="inspection", mode=mode)),
+                        0,
+                    )
+                    payload = json.loads(output.getvalue())
+                    self.assertEqual(payload["status"], "queued")
+                    self.assertEqual(payload["requested_mode"], mode)
+                    self.assertEqual(payload["subject_key"], "term:term-1")
+
+        self.assertEqual(planner.plan_word.call_count, 4)
+        service.assert_not_called()
+
+    def test_reviewed_mode_keeps_service_then_acquires_and_enriches_card(self) -> None:
+        settings = SimpleNamespace(
+            knowledge_db="knowledge.sqlite3",
+            llm_model="local-qwen-test",
+        )
+        card_payload = {"card_id": "answer-card-1", "mode": "answer"}
+        card = Mock(card_id="answer-card-1")
+        card.to_dict.return_value = card_payload
+        service = Mock()
+        service.create.return_value = card
+        knowledge = Mock()
+        planner = Mock()
+        with (
+            patch("lkt.cli._settings", return_value=settings),
+            patch("lkt.cli._service", return_value=service),
+            patch("lkt.cli.KnowledgeStore", return_value=knowledge),
+            patch("lkt.cli.PreparationPlanner", return_value=planner),
+        ):
+            output = StringIO()
+            with redirect_stdout(output):
+                self.assertEqual(
+                    command_generate(
+                        SimpleNamespace(query="Look more closely.", mode="answer")
+                    ),
+                    0,
+                )
+
+        self.assertEqual(json.loads(output.getvalue()), card_payload)
+        service.create.assert_called_once_with("Look more closely.", "answer")
+        knowledge.acquire_card_book_card.assert_called_once_with(card_payload)
+        planner.plan_card_enrichment.assert_called_once_with("answer-card-1")
 
 
 class AtomicWatchTests(unittest.TestCase):

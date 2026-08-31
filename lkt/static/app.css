@@ -1629,9 +1629,12 @@ body.chrome-collapsed:not(.display-mode) .stage { padding: 4px 7px; }
 }
 .knowledge-ticker-lane[data-motion-axis="vertical"] .knowledge-ticker-copy {
   display: block;
+  min-width: 0;
   width: 100%;
+  max-width: 100%;
   flex: 0 0 auto;
   white-space: normal;
+  overflow-wrap: anywhere;
 }
 .knowledge-ticker-lane.is-overflowing[data-motion-axis="vertical"] > .knowledge-ticker-track {
   animation: knowledge-bank-roll-vertical var(--ticker-duration) linear infinite;

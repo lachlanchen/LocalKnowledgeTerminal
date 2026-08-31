@@ -240,7 +240,54 @@ def command_audit_japanese_readings(args: argparse.Namespace) -> int:
 
 def command_generate(args: argparse.Namespace) -> int:
     settings = _settings()
+    if args.mode in {"word", "knowledge", "root", "affix"}:
+        knowledge = KnowledgeStore(settings.knowledge_db)
+        planner = PreparationPlanner(
+            knowledge,
+            model=settings.llm_model,
+            prompt_version="cli-lexical-v1",
+        )
+        plan = planner.plan_word(args.query)
+        jobs = knowledge.jobs_for_subject(plan.subject_key)
+        statuses = {
+            str(job["job_id"]): str(job["status"])
+            for job in jobs
+        }
+        selected_statuses = [
+            statuses.get(str(job_id), "") for job_id in plan.jobs.values()
+        ]
+        if any(status in {"queued", "running"} for status in selected_statuses):
+            status = "queued"
+        elif selected_statuses and all(
+            status == "complete" for status in selected_statuses
+        ):
+            status = "complete"
+        else:
+            status = "deferred"
+        print(
+            json.dumps(
+                {
+                    "status": status,
+                    "requested_mode": args.mode,
+                    "subject_entity_id": plan.subject_entity_id,
+                    "subject_key": plan.subject_key,
+                    "jobs": jobs,
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return 0
+    if args.mode not in {"answer", "question"}:
+        raise ValueError(f"unsupported card mode: {args.mode!r}")
     card = _service(settings).create(args.query, args.mode)
+    knowledge = KnowledgeStore(settings.knowledge_db)
+    knowledge.acquire_card_book_card(card.to_dict())
+    PreparationPlanner(
+        knowledge,
+        model=settings.llm_model,
+        prompt_version="cli-content-enrichment-v1",
+    ).plan_card_enrichment(card.card_id)
     print(json.dumps(card.to_dict(), ensure_ascii=False, indent=2))
     return 0
 
@@ -598,8 +645,13 @@ def _lexical_seeder(settings: Settings) -> AutonomousLexicalSeeder:
 
 def _morphology_seeder(settings: Settings) -> AutonomousMorphologySeeder:
     return AutonomousMorphologySeeder(
-        _service(settings),
+        {
+            "root": MorphologyIndex(settings.roots_db),
+            "affix": MorphologyIndex(settings.affixes_db),
+        },
         CardStore(settings.cards_db),
+        KnowledgeStore(settings.knowledge_db),
+        model=settings.llm_model,
     )
 
 
@@ -921,7 +973,10 @@ def parser() -> argparse.ArgumentParser:
     )
     search.set_defaults(handler=command_search)
 
-    generate = commands.add_parser("generate", help="generate a grounded card")
+    generate = commands.add_parser(
+        "generate",
+        help="queue lexical preparation or generate a reviewed book card",
+    )
     generate.add_argument("query")
     generate.add_argument(
         "--mode",

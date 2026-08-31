@@ -592,26 +592,31 @@ class AutonomousLexicalSeeder:
 
 
 class AutonomousMorphologySeeder:
-    """Grow Root and Affix from their own polished books with local Qwen RAG."""
+    """Queue polished Root and Affix records through atomic lexical preparation."""
 
     MODES = ("root", "affix")
 
     def __init__(
         self,
-        service: CardService,
+        morphology: dict[str, MorphologyIndex],
         store: CardStore,
+        knowledge: KnowledgeStore,
         *,
+        model: str,
         modes: Iterable[str] = MODES,
+        prompt_version: str = "autonomous-morphology-v1",
     ):
-        self.service = service
+        self.morphology = dict(morphology)
         self.store = store
+        self.knowledge = knowledge
+        self.model = model
+        self.prompt_version = prompt_version
         self.modes = tuple(
             dict.fromkeys(
                 mode.strip()
                 for mode in modes
                 if mode.strip() in self.MODES
-                and mode.strip() in service.morphology
-                and mode.strip() in service.rag_engines
+                and mode.strip() in self.morphology
             )
         )
         if not self.modes:
@@ -620,7 +625,7 @@ class AutonomousMorphologySeeder:
     def _prepared_record_ids(self) -> dict[str, set[str]]:
         prepared = {mode: set() for mode in self.modes}
         corpus_ids = {
-            mode: self.service.morphology[mode].metadata().get("corpus_id", "")
+            mode: self.morphology[mode].metadata().get("corpus_id", "")
             for mode in self.modes
         }
         for card in self.store.accepted_for_modes(self.modes):
@@ -642,7 +647,7 @@ class AutonomousMorphologySeeder:
         prepared = self._prepared_record_ids()
         modes: dict[str, dict[str, int | bool]] = {}
         for mode in self.modes:
-            total = self.service.morphology[mode].count()
+            total = self.morphology[mode].count()
             accepted = min(len(prepared[mode]), total)
             modes[mode] = {
                 "accepted": accepted,
@@ -666,7 +671,7 @@ class AutonomousMorphologySeeder:
         ranked = sorted(
             self.modes,
             key=lambda mode: (
-                len(prepared[mode]) / max(1, self.service.morphology[mode].count()),
+                len(prepared[mode]) / max(1, self.morphology[mode].count()),
                 self.modes.index(mode),
             ),
         )
@@ -684,8 +689,17 @@ class AutonomousMorphologySeeder:
         if mode not in self.modes:
             raise ValueError(f"autonomous morphology mode is unavailable: {mode!r}")
         prepared = self._prepared_record_ids()[mode]
-        index: MorphologyIndex = self.service.morphology[mode]
+        index = self.morphology[mode]
         total = index.count()
+        active = self.knowledge.active_term_preparation_count()
+        if active:
+            return DeckSeedResult(
+                status="busy",
+                mode=mode,
+                prepared=len(prepared),
+                total=total,
+                message=f"waiting for {active} active lexical plans to finish",
+            )
         evidence = index.draw_unseen(
             seed.strip() or f"{time.time_ns()}:{mode}:{len(prepared)}", prepared
         )
@@ -698,20 +712,23 @@ class AutonomousMorphologySeeder:
                 message=f"every polished {mode} record already has an accepted card",
             )
 
-        # Keep the selected primary book record first and let the mode-local
-        # RAG engine attach only useful companion evidence from the other book.
-        retrieved = self.service.rag_engines[mode].retrieve(evidence.headword)
-        evidence_set = [evidence]
-        seen = {(evidence.corpus_id, evidence.entry_id)}
-        for item in retrieved:
-            key = (item.corpus_id, item.entry_id)
-            if key not in seen:
-                evidence_set.append(item)
-                seen.add(key)
-        try:
-            card = self.service.create_from_evidence(
-                evidence.headword, mode, evidence_set
+        metadata = index.metadata()
+        source_fingerprint = ":".join(
+            part
+            for part in (
+                str(metadata.get("source_sha256", "")).strip(),
+                mode,
+                str(evidence.entry_id).strip(),
             )
+            if part
+        )
+        try:
+            plan = PreparationPlanner(
+                self.knowledge,
+                model=self.model,
+                prompt_version=self.prompt_version,
+                source_fingerprint=source_fingerprint,
+            ).plan_word(evidence.headword)
         except Exception as exc:
             return DeckSeedResult(
                 status="deferred",
@@ -721,16 +738,35 @@ class AutonomousMorphologySeeder:
                 total=total,
                 message=str(exc)[:300],
             )
+        statuses = {
+            str(job["job_id"]): str(job["status"])
+            for job in self.knowledge.jobs_for_subject(plan.subject_key)
+        }
+        pending = sum(
+            statuses.get(str(job_id)) in {"queued", "running"}
+            for job_id in plan.jobs.values()
+        )
+        if not pending:
+            return DeckSeedResult(
+                status="deferred",
+                mode=mode,
+                source_entry_id=evidence.entry_id,
+                prepared=len(prepared),
+                total=total,
+                message=(
+                    f"the persisted {mode} plan has no queued or running work; "
+                    "a later repair revision may retry it"
+                ),
+            )
         return DeckSeedResult(
-            status="prepared",
+            status="queued",
             mode=mode,
             source_entry_id=evidence.entry_id,
-            card_id=card.card_id,
-            prepared=min(len(prepared) + 1, total),
+            prepared=len(prepared),
             total=total,
             message=(
-                f"local Qwen accepted one {mode} graph from its polished book; "
-                "retrieval, draft, normalized JSON, and publication were saved"
+                f"selected one polished {mode} record and queued {pending} "
+                "persisted atomic jobs; the shared lexical graph owns publication"
             ),
         )
 

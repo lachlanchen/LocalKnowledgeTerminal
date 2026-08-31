@@ -990,7 +990,99 @@ function renderLegacyOriginGraph(card) {
   originCy.fit(originCy.elements(), 22);
 }
 
+function normalizeLexicalView(card, view) {
+  if (!view || !Array.isArray(view.nodes) || !view.nodes.length) return null;
+  const rawEdges = Array.isArray(view.edges) ? view.edges : [];
+  const componentKinds = new Map();
+  rawEdges.forEach((edge) => {
+    const properties = edge?.properties && typeof edge.properties === "object"
+      ? edge.properties
+      : {};
+    const target = String(edge?.target || edge?.target_entity_id || "");
+    if (target && properties.component_kind) {
+      componentKinds.set(target, String(properties.component_kind));
+    }
+  });
+  const nodes = view.nodes.map((node) => {
+    const payload = node?.payload && typeof node.payload === "object" ? node.payload : {};
+    const id = String(node?.id || node?.entity_id || "");
+    let type = String(node?.kind || payload.kind || node?.type || "related");
+    if (type === "term") type = "word";
+    if (type === "historical-form") type = "historical";
+    if (type === "morpheme") type = componentKinds.get(id) || "related";
+    const evidenceIds = Array.isArray(node?.evidence_ids)
+      ? node.evidence_ids.map(String)
+      : (Array.isArray(payload.evidence_ids) ? payload.evidence_ids.map(String) : []);
+    return {
+      ...node,
+      id,
+      type,
+      form: String(node?.form || node?.text || payload.form || payload.text || node?.label || ""),
+      meaning: String(node?.meaning || node?.definition || payload.meaning || payload.definition || ""),
+      language: String(node?.language || payload.language || payload.period_label || payload.period || ""),
+      basis: String(node?.basis || payload.basis || (evidenceIds.length ? "book" : "model")),
+      evidence_ids: evidenceIds,
+    };
+  }).filter((node) => node.id);
+  if (!nodes.length) return null;
+  const ids = new Set(nodes.map((node) => node.id));
+  const edges = rawEdges.map((edge, index) => ({
+    ...edge,
+    id: String(edge?.id || edge?.assertion_id || `lexical-edge-${index}`),
+    source: String(edge?.source || edge?.source_entity_id || ""),
+    target: String(edge?.target || edge?.target_entity_id || ""),
+    relationship: String(edge?.relation || edge?.relationship || "related"),
+    basis: String(edge?.basis || "model"),
+    evidence_ids: Array.isArray(edge?.evidence_ids) ? edge.evidence_ids.map(String) : [],
+  })).filter((edge) => ids.has(edge.source) && ids.has(edge.target));
+  const requestedFocus = Array.isArray(view.focus_entity_ids)
+    ? view.focus_entity_ids.map(String).filter((id) => ids.has(id))
+    : [];
+  const subjectId = String(view.subject_entity_id || card.extensions?.knowledge_subject || "");
+  const focusIds = requestedFocus.length
+    ? requestedFocus
+    : [subjectId].filter((id) => ids.has(id));
+  const centerId = focusIds[0] || (ids.has(subjectId) ? subjectId : nodes[0].id);
+  const overview = {
+    id: "canonical-overview",
+    label: "Whole lexical graph",
+    kind: "overview",
+    node_ids: nodes.map((node) => node.id),
+    headline: card.title,
+    explanation: "Canonical accepted knowledge at this saved graph revision.",
+  };
+  const focused = focusIds.map((focusId, index) => {
+    const focusNode = nodes.find((node) => node.id === focusId) || nodes[0];
+    const neighborIds = edges.flatMap((edge) => {
+      if (edge.source === focusId) return [edge.target];
+      if (edge.target === focusId) return [edge.source];
+      return [];
+    });
+    return {
+      id: `canonical-focus-${index + 1}`,
+      label: focusNode.form || focusNode.label || card.title,
+      kind: ["root", "prefix", "suffix"].includes(focusNode.type)
+        ? focusNode.type
+        : (card.mode === "root" ? "root" : card.mode === "affix" ? "prefix" : "overview"),
+      node_ids: [...new Set([focusId, ...neighborIds])],
+      headline: focusNode.form || focusNode.label || card.title,
+      explanation: focusNode.meaning || "Accepted canonical relationships.",
+    };
+  });
+  return {
+    ...view,
+    center_id: centerId,
+    nodes,
+    edges,
+    focus_areas: ["root", "affix"].includes(card.mode)
+      ? [...focused, overview]
+      : [overview, ...focused.filter((area) => area.kind !== "overview")],
+  };
+}
+
 function unifiedGraph(card) {
+  const lexical = normalizeLexicalView(card, card.extensions?.lexical_view);
+  if (lexical) return lexical;
   const rich = card.extensions?.morphology_graph;
   if (Array.isArray(rich?.nodes) && rich.nodes.length > 1) return rich;
   const legacy = Array.isArray(card.origin_graph) ? card.origin_graph : [];
@@ -1165,8 +1257,16 @@ function clearGraphNodeBadges() {
 }
 
 function graphNodeCopyFits(copy) {
-  return copy.scrollWidth <= copy.clientWidth + 1
-    && copy.scrollHeight <= copy.clientHeight + 1;
+  if (
+    copy.scrollWidth > copy.clientWidth + 1
+    || copy.scrollHeight > copy.clientHeight + 1
+  ) return false;
+  return Array.from(
+    copy.querySelectorAll(".graph-node-term, .graph-node-meaning"),
+  ).every((part) => (
+    part.scrollWidth <= part.clientWidth + 1
+    && part.scrollHeight <= part.clientHeight + 1
+  ));
 }
 
 function fitGraphNodeCopy(box) {

@@ -2260,6 +2260,10 @@ class AtomicWorkerTests(unittest.TestCase):
             plan = PreparationPlanner(store, model="test-qwen-4b").plan_word(
                 "inspection", display_languages=("en", "ja", "zh", "fr", "ar")
             )
+            accepted_subject_id = store.upsert_term(
+                "en", "inspection", status="accepted", quality_score=0.95
+            )
+            self.assertEqual(accepted_subject_id, plan.subject_entity_id)
             evidence_id = store.add_evidence(
                 "omw-en:2.0",
                 "sense-inspection-1",
@@ -2517,6 +2521,7 @@ class AtomicWorkerTests(unittest.TestCase):
             result = worker.run_once()
             self.assertIsNotNone(result)
             self.assertEqual(result.job_type, "compose-word-card")
+            self.assertEqual(result.status, "complete")
             card = cards.recent(1)[0]
             self.assertEqual(card["mode"], "knowledge")
             self.assertEqual(card["english"]["meaning"], meaning["definition"])
@@ -2530,12 +2535,46 @@ class AtomicWorkerTests(unittest.TestCase):
                 json.dumps(card, ensure_ascii=False),
             )
             self.assertEqual(card["extra_languages"]["french"]["term"], "inspection")
+            self.assertEqual(card["evidence"][0]["evidence_id"], evidence_id)
+            self.assertEqual(
+                card["extensions"]["lexical_view"]["subject_entity_id"],
+                plan.subject_entity_id,
+            )
             self.assertNotIn("morphology_graph", card["extensions"])
             origin_result = worker.run_once()
             self.assertEqual(origin_result.job_type, "compose-origin-card")
             cards_by_mode = {card["mode"]: card for card in cards.recent(10)}
             self.assertEqual(
                 set(cards_by_mode), {"knowledge", "word", "root", "affix"}
+            )
+            lexical_views = {
+                card_mode: composed_card["extensions"]["lexical_view"]
+                for card_mode, composed_card in cards_by_mode.items()
+            }
+            self.assertEqual(
+                {view["subject_entity_id"] for view in lexical_views.values()},
+                {plan.subject_entity_id},
+            )
+            self.assertEqual(
+                {view["graph_revision"] for view in lexical_views.values()},
+                {lexical_views["knowledge"]["graph_revision"]},
+            )
+            self.assertTrue(
+                all(view["projection_hash"] for view in lexical_views.values())
+            )
+            self.assertEqual(
+                {card_mode: view["mode"] for card_mode, view in lexical_views.items()},
+                {card_mode: card_mode for card_mode in lexical_views},
+            )
+            self.assertEqual(
+                lexical_views["word"]["focus_entity_ids"],
+                [plan.subject_entity_id],
+            )
+            self.assertEqual(
+                lexical_views["root"]["focus_entity_ids"], ["m-spect"]
+            )
+            self.assertEqual(
+                lexical_views["affix"]["focus_entity_ids"], ["m-in", "m-ion"]
             )
             for composed_card in cards_by_mode.values():
                 self.assertEqual(composed_card["japanese"]["reading"], "\u3057\u3093\u3055")
@@ -2631,6 +2670,151 @@ class AtomicWorkerTests(unittest.TestCase):
                         "affix": cards_by_mode["affix"]["related_terms"],
                     }
                 ),
+            )
+
+    def test_split_and_origin_persist_canonical_scoped_assertions(self) -> None:
+        class DerivativeModel(FakeAtomicModel):
+            def complete_json(
+                self, system: str, prompt: str, *, max_tokens: int = 256
+            ) -> dict[str, Any]:
+                result = super().complete_json(system, prompt, max_tokens=max_tokens)
+                if "MORPHEME SPLIT" in prompt:
+                    result["value"]["derivatives"] = [
+                        {
+                            "term": "spectator",
+                            "note": "shares the spect root",
+                            "component_forms": ["spect"],
+                        }
+                    ]
+                return result
+
+        with tempfile.TemporaryDirectory() as temp:
+            store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")
+            subject_id = store.upsert_term(
+                "en", "inspection", status="accepted", quality_score=0.95
+            )
+            subject_key = f"term:{subject_id}"
+            retrieval_job = store.enqueue_job(
+                "retrieve-evidence",
+                subject_key,
+                subject_entity_id=subject_id,
+            )
+            evidence_id = store.add_evidence(
+                "test-dictionary:1.0",
+                "dictionary-inspection-1",
+                source_hash="abc123",
+                locator="sense 1",
+                excerpt="a careful examination of something",
+                payload={
+                    "entry_id": "dictionary-inspection-1",
+                    "headword": "inspection",
+                    "kind": "dictionary-sense",
+                },
+            )
+            store.save_job_artifact(
+                retrieval_job,
+                "retrieved-evidence",
+                {
+                    "records": [
+                        {
+                            "entry_id": "dictionary-inspection-1",
+                            "corpus_id": "test-dictionary:1.0",
+                            "headword": "inspection",
+                            "definition": "a careful examination of something",
+                            "knowledge_evidence_id": evidence_id,
+                        }
+                    ]
+                },
+                validation_state="candidate",
+            )
+            split_job = store.enqueue_job(
+                "split-morphemes", subject_key, subject_entity_id=subject_id
+            )
+            origin_job = store.enqueue_job(
+                "expand-origin-branches", subject_key, subject_entity_id=subject_id
+            )
+            jobs = {
+                job["job_id"]: job for job in store.jobs_for_subject(subject_key)
+            }
+            worker = PreparationWorker(
+                store,
+                FakeRetriever(),
+                DerivativeModel(),
+                FakePronouncer(),
+            )
+
+            split_job_record = {
+                **jobs[split_job],
+                "subject_key": subject_key,
+                "subject_entity_id": subject_id,
+            }
+            origin_job_record = {
+                **jobs[origin_job],
+                "subject_key": subject_key,
+                "subject_entity_id": subject_id,
+            }
+
+            worker._split_morphemes(split_job_record)
+            worker._expand_origin_branches(origin_job_record)
+
+            split = store.artifacts_for_subject(
+                subject_key,
+                stage="accepted-morpheme-split",
+                validation_state="accepted",
+            )[-1]["payload"]
+            spectator = next(
+                item for item in split["related_terms"] if item["term"] == "spectator"
+            )
+            self.assertEqual(
+                spectator["term_id"], store.upsert_term("en", "Spectator")
+            )
+            root_part = next(
+                part
+                for part in split["parts"]
+                if part["canonical_form"] == "spect"
+            )
+            root_id = root_part["morpheme_id"]
+            self.assertTrue(root_part["evidence_ids"])
+            self.assertEqual(
+                {
+                    record["evidence_id"]
+                    for record in store.evidence_records(root_part["evidence_ids"])
+                },
+                set(root_part["evidence_ids"]),
+            )
+            view = store.lexical_subgraph(
+                subject_id,
+                "word",
+                {"nodes": 32, "edges": 48, "depth": 4},
+            )
+            component = next(
+                edge
+                for edge in view["edges"]
+                if edge["relation"] == "has-component" and edge["target"] == root_id
+            )
+            self.assertEqual(component["subject_entity_id"], subject_id)
+            self.assertEqual(
+                component["evidence_ids"], root_part["evidence_ids"]
+            )
+            derivative = next(
+                edge
+                for edge in view["edges"]
+                if edge["relation"] == "shares-component"
+                and edge["source"] == spectator["term_id"]
+            )
+            self.assertEqual(derivative["subject_entity_id"], subject_id)
+            self.assertEqual(derivative["basis"], "model")
+            self.assertEqual(derivative["evidence_ids"], [])
+            historical = [
+                edge for edge in view["edges"]
+                if edge["relation"] == "developed-into"
+            ]
+            self.assertTrue(historical)
+            self.assertTrue(
+                all(edge["subject_entity_id"] == subject_id for edge in historical)
+            )
+            self.assertTrue(
+                any(edge["evidence_ids"] for edge in historical)
             )
 
     def test_book_origin_metadata_does_not_require_a_model_completion(self) -> None:

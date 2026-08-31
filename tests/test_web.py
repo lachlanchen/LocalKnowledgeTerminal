@@ -302,6 +302,15 @@ class WebInputTests(unittest.TestCase):
         self.assertIn('window.addEventListener("resize", scheduleKnowledgeTickers)', script)
         self.assertIn("knowledge-bank-roll", style)
         self.assertIn("knowledge-bank-roll-vertical", style)
+        vertical_copy = style.split(
+            '.knowledge-ticker-lane[data-motion-axis="vertical"] .knowledge-ticker-copy {',
+            1,
+        )[1].split("}", 1)[0]
+        self.assertIn("min-width: 0", vertical_copy)
+        self.assertIn("width: 100%", vertical_copy)
+        self.assertIn("max-width: 100%", vertical_copy)
+        self.assertIn("white-space: normal", vertical_copy)
+        self.assertIn("overflow-wrap: anywhere", vertical_copy)
         self.assertIn('data-overflow-role="term"', page)
         self.assertIn('data-overflow-role="meaning"', page)
         self.assertIn("prefers-reduced-motion: reduce", style)
@@ -314,8 +323,12 @@ class WebInputTests(unittest.TestCase):
         style = (root / "lkt" / "static" / "app.css").read_text(encoding="utf-8")
         page = (root / "lkt" / "static" / "index.html").read_text(encoding="utf-8")
         self.assertIn("function fitGraphNodeCopy(box)", script)
-        self.assertIn("copy.scrollWidth <= copy.clientWidth + 1", script)
-        self.assertIn("copy.scrollHeight <= copy.clientHeight + 1", script)
+        self.assertIn(
+            'copy.querySelectorAll(".graph-node-term, .graph-node-meaning")',
+            script,
+        )
+        self.assertIn("part.scrollWidth <= part.clientWidth + 1", script)
+        self.assertIn("part.scrollHeight <= part.clientHeight + 1", script)
         self.assertIn("const meaningRatio = meaning ? baseMeaning / baseTerm : 0", script)
         self.assertIn("badges.forEach(fitGraphNodeCopy)", script)
         self.assertIn("const GRAPH_DERIVATIVE_LIMIT = 6", script)
@@ -333,6 +346,28 @@ class WebInputTests(unittest.TestCase):
         self.assertLess(canvas, rails)
         self.assertIn('grid-template-areas: "left viewport right"', style)
         self.assertIn('grid-template-areas: "viewport" "derivatives"', style)
+
+    def test_graph_prefers_canonical_lexical_view_with_legacy_fallback(self) -> None:
+        script = (
+            Path(__file__).resolve().parents[1] / "lkt" / "static" / "app.js"
+        ).read_text(encoding="utf-8")
+        lexical = script.index(
+            "const lexical = normalizeLexicalView(card, card.extensions?.lexical_view);"
+        )
+        compatibility = script.index(
+            "const rich = card.extensions?.morphology_graph;", lexical
+        )
+        legacy = script.index(
+            "const legacy = Array.isArray(card.origin_graph)", compatibility
+        )
+        self.assertLess(lexical, compatibility)
+        self.assertLess(compatibility, legacy)
+        self.assertIn("function normalizeLexicalView(card, view)", script)
+        self.assertIn("node?.id || node?.entity_id", script)
+        self.assertIn("edge?.id || edge?.assertion_id", script)
+        self.assertIn("edge?.relation || edge?.relationship", script)
+        self.assertIn("view.focus_entity_ids", script)
+        self.assertIn("evidence_ids: Array.isArray(edge?.evidence_ids)", script)
 
     def test_bare_ambient_tour_crosses_accepted_mode_decks(self) -> None:
         root = Path(__file__).resolve().parents[1]

@@ -1800,6 +1800,28 @@ claims may cite only supplied evidence IDs; model knowledge must cite none."""
                 basis=basis,
                 confidence=confidence,
             )
+            component_modes = ["knowledge", "word"]
+            component_modes.append(
+                "root" if part["kind"] in {"root", "free"} else "affix"
+            )
+            self.store.accept_relation_assertion(
+                source["entity_id"],
+                source["entity_id"],
+                morpheme_id,
+                "has-component",
+                basis=basis,
+                confidence=confidence,
+                properties={
+                    "ordinal": ordinal,
+                    "surface": part["surface"],
+                    "component_kind": part["kind"],
+                    "canonical_form": part["canonical_form"],
+                    "meaning": part["meaning"],
+                    "language": part["language"],
+                    "modes": component_modes,
+                },
+                evidence_ids=part["evidence_ids"],
+            )
             for evidence_id in part["evidence_ids"]:
                 self.store.link_evidence(
                     morpheme_id,
@@ -1816,17 +1838,69 @@ claims may cite only supplied evidence IDs; model knowledge must cite none."""
                     "confidence": confidence,
                 }
             )
+        related_terms = _normalise_derivative_terms(
+            value.get("derivatives", value.get("related_terms", []))
+            if isinstance(value, dict)
+            else [],
+            accepted_parts,
+            str(source["text"]),
+        )
+        components_by_id = {
+            str(part["morpheme_id"]): part for part in accepted_parts
+        }
+        components_by_form = {
+            _plain_letter_key(part["canonical_form"]): part
+            for part in accepted_parts
+        }
+        persisted_related_terms: list[dict[str, Any]] = []
+        for related in related_terms:
+            derivative_id = self.store.upsert_term(
+                "en", str(related["term"]), status="accepted"
+            )
+            component_ids = [
+                str(component_id)
+                for component_id in related.get("component_ids", [])
+                if str(component_id) in components_by_id
+            ]
+            if not component_ids:
+                component_ids = [
+                    str(part["morpheme_id"])
+                    for form in related.get("component_forms", [])
+                    if (part := components_by_form.get(_plain_letter_key(form)))
+                ]
+            for component_id in dict.fromkeys(component_ids):
+                component = components_by_id[component_id]
+                derivative_modes = ["knowledge", "word"]
+                derivative_modes.append(
+                    "root"
+                    if component["kind"] in {"root", "free"}
+                    else "affix"
+                )
+                self.store.accept_relation_assertion(
+                    source["entity_id"],
+                    derivative_id,
+                    component_id,
+                    "shares-component",
+                    basis="model",
+                    confidence=0.55,
+                    properties={
+                        "source_term_id": source["entity_id"],
+                        "component_id": component_id,
+                        "component_kind": component["kind"],
+                        "note": str(related.get("note", "")),
+                        "proposal": True,
+                        "modes": derivative_modes,
+                    },
+                    evidence_ids=[],
+                )
+            persisted_related_terms.append(
+                {**related, "term_id": derivative_id}
+            )
         accepted = {
             "term_id": source["entity_id"],
             "term": source["text"],
             "parts": accepted_parts,
-            "related_terms": _normalise_derivative_terms(
-                value.get("derivatives", value.get("related_terms", []))
-                if isinstance(value, dict)
-                else [],
-                accepted_parts,
-                str(source["text"]),
-            ),
+            "related_terms": persisted_related_terms,
             "model": completion.get("model", self.model.model_name),
             "metrics": completion.get("metrics", {}),
         }
@@ -2304,16 +2378,19 @@ chain. Return JSON only."""
                         claim=f"{step['form']}: {step['meaning']}",
                         confidence=step["confidence"],
                     )
-                self.store.add_edge(
+                self.store.accept_relation_assertion(
+                    source["entity_id"],
                     historical_id,
                     later_id,
                     "developed-into",
-                    basis=step["basis"],
+                    basis=step["edge_basis"],
                     confidence=step["confidence"],
                     properties={
                         "component_id": branch["component_id"],
-                        "term_id": source["entity_id"],
+                        "source_term_id": source["entity_id"],
+                        "modes": ["knowledge", "word", "root"],
                     },
+                    evidence_ids=step["edge_evidence_ids"],
                 )
                 self.store.record_revision(
                     historical_id,
@@ -2977,6 +3054,14 @@ reading and do not rewrite the Japanese form."""
     def _card_evidence(
         self, source: dict[str, Any], evidence_ids: list[str]
     ) -> list[Evidence]:
+        class ResolvedEvidence(Evidence):
+            def __init__(self, *, evidence_id: str, **values: Any):
+                super().__init__(**values)
+                object.__setattr__(self, "evidence_id", evidence_id)
+
+            def to_dict(self) -> dict[str, Any]:
+                return {**super().to_dict(), "evidence_id": self.evidence_id}
+
         evidence: list[Evidence] = []
         for record in self.store.evidence_records(evidence_ids):
             payload = record["payload"]
@@ -2991,7 +3076,8 @@ reading and do not rewrite the Japanese form."""
                 else ()
             )
             evidence.append(
-                Evidence(
+                ResolvedEvidence(
+                    evidence_id=str(record["evidence_id"]),
                     entry_id=str(
                         payload.get("entry_id") or record["source_entry_id"]
                     ),
@@ -3014,6 +3100,30 @@ reading and do not rewrite the Japanese form."""
                 )
             )
         return evidence
+
+    def _lexical_view(
+        self,
+        subject_entity_id: str,
+        mode: str,
+        focus_entity_ids: list[str],
+    ) -> dict[str, Any]:
+        limits = {
+            "knowledge": {"nodes": 24, "edges": 36, "depth": 2},
+            "word": {"nodes": 32, "edges": 48, "depth": 4},
+            "root": {"nodes": 32, "edges": 48, "depth": 3},
+            "affix": {"nodes": 32, "edges": 48, "depth": 3},
+        }[mode]
+        view = deepcopy(
+            self.store.lexical_subgraph(subject_entity_id, mode, limits)
+        )
+        view["subject_entity_id"] = subject_entity_id
+        view["mode"] = mode
+        view["focus_entity_ids"] = list(
+            dict.fromkeys(
+                entity_id for entity_id in focus_entity_ids if entity_id
+            )
+        ) or [subject_entity_id]
+        return view
 
     def _compose_word_card(self, job: dict[str, Any]) -> str:
         if self.card_store is None:
@@ -3079,6 +3189,9 @@ reading and do not rewrite the Japanese form."""
         chinese = translation_values["zh"]
         french = translation_values["fr"]
         arabic = translation_values["ar"]
+        lexical_view = self._lexical_view(
+            str(source["entity_id"]), "knowledge", [str(source["entity_id"])]
+        )
         card = Card(
             card_id=str(uuid.uuid4()),
             mode="knowledge",
@@ -3126,6 +3239,7 @@ reading and do not rewrite the Japanese form."""
                     }
                 ],
                 "evidence_ids": evidence_ids,
+                "lexical_view": lexical_view,
                 "outputs": ["web"],
                 "future_outputs": ["eink", "audio"],
             },
@@ -3486,6 +3600,9 @@ reading and do not rewrite the Japanese form."""
             "focus_areas": focus_areas,
             "provenance_warnings": provenance_warnings,
         }
+        word_lexical_view = self._lexical_view(
+            center_id, "word", [center_id]
+        )
 
         def ruby(language: str) -> list[dict[str, str]]:
             return [
@@ -3552,6 +3669,7 @@ reading and do not rewrite the Japanese form."""
                     meaning["artifact_id"], split["artifact_id"], origin["artifact_id"]
                 ],
                 "evidence_ids": evidence_ids,
+                "lexical_view": word_lexical_view,
                 "morphology_graph": graph,
                 "outputs": ["web"],
                 "future_outputs": ["eink", "audio"],
@@ -3607,6 +3725,11 @@ reading and do not rewrite the Japanese form."""
             derived.extensions = deepcopy(card.extensions)
             derived.extensions["experience"] = derived_mode
             derived.extensions["knowledge_policy"] = policy
+            derived.extensions["lexical_view"] = self._lexical_view(
+                center_id,
+                derived_mode,
+                [str(part["morpheme_id"]) for part in relevant_parts],
+            )
             derived.extensions["morphology_graph"] = derived_graph
             cards.append(derived)
 

@@ -732,7 +732,7 @@ class KnowledgeStoreTests(unittest.TestCase):
                 [artifact["validation_state"] for artifact in retrievals],
                 ["superseded", "candidate"],
             )
-            self.assertEqual(store.status()["schema_version"], "2")
+            self.assertEqual(store.status()["schema_version"], "4")
 
     def test_inquiry_history_keeps_parent_child_lineage(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -871,6 +871,182 @@ class KnowledgeStoreTests(unittest.TestCase):
             self.assertEqual(evidence[0]["definition"], "look at closely")
             self.assertEqual(evidence[0]["translations"]["ja"], ["検査する"])
             self.assertEqual(evidence[0]["translations"]["zh"], ["检查"])
+
+    def test_contextual_assertions_share_topology_without_sharing_provenance(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")
+            predecessor = store.upsert_term("en", "predecessor")
+            successor = store.upsert_term("en", "successor")
+            root = store.upsert_morpheme("la", "cedere", "root", "to go")
+            ancestor = store.add_historical_form(
+                "la", "cedere", period_label="Classical Latin"
+            )
+            evidence_a = store.add_evidence("roots", "entry-predecessor")
+            evidence_b = store.add_evidence("roots", "entry-successor")
+
+            store.accept_relation_assertion(
+                predecessor, predecessor, root, "has-component", basis="model"
+            )
+            store.accept_relation_assertion(
+                successor, successor, root, "has-component", basis="model"
+            )
+            assertion_a = store.accept_relation_assertion(
+                predecessor,
+                root,
+                ancestor,
+                "developed-from",
+                basis="book",
+                evidence_ids=(evidence_a, "missing-evidence"),
+            )
+            assertion_b = store.accept_relation_assertion(
+                successor,
+                root,
+                ancestor,
+                "developed-from",
+                basis="book",
+                evidence_ids=(evidence_b,),
+            )
+            model_assertion = store.accept_relation_assertion(
+                predecessor,
+                ancestor,
+                root,
+                "model-associated-with",
+                basis="model",
+                evidence_ids=(evidence_a,),
+            )
+
+            self.assertNotEqual(assertion_a, assertion_b)
+            projected = store.lexical_subgraph(
+                predecessor, "origin", {"nodes": 8, "edges": 8, "depth": 4}
+            )
+            by_id = {edge["assertion_id"]: edge for edge in projected["edges"]}
+            self.assertEqual(by_id[assertion_a]["evidence_ids"], [evidence_a])
+            self.assertEqual(by_id[model_assertion]["evidence_ids"], [])
+
+            self.assertTrue(store.retire_relation_assertion(predecessor, assertion_a))
+            self.assertFalse(store.retire_relation_assertion(predecessor, assertion_b))
+            with closing(store._connect()) as connection:
+                statuses = {
+                    row["assertion_id"]: row["status"]
+                    for row in connection.execute(
+                        """SELECT assertion_id, status FROM relation_assertions
+                           WHERE assertion_id IN (?, ?)""",
+                        (assertion_a, assertion_b),
+                    )
+                }
+            self.assertEqual(statuses[assertion_a], "archived")
+            self.assertEqual(statuses[assertion_b], "accepted")
+
+    def test_lexical_subgraph_is_connected_bounded_and_deterministic(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")
+            subject = store.upsert_term("en", "inspection")
+            chain = [
+                store.upsert_term("en", f"related-{ordinal}") for ordinal in range(5)
+            ]
+            source = subject
+            for ordinal, target in enumerate(chain):
+                store.accept_relation_assertion(
+                    subject,
+                    source,
+                    target,
+                    "leads-to",
+                    properties={"mode": "origin", "ordinal": ordinal},
+                )
+                source = target
+
+            limits = {"nodes": 3, "edges": 2, "depth": 8}
+            first = store.lexical_subgraph(subject, "origin", limits)
+            second = store.lexical_subgraph(subject, "origin", limits)
+            self.assertEqual(first, second)
+            self.assertEqual(len(first["nodes"]), 3)
+            self.assertEqual(len(first["edges"]), 2)
+            self.assertTrue(first["truncated"])
+            self.assertEqual(len(first["projection_hash"]), 64)
+            node_ids = {node["id"] for node in first["nodes"]}
+            self.assertIn(subject, node_ids)
+            for edge in first["edges"]:
+                self.assertIn(edge["source"], node_ids)
+                self.assertIn(edge["target"], node_ids)
+
+    def test_relation_assertion_failure_rolls_back_all_rows(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")
+            subject = store.upsert_term("en", "inspection")
+            source = store.upsert_morpheme("la", "specere", "root")
+            evidence = store.add_evidence("roots", "entry-inspection")
+            with self.assertRaisesRegex(ValueError, "unknown relation assertion entities"):
+                store.accept_relation_assertion(
+                    subject,
+                    source,
+                    "missing-target",
+                    "derived-from",
+                    basis="book",
+                    evidence_ids=(evidence,),
+                )
+            with closing(store._connect()) as connection:
+                self.assertEqual(
+                    connection.execute("SELECT COUNT(*) FROM relation_assertions").fetchone()[0],
+                    0,
+                )
+                self.assertEqual(
+                    connection.execute("SELECT COUNT(*) FROM assertion_evidence").fetchone()[0],
+                    0,
+                )
+
+    def test_v3_relation_edge_backfill_is_idempotent_and_uncited(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            database = Path(temp) / "knowledge.sqlite3"
+            store = KnowledgeStore(database)
+            subject = store.upsert_term("en", "inspection")
+            root = store.upsert_morpheme("la", "specere", "root")
+            history = store.add_historical_form(
+                "la", "inspectio", period_label="Late Latin"
+            )
+            store.add_edge(
+                root,
+                history,
+                "developed-into",
+                basis="book",
+                properties={"term_id": subject},
+            )
+            with closing(sqlite3.connect(database)) as connection:
+                connection.execute("DROP TABLE assertion_evidence")
+                connection.execute("DROP TABLE relation_assertions")
+                connection.execute(
+                    "UPDATE schema_meta SET value = '3' WHERE key = 'schema_version'"
+                )
+                connection.execute(
+                    """UPDATE schema_meta SET value = '0'
+                       WHERE key = 'relation_graph_revision'"""
+                )
+                connection.commit()
+
+            migrated = KnowledgeStore(database)
+            with closing(migrated._connect()) as connection:
+                first_count = connection.execute(
+                    "SELECT COUNT(*) FROM relation_assertions"
+                ).fetchone()[0]
+                evidence_count = connection.execute(
+                    "SELECT COUNT(*) FROM assertion_evidence"
+                ).fetchone()[0]
+                first_revision = connection.execute(
+                    """SELECT value FROM schema_meta
+                       WHERE key = 'relation_graph_revision'"""
+                ).fetchone()[0]
+            reopened = KnowledgeStore(database)
+            with closing(reopened._connect()) as connection:
+                second_count = connection.execute(
+                    "SELECT COUNT(*) FROM relation_assertions"
+                ).fetchone()[0]
+                second_revision = connection.execute(
+                    """SELECT value FROM schema_meta
+                       WHERE key = 'relation_graph_revision'"""
+                ).fetchone()[0]
+            self.assertEqual((first_count, second_count), (1, 1))
+            self.assertEqual(evidence_count, 0)
+            self.assertEqual((first_revision, second_revision), ("1", "1"))
+            self.assertEqual(reopened.status()["schema_version"], "4")
 
 
 if __name__ == "__main__":
