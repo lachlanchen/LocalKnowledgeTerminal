@@ -1572,8 +1572,10 @@ function layoutFocusedGraphForCanvas(focus) {
 
   const canvas = $("#origin-canvas");
   const aspect = Math.max(.8, canvas.clientWidth / Math.max(1, canvas.clientHeight));
-  const columns = nodes.length <= 3
+  const columns = nodes.length <= 2
     ? nodes.length
+    : nodes.length === 3
+      ? 2
     : Math.min(nodes.length, Math.max(2, Math.ceil(Math.sqrt(nodes.length * aspect))));
   const gapX = 96;
   const gapY = 82;
@@ -1763,6 +1765,8 @@ function renderGraphDerivativeRails(card, data) {
   right.hidden = rightCards.length === 0;
   rails.hidden = derivatives.length === 0;
   layout.classList.toggle("has-derivatives", derivatives.length > 0);
+  layout.classList.toggle("has-left-derivatives", leftCards.length > 0);
+  layout.classList.toggle("has-right-derivatives", rightCards.length > 0);
 }
 
 function renderOriginGraph(card) {

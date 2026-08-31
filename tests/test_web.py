@@ -361,7 +361,12 @@ class WebInputTests(unittest.TestCase):
         self.assertLess(viewport, canvas)
         self.assertLess(canvas, rails)
         self.assertIn('grid-template-areas: "left viewport right"', style)
+        self.assertIn('grid-template-areas: "left viewport"', style)
+        self.assertIn('grid-template-areas: "viewport right"', style)
         self.assertIn('grid-template-areas: "viewport" "derivatives"', style)
+        self.assertIn('layout.classList.toggle("has-left-derivatives"', script)
+        self.assertIn('layout.classList.toggle("has-right-derivatives"', script)
+        self.assertIn('nodes.length === 3', script)
         self.assertIn('.graph-node-copy.has-meaning', style)
         self.assertIn('grid-template-rows: minmax(0, .85fr) minmax(0, 1.15fr)', style)
 

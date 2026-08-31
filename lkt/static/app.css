@@ -1068,9 +1068,17 @@ body.display-mode .card-view { border-radius: 0; }
   grid-template-columns: minmax(0, 1fr);
   gap: clamp(8px, 1vw, 14px);
 }
-.graph-layout.has-derivatives {
+.graph-layout.has-left-derivatives.has-right-derivatives {
   grid-template-areas: "left viewport right";
   grid-template-columns: minmax(118px, 170px) minmax(0, 1fr) minmax(118px, 170px);
+}
+.graph-layout.has-left-derivatives:not(.has-right-derivatives) {
+  grid-template-areas: "left viewport";
+  grid-template-columns: minmax(118px, 170px) minmax(0, 1fr);
+}
+.graph-layout.has-right-derivatives:not(.has-left-derivatives) {
+  grid-template-areas: "viewport right";
+  grid-template-columns: minmax(0, 1fr) minmax(118px, 170px);
 }
 .graph-viewport {
   position: relative;
