@@ -2146,7 +2146,7 @@ class AtomicWorkerTests(unittest.TestCase):
             self.assertEqual(artifact["payload"]["reading"], "")
             self.assertEqual(artifact["payload"]["usage_note"], "")
 
-    def test_exact_arabic_repetition_is_normalized_before_acceptance(self) -> None:
+    def test_arabic_content_word_repetition_is_retained_with_warning(self) -> None:
         class RepetitiveArabicModel(FakeAtomicModel):
             def complete_json(
                 self, system: str, prompt: str, *, max_tokens: int = 256
@@ -2156,7 +2156,7 @@ class AtomicWorkerTests(unittest.TestCase):
                 return {
                     "value": {
                         "term": "\u0645\u0639\u0627\u064a\u0646\u0629",
-                        "meaning": "\u0641\u062d\u0635 \u0631\u0633\u0645\u064a \u0623\u0648 \u0631\u0633\u0645\u064a \u0644\u0634\u064a\u0621 \u0645\u0639\u064a\u0646",
+                        "meaning": "\u0641\u062d\u0635 \u0627\u0644\u062d\u0627\u0644\u0629 \u0627\u0644\u062d\u0627\u0644\u0629 \u0628\u062f\u0642\u0629 \u0648\u062a\u0642\u064a\u064a\u0645\u0647\u0627 \u0628\u0635\u0648\u0631\u0629 \u0631\u0633\u0645\u064a\u0629",
                         "reading": "mu'ayana",
                         "usage_note": "official inspection",
                         "confidence": 0.9,
@@ -2178,12 +2178,76 @@ class AtomicWorkerTests(unittest.TestCase):
             )[0]
             self.assertEqual(
                 artifact["payload"]["meaning"],
-                "\u0641\u062d\u0635 \u0631\u0633\u0645\u064a \u0644\u0634\u064a\u0621 \u0645\u0639\u064a\u0646",
+                "\u0641\u062d\u0635 \u0627\u0644\u062d\u0627\u0644\u0629 \u0627\u0644\u062d\u0627\u0644\u0629 \u0628\u062f\u0642\u0629 \u0648\u062a\u0642\u064a\u064a\u0645\u0647\u0627 \u0628\u0635\u0648\u0631\u0629 \u0631\u0633\u0645\u064a\u0629",
+            )
+            self.assertEqual(artifact["payload"]["normalizations"], [])
+            self.assertEqual(
+                artifact["payload"]["warnings"],
+                [
+                    {
+                        "code": "repeated-arabic-content-word",
+                        "message": (
+                            "Arabic translation meaning repeats a content word; "
+                            "the model-authored meaning was retained without semantic rewriting"
+                        ),
+                    }
+                ],
+            )
+            drafts = store.artifacts_for_subject(
+                plan.subject_key,
+                stage="model-translation-draft",
+                validation_state="candidate",
             )
             self.assertEqual(
-                artifact["payload"]["normalizations"],
-                ["collapsed-repeated-arabic-alternative"],
+                drafts[0]["payload"]["value"]["meaning"],
+                "\u0641\u062d\u0635 \u0627\u0644\u062d\u0627\u0644\u0629 \u0627\u0644\u062d\u0627\u0644\u0629 \u0628\u062f\u0642\u0629 \u0648\u062a\u0642\u064a\u064a\u0645\u0647\u0627 \u0628\u0635\u0648\u0631\u0629 \u0631\u0633\u0645\u064a\u0629",
             )
+
+    def test_empty_arabic_meaning_still_rejects_after_raw_observation(self) -> None:
+        class EmptyArabicModel(FakeAtomicModel):
+            def complete_json(
+                self, system: str, prompt: str, *, max_tokens: int = 256
+            ) -> dict[str, Any]:
+                if (
+                    "TARGET LANGUAGE: Arabic" not in prompt
+                    and "ARABIC SCRIPT REPAIR" not in prompt
+                ):
+                    return super().complete_json(system, prompt, max_tokens=max_tokens)
+                return {
+                    "value": {
+                        "term": "\u0645\u0639\u0627\u064a\u0646\u0629",
+                        "meaning": "",
+                        "reading": "mu'ayana",
+                        "usage_note": "",
+                        "confidence": 0.9,
+                    },
+                    "model": self.model_name,
+                }
+
+        with tempfile.TemporaryDirectory() as temp:
+            store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")
+            plan = PreparationPlanner(store, model="test-qwen-4b").plan_word(
+                "inspection", display_languages=("en", "ar")
+            )
+            results = PreparationWorker(
+                store, FakeRetriever(), EmptyArabicModel()
+            ).run(5)
+            self.assertTrue(any(result.status != "complete" for result in results))
+            self.assertEqual(
+                store.artifacts_for_subject(
+                    plan.subject_key,
+                    stage="accepted-translation",
+                    validation_state="accepted",
+                ),
+                [],
+            )
+            drafts = store.artifacts_for_subject(
+                plan.subject_key,
+                stage="model-translation-draft",
+                validation_state="candidate",
+            )
+            self.assertTrue(drafts)
+            self.assertEqual(drafts[0]["payload"]["value"]["meaning"], "")
 
     def test_mixed_script_arabic_translation_is_rejected(self) -> None:
         class MixedArabicModel(FakeAtomicModel):

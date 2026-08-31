@@ -4037,6 +4037,36 @@ End immediately after the JSON object."""
             prompt,
             max_tokens=token_budget,
         )
+        observation_raw = completion.get("raw")
+        if not isinstance(observation_raw, str) or not observation_raw.strip():
+            observation_raw = json.dumps(
+                completion.get("value"), ensure_ascii=False, default=str
+            )
+        observation_metrics = completion.get("metrics")
+        if not isinstance(observation_metrics, dict):
+            observation_metrics = {}
+        self.store.save_job_artifact(
+            job["job_id"],
+            "model-translation-draft",
+            {
+                "source_term": str(term["text"])[:160],
+                "language": language,
+                "value": completion.get("value"),
+                "raw": observation_raw[:4_000],
+                "model": str(
+                    completion.get("model")
+                    or getattr(self.model, "model_name", "unknown")
+                )[:200],
+                "metrics": {
+                    str(key)[:80]: metric
+                    for key, metric in list(observation_metrics.items())[:20]
+                    if isinstance(metric, (str, int, float, bool)) or metric is None
+                },
+            },
+            language=language,
+            reusable=False,
+            validation_state="candidate",
+        )
         value = completion.get("value")
         if not isinstance(value, dict):
             raise ValueError("translation task did not return an object")
@@ -4048,6 +4078,7 @@ End immediately after the JSON object."""
         reading = re.sub(r"\s+", " ", str(value.get("reading", ""))).strip()
         usage_note = _clean_usage_note(value.get("usage_note", ""), language)
         normalizations: list[str] = []
+        warnings: list[dict[str, str]] = []
         if translated != raw_translated:
             normalizations.append("normalized-dictionary-join-markup")
         sole_arabic_candidate = ""
@@ -4273,7 +4304,15 @@ End immediately after the JSON object.""",
                 translated_meaning = cleaned_meaning
                 normalizations.append("collapsed-repeated-arabic-alternative")
         if language == "ar" and _has_repeated_arabic_content_word(translated_meaning):
-            raise ValueError("Arabic translation meaning repeats a content word")
+            warnings.append(
+                {
+                    "code": "repeated-arabic-content-word",
+                    "message": (
+                        "Arabic translation meaning repeats a content word; "
+                        "the model-authored meaning was retained without semantic rewriting"
+                    ),
+                }
+            )
         if language == "zh":
             reading = chinese_pinyin(translated, reading)
         elif language == "fr":
@@ -4326,6 +4365,7 @@ End immediately after the JSON object.""",
             "dictionary_candidates": candidates[:10],
             "dictionary_evidence_ids": candidate_evidence.get(translated, []),
             "normalizations": normalizations,
+            "warnings": warnings,
             "model": completion.get("model", self.model.model_name),
             "metrics": completion.get("metrics", {}),
         }
