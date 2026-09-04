@@ -117,9 +117,11 @@ For one accepted customer collection, the sprint delivers the same three
 bounded artifacts shown here:
 
 1. a written data, citation, and privacy map;
-2. a small browser proof from a usable representative sample;
+2. evaluation of an agreed sample capped at 12 source units and 20 test
+   questions, with up to two cited browser cards when the material is usable;
 3. a written go/no-go decision and the boundary of any larger engagement.
 
-Hardware, shipping, custom OCR, and production deployment are excluded. Start
+One factual correction pass is included. Hardware, shipping, custom OCR, bulk
+conversion, production deployment, and ongoing support are excluded. Start
 with the [free collection fit check](https://lazying.art/lkt/fit-check/); the
 page stores and sends nothing automatically.

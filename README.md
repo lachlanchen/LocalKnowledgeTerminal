@@ -23,9 +23,13 @@ and the browser GUI operate without a cloud API.
 If you already have a bounded private book or dictionary collection, the
 [founding USD 250 collection-fit sprint](https://lazying.art/lkt/) starts with a
 free fit check. It covers one collection, one language goal, and one existing
-machine, then delivers a data/privacy map, a small browser proof from a usable
-representative sample, and a go/no-go recommendation. Hardware, shipping,
-custom OCR, and production deployment are outside that fixed scope.
+machine, then delivers a data/privacy/citation map, an agreed sample capped at
+12 source units and 20 test questions, up to two cited browser cards when the
+material is usable, a go/no-go recommendation, and one factual correction pass.
+The written scope defines the source unit—for example, a passage, record, or
+representative page—before payment.
+Hardware, shipping, custom OCR, bulk conversion, production deployment, and
+ongoing support are outside that fixed scope.
 
 To see exactly what those three deliverables look like without sharing any
 customer material, read the
