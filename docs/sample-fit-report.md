@@ -21,7 +21,7 @@ decision after this fit report.
 
 ## 1. Collection and data map
 
-The reference snapshot contains **19,119 structured records** across five
+The current-code reference snapshot contains **16,800 structured records** across five
 collection exports. Raw books and editorial workspaces remain outside Git.
 
 | Collection export | Records | Runtime treatment |
@@ -29,12 +29,12 @@ collection exports. Raw books and editorial workspaces remain outside Git.
 | Word Origins `entries.jsonl` | 6,994 | exact headword and lexical FTS5 |
 | Book of Answers multilingual items | 318 | deterministic query-seeded draw |
 | Book of Questions multilingual items | 291 | multilingual FTS5 and deterministic fallback |
-| English Root Dictionary editorial JSONL | 6,327 | exact headword and morphology FTS5 |
-| English Affix Dictionary editorial JSONL | 5,189 | exact headword and morphology FTS5 |
+| English Root Dictionary editorial JSONL | 4,018 | exact headword and morphology FTS5 |
+| English Affix Dictionary editorial JSONL | 5,179 | exact headword and morphology FTS5 |
 
 The indexed JSONL hashes and source-specific authority rules are recorded in
-[`corpora.md`](corpora.md). The five runtime indexes occupy approximately
-**5.8 MB**. Full PDFs, TeX, images, model weights, generated indexes, and
+[`corpora.md`](corpora.md), including the index-only rows excluded by the current
+morphology parser. Full PDFs, TeX, images, model weights, generated indexes, and
 editorial queues do not belong in the public repository.
 
 Compact correction sources are separate from the private collection. The

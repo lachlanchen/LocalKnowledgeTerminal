@@ -59,6 +59,12 @@ Only the generated index is present on the Pi. `/api/health` now treats this
 correction source as required, so a missing index cannot silently weaken Arabic
 generation.
 
+Those morphology counts describe the 2026-08-30 deployment. The current parser,
+added the next day, excludes index-only cross-reference rows; a fresh build from
+the same hashed JSONLs admits 4,018 root and 5,179 affix records. Until the Pi is
+rebuilt, this section remains historical deployment evidence rather than the
+current-code corpus total.
+
 ## Autonomous generation and provenance
 
 - Accepted card values are prepared by local Qwen, reviewed book records, or

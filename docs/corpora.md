@@ -4,19 +4,25 @@ LKT indexes structured records, not page images or whole PDFs. The raw books
 remain outside Git; only their stable identifiers, observed record counts, and
 content hashes are documented here.
 
-| Source | Records | Runtime index | SHA-256 of indexed JSONL |
+| Source | Indexed records | Runtime index | SHA-256 of source JSONL |
 | --- | ---: | --- | --- |
 | Word Origins `entries.jsonl` | 6,994 | exact headword + lexical FTS5 | `b65a2845e649451a1f5d20013d150b4a7668afcb09e794756867fd843918adf5` |
 | `book-of-answers-paul-card-book` multilingual items | 318 | deterministic query-seeded draw | `247f7b0e56e81703453f60462ff0bf73f6fe6b9c9feec014e5b5da670977e8f1` |
 | `book-of-questions-stock-card-book` multilingual items | 291 | multilingual FTS5 + deterministic fallback | `f265ac47905cf6475027159da8821fb82e1857bee885c95d6127166e8ba73ff0` |
-| New Oriental English Root Dictionary editorial `entries-editorial.jsonl` | 6,327 | exact headword + morphology FTS5 | `c5014c0d820a03bc16d0e88a5b583053c08e4c99c76665426d14ea66fb3135c5` |
-| English Affix Dictionary editorial `entries-editorial.jsonl` | 5,189 | exact headword + morphology FTS5 | `a0d419c7c1a053313413cf448299f32d8adc6d0efbfef9257e6b2d481053b574` |
+| New Oriental English Root Dictionary editorial `entries-editorial.jsonl` | 4,018 | exact headword + morphology FTS5 | `c5014c0d820a03bc16d0e88a5b583053c08e4c99c76665426d14ea66fb3135c5` |
+| English Affix Dictionary editorial `entries-editorial.jsonl` | 5,179 | exact headword + morphology FTS5 | `a0d419c7c1a053313413cf448299f32d8adc6d0efbfef9257e6b2d481053b574` |
+
+The source JSONLs contain 6,327 root and 5,189 affix rows with an ID, headword,
+and content. The current indexer excludes 2,309 root and 10 affix rows whose
+content is only a run of index terms and page numbers, leaving 4,018 and 5,179
+records that can support morphology claims. A clean current-code build therefore
+contains 16,800 records across these five private collection indexes.
 
 The two editorial sources were promoted only after their Nutstore validation
 reports recorded canonical content equality, zero ungrounded text, and a passed
 layout/content gate. Runtime deployment copies only these JSONL files and builds
-5.8 MB of SQLite indexes; PDFs, TeX, images, and editorial work queues stay off
-the Pi. The pre-editorial SQLite pair is retained as a rollback snapshot.
+derived SQLite indexes; PDFs, TeX, images, and editorial work queues stay off the
+Pi. The pre-editorial SQLite pair is retained as a rollback snapshot.
 
 ## Compact public correction sources
 

@@ -50,9 +50,9 @@ customer result or paid-engagement claim.
   the published answer translations, and adds a reflective note.
 - **Book Question** searches 291 reviewed questions by theme and falls back to a
   reproducible draw when no lexical match exists.
-- **Root Graph** prioritizes 6,327 reviewed root records, then exact supporting
+- **Root Graph** prioritizes 4,018 content-bearing root records, then exact supporting
   affix entries, and saves a recursive word-family graph.
-- **Affix Graph** reverses that priority across 5,189 reviewed affix records and
+- **Affix Graph** reverses that priority across 5,179 content-bearing affix records and
   the Root Dictionary while retaining one complete center-word graph.
 
 Each mode has its own retrieval policy and strict model prompt. Word Origin and

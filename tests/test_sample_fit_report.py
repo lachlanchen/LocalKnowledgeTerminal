@@ -16,13 +16,13 @@ class SampleFitReportTests(unittest.TestCase):
             int(value.replace(",", ""))
             for value in re.findall(r"\| ([\d,]+) \|", private_table)
         ]
-        self.assertEqual(counts, [6994, 318, 291, 6327, 5189])
+        self.assertEqual(counts, [6994, 318, 291, 4018, 5179])
 
         report = (ROOT / "docs" / "sample-fit-report.md").read_text(
             encoding="utf-8"
         )
         self.assertIn(f"**{sum(counts):,} structured records**", report)
-        self.assertIn("**5.8 MB**", report)
+        self.assertNotIn("19,119 structured records", report)
 
     def test_report_preserves_offer_and_evidence_boundaries(self) -> None:
         report = (ROOT / "docs" / "sample-fit-report.md").read_text(
