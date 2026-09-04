@@ -116,6 +116,19 @@ parts reconstruct the reviewed sentence character-for-character; accepted
 parts, evidence links, model revision, and superseded analyses remain reusable
 knowledge rather than presentation-only markup.
 
+### Passage-to-provenance proof
+
+The [PocketPolyglot passage example](examples/artifacts/pocketpolyglot-passage-graph.json)
+turns one project-authored aligned passage into a small, hand-reviewed concept
+graph. Every relation resolves to the exact passage unit, excerpt, and pinned
+source-file hash through LKT's production knowledge APIs. Rebuild it or verify
+that the committed artifact is current:
+
+```bash
+python examples/pocketpolyglot_passage_graph.py
+python examples/pocketpolyglot_passage_graph.py --check
+```
+
 Preparation uses small dependency-aware jobs: retrieve evidence, prepare one
 meaning, split components, recursively expand each origin branch, prepare each
 language/pronunciation independently, validate, then compose. Successful stages

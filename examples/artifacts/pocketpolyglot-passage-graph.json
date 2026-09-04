@@ -1,0 +1,343 @@
+{
+  "evidence": [
+    {
+      "corpus_id": "pocketpolyglot-public-sample",
+      "evidence_id": "evidence-0fd90c19-176d-538d-9de5-1e673137e079",
+      "excerpt": "我在小径上慢慢走。",
+      "locator": "sections/spring/subsections/path/stories/sample-001/paragraphs/sample-001-p1/units/1",
+      "payload": {
+        "language": "zh",
+        "source_commit": "a437cbfa62aee4cb147bc6dea2188aea12791752",
+        "source_note": "Small original sample for validating the public PocketPolyglot layout and strict ruby/pinyin token rules.",
+        "source_path": "data/interlinear/sample.json",
+        "source_repository": "https://github.com/lachlanchen/PocketPolyglot",
+        "unit_index": 1
+      },
+      "source_entry_id": "sample-001-p1-unit-2",
+      "source_hash": "d544f1c97d353373b2ac86ef730c7e7a00f52f8ca79fbf34f7eaa039f5266f2f"
+    },
+    {
+      "corpus_id": "pocketpolyglot-public-sample",
+      "evidence_id": "evidence-1d7aa08c-b419-545d-b11c-23e47facb852",
+      "excerpt": "花开得安静。",
+      "locator": "sections/spring/subsections/path/stories/sample-001/paragraphs/sample-001-p1/units/2",
+      "payload": {
+        "language": "zh",
+        "source_commit": "a437cbfa62aee4cb147bc6dea2188aea12791752",
+        "source_note": "Small original sample for validating the public PocketPolyglot layout and strict ruby/pinyin token rules.",
+        "source_path": "data/interlinear/sample.json",
+        "source_repository": "https://github.com/lachlanchen/PocketPolyglot",
+        "unit_index": 2
+      },
+      "source_entry_id": "sample-001-p1-unit-3",
+      "source_hash": "d544f1c97d353373b2ac86ef730c7e7a00f52f8ca79fbf34f7eaa039f5266f2f"
+    },
+    {
+      "corpus_id": "pocketpolyglot-public-sample",
+      "evidence_id": "evidence-1fad6438-e59c-5559-8f76-73ac91216666",
+      "excerpt": "春天来了，风很轻。",
+      "locator": "sections/spring/subsections/path/stories/sample-001/paragraphs/sample-001-p1/units/0",
+      "payload": {
+        "language": "zh",
+        "source_commit": "a437cbfa62aee4cb147bc6dea2188aea12791752",
+        "source_note": "Small original sample for validating the public PocketPolyglot layout and strict ruby/pinyin token rules.",
+        "source_path": "data/interlinear/sample.json",
+        "source_repository": "https://github.com/lachlanchen/PocketPolyglot",
+        "unit_index": 0
+      },
+      "source_entry_id": "sample-001-p1-unit-1",
+      "source_hash": "d544f1c97d353373b2ac86ef730c7e7a00f52f8ca79fbf34f7eaa039f5266f2f"
+    }
+  ],
+  "graph": {
+    "edges": [
+      {
+        "assertion_id": "assertion-0a9c6538-465f-5dad-a371-5c0dcd245639",
+        "basis": "reviewed",
+        "confidence": 1.0,
+        "evidence_ids": [
+          "evidence-0fd90c19-176d-538d-9de5-1e673137e079"
+        ],
+        "id": "assertion-0a9c6538-465f-5dad-a371-5c0dcd245639",
+        "properties": {
+          "claim_zh": "我在小径上慢慢走",
+          "modes": [
+            "passage"
+          ],
+          "review_status": "hand-reviewed"
+        },
+        "relation": "mentions-concept",
+        "revision": 1,
+        "source": "content-item-1bbe38db-daf0-5271-b166-68d3226fec62",
+        "subject_entity_id": "content-item-1bbe38db-daf0-5271-b166-68d3226fec62",
+        "target": "term-c9ee3bf4-beb7-5951-9dd6-b174b40123dc"
+      },
+      {
+        "assertion_id": "assertion-153cee90-0e0e-5798-a34d-1810505bfcc2",
+        "basis": "reviewed",
+        "confidence": 1.0,
+        "evidence_ids": [
+          "evidence-0fd90c19-176d-538d-9de5-1e673137e079"
+        ],
+        "id": "assertion-153cee90-0e0e-5798-a34d-1810505bfcc2",
+        "properties": {
+          "claim_zh": "我在小径上慢慢走",
+          "modes": [
+            "passage"
+          ],
+          "review_status": "hand-reviewed"
+        },
+        "relation": "mentions-concept",
+        "revision": 1,
+        "source": "content-item-1bbe38db-daf0-5271-b166-68d3226fec62",
+        "subject_entity_id": "content-item-1bbe38db-daf0-5271-b166-68d3226fec62",
+        "target": "term-e6ff57b4-d309-5938-9147-df7ded615e1f"
+      },
+      {
+        "assertion_id": "assertion-2df3ab59-3968-5be2-a0f6-6f9313610e4a",
+        "basis": "reviewed",
+        "confidence": 1.0,
+        "evidence_ids": [
+          "evidence-1d7aa08c-b419-545d-b11c-23e47facb852"
+        ],
+        "id": "assertion-2df3ab59-3968-5be2-a0f6-6f9313610e4a",
+        "properties": {
+          "claim_zh": "花开得安静",
+          "modes": [
+            "passage"
+          ],
+          "review_status": "hand-reviewed"
+        },
+        "relation": "mentions-concept",
+        "revision": 1,
+        "source": "content-item-1bbe38db-daf0-5271-b166-68d3226fec62",
+        "subject_entity_id": "content-item-1bbe38db-daf0-5271-b166-68d3226fec62",
+        "target": "term-60996cb2-4dc6-55bc-a5d8-3bc630d65674"
+      },
+      {
+        "assertion_id": "assertion-3a10676b-9917-5502-8b4c-cc84f223c7d1",
+        "basis": "reviewed",
+        "confidence": 1.0,
+        "evidence_ids": [
+          "evidence-1fad6438-e59c-5559-8f76-73ac91216666"
+        ],
+        "id": "assertion-3a10676b-9917-5502-8b4c-cc84f223c7d1",
+        "properties": {
+          "claim_zh": "春天来了",
+          "modes": [
+            "passage"
+          ],
+          "review_status": "hand-reviewed"
+        },
+        "relation": "mentions-concept",
+        "revision": 1,
+        "source": "content-item-1bbe38db-daf0-5271-b166-68d3226fec62",
+        "subject_entity_id": "content-item-1bbe38db-daf0-5271-b166-68d3226fec62",
+        "target": "term-5cc7b4a4-e265-5af6-8787-8b0d8529dbea"
+      },
+      {
+        "assertion_id": "assertion-3dff77d8-dae2-59a7-876c-05b5d475d317",
+        "basis": "reviewed",
+        "confidence": 1.0,
+        "evidence_ids": [
+          "evidence-1d7aa08c-b419-545d-b11c-23e47facb852"
+        ],
+        "id": "assertion-3dff77d8-dae2-59a7-876c-05b5d475d317",
+        "properties": {
+          "claim_zh": "花开得安静",
+          "modes": [
+            "passage"
+          ],
+          "review_status": "hand-reviewed"
+        },
+        "relation": "blooms-with-quality",
+        "revision": 1,
+        "source": "term-60996cb2-4dc6-55bc-a5d8-3bc630d65674",
+        "subject_entity_id": "content-item-1bbe38db-daf0-5271-b166-68d3226fec62",
+        "target": "term-0ffd909a-71c2-555d-97aa-e65e0205220b"
+      },
+      {
+        "assertion_id": "assertion-75bf5226-9b71-5ca7-8c82-324249c6c4ef",
+        "basis": "reviewed",
+        "confidence": 1.0,
+        "evidence_ids": [
+          "evidence-0fd90c19-176d-538d-9de5-1e673137e079"
+        ],
+        "id": "assertion-75bf5226-9b71-5ca7-8c82-324249c6c4ef",
+        "properties": {
+          "claim_zh": "我在小径上慢慢走",
+          "modes": [
+            "passage"
+          ],
+          "review_status": "hand-reviewed"
+        },
+        "relation": "walks-on",
+        "revision": 1,
+        "source": "term-c9ee3bf4-beb7-5951-9dd6-b174b40123dc",
+        "subject_entity_id": "content-item-1bbe38db-daf0-5271-b166-68d3226fec62",
+        "target": "term-e6ff57b4-d309-5938-9147-df7ded615e1f"
+      },
+      {
+        "assertion_id": "assertion-b9756b7f-978b-5c95-9d14-5e4d5c3688d3",
+        "basis": "reviewed",
+        "confidence": 1.0,
+        "evidence_ids": [
+          "evidence-1fad6438-e59c-5559-8f76-73ac91216666"
+        ],
+        "id": "assertion-b9756b7f-978b-5c95-9d14-5e4d5c3688d3",
+        "properties": {
+          "claim_zh": "风很轻",
+          "modes": [
+            "passage"
+          ],
+          "review_status": "hand-reviewed"
+        },
+        "relation": "mentions-concept",
+        "revision": 1,
+        "source": "content-item-1bbe38db-daf0-5271-b166-68d3226fec62",
+        "subject_entity_id": "content-item-1bbe38db-daf0-5271-b166-68d3226fec62",
+        "target": "term-bc927535-89e0-5d6d-ab28-898a357bdf6f"
+      },
+      {
+        "assertion_id": "assertion-dce977f2-99ad-5e25-b5b2-78ebb470f637",
+        "basis": "reviewed",
+        "confidence": 1.0,
+        "evidence_ids": [
+          "evidence-1fad6438-e59c-5559-8f76-73ac91216666"
+        ],
+        "id": "assertion-dce977f2-99ad-5e25-b5b2-78ebb470f637",
+        "properties": {
+          "claim_zh": "风很轻",
+          "modes": [
+            "passage"
+          ],
+          "review_status": "hand-reviewed"
+        },
+        "relation": "has-quality",
+        "revision": 1,
+        "source": "term-bc927535-89e0-5d6d-ab28-898a357bdf6f",
+        "subject_entity_id": "content-item-1bbe38db-daf0-5271-b166-68d3226fec62",
+        "target": "term-40680f1a-8e9d-5d76-88fd-99922a286a63"
+      }
+    ],
+    "graph_revision": 8,
+    "limits": {
+      "depth": 4,
+      "edges": 16,
+      "nodes": 16
+    },
+    "mode": "passage",
+    "nodes": [
+      {
+        "id": "content-item-1bbe38db-daf0-5271-b166-68d3226fec62",
+        "key": "content:sentence:zh:sample-001-p1:春天来了,风很轻。我在小径上慢慢走。花开得安静。",
+        "label": "春天来了，风很轻。我在小径上慢慢走。花开得安静。",
+        "payload": {},
+        "quality": null,
+        "type": "content-item"
+      },
+      {
+        "id": "term-0ffd909a-71c2-555d-97aa-e65e0205220b",
+        "key": "term:zh:concept:安静",
+        "label": "安静",
+        "payload": {
+          "concept_role": "quality",
+          "review_status": "hand-reviewed"
+        },
+        "quality": 1.0,
+        "type": "term"
+      },
+      {
+        "id": "term-40680f1a-8e9d-5d76-88fd-99922a286a63",
+        "key": "term:zh:concept:轻",
+        "label": "轻",
+        "payload": {
+          "concept_role": "quality",
+          "review_status": "hand-reviewed"
+        },
+        "quality": 1.0,
+        "type": "term"
+      },
+      {
+        "id": "term-5cc7b4a4-e265-5af6-8787-8b0d8529dbea",
+        "key": "term:zh:concept:春天",
+        "label": "春天",
+        "payload": {
+          "concept_role": "season",
+          "review_status": "hand-reviewed"
+        },
+        "quality": 1.0,
+        "type": "term"
+      },
+      {
+        "id": "term-60996cb2-4dc6-55bc-a5d8-3bc630d65674",
+        "key": "term:zh:concept:花",
+        "label": "花",
+        "payload": {
+          "concept_role": "plant",
+          "review_status": "hand-reviewed"
+        },
+        "quality": 1.0,
+        "type": "term"
+      },
+      {
+        "id": "term-bc927535-89e0-5d6d-ab28-898a357bdf6f",
+        "key": "term:zh:concept:风",
+        "label": "风",
+        "payload": {
+          "concept_role": "weather",
+          "review_status": "hand-reviewed"
+        },
+        "quality": 1.0,
+        "type": "term"
+      },
+      {
+        "id": "term-c9ee3bf4-beb7-5951-9dd6-b174b40123dc",
+        "key": "term:zh:concept:我",
+        "label": "我",
+        "payload": {
+          "concept_role": "speaker",
+          "review_status": "hand-reviewed"
+        },
+        "quality": 1.0,
+        "type": "term"
+      },
+      {
+        "id": "term-e6ff57b4-d309-5938-9147-df7ded615e1f",
+        "key": "term:zh:concept:小径",
+        "label": "小径",
+        "payload": {
+          "concept_role": "place",
+          "review_status": "hand-reviewed"
+        },
+        "quality": 1.0,
+        "type": "term"
+      }
+    ],
+    "projection_hash": "e30d01ab3579fef5aa2eade0f1b3d153af0f9d60079c5fc904934df8dfee6240",
+    "subject_entity_id": "content-item-1bbe38db-daf0-5271-b166-68d3226fec62",
+    "truncated": false
+  },
+  "proof": {
+    "description": "Hand-reviewed transformation of one project-authored aligned passage into a small provenance-bearing concept graph.",
+    "not_claimed": [
+      "automatic concept extraction",
+      "full-book ingestion",
+      "customer result",
+      "translation accuracy benchmark"
+    ],
+    "review_status": "hand-reviewed"
+  },
+  "schema_version": "1.0",
+  "source": {
+    "commit": "a437cbfa62aee4cb147bc6dea2188aea12791752",
+    "fixture_path": "examples/fixtures/pocketpolyglot-sample.json",
+    "note": "Small original sample for validating the public PocketPolyglot layout and strict ruby/pinyin token rules.",
+    "paragraph_id": "sample-001-p1",
+    "paragraph_text": "春天来了，风很轻。我在小径上慢慢走。花开得安静。",
+    "path": "data/interlinear/sample.json",
+    "repository": "https://github.com/lachlanchen/PocketPolyglot",
+    "sha256": "d544f1c97d353373b2ac86ef730c7e7a00f52f8ca79fbf34f7eaa039f5266f2f",
+    "unit_count": 3
+  }
+}
