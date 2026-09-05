@@ -1,0 +1,917 @@
+{
+  "evidence": [
+    {
+      "corpus_id": "lkt-project-owned-scripted-meeting",
+      "evidence_id": "evidence-fd6cb24a-6159-5160-a93c-686739d353b0",
+      "excerpt": "The pilot must keep every source excerpt and citation on the team's own machine.",
+      "locator": "meetings/lkt-scripted-meeting-001/utterances/utterance-01#t=0,5200&chars=6,86",
+      "payload": {
+        "end_ms": 5200,
+        "language": "en",
+        "speaker": "Maya",
+        "start_ms": 0,
+        "timing_basis": "scripted fixture timing, not measured from audio",
+        "transcript_end_char": 86,
+        "transcript_start_char": 6,
+        "utterance_end_char": 80,
+        "utterance_start_char": 0
+      },
+      "source_entry_id": "utterance-01",
+      "source_hash": "4087a4626f719379ff78971865c9a5e931c1024aea8a24d77116f7f54f956d74"
+    },
+    {
+      "corpus_id": "lkt-project-owned-scripted-meeting",
+      "evidence_id": "evidence-2ddf2f7d-caf2-5962-998d-9f16dc51062e",
+      "excerpt": "在模拟反馈中，三个测试角色都要求中英混合资料一起搜索。",
+      "locator": "meetings/lkt-scripted-meeting-001/utterances/utterance-02#t=6000,11000&chars=93,120",
+      "payload": {
+        "end_ms": 11000,
+        "language": "zh",
+        "speaker": "Chen",
+        "start_ms": 6000,
+        "timing_basis": "scripted fixture timing, not measured from audio",
+        "transcript_end_char": 120,
+        "transcript_start_char": 93,
+        "utterance_end_char": 27,
+        "utterance_start_char": 0
+      },
+      "source_entry_id": "utterance-02",
+      "source_hash": "4087a4626f719379ff78971865c9a5e931c1024aea8a24d77116f7f54f956d74"
+    },
+    {
+      "corpus_id": "lkt-project-owned-scripted-meeting",
+      "evidence_id": "evidence-870eae97-a1db-5657-a2de-ccf02cd7b532",
+      "excerpt": "Let's add a bilingual evidence view beside each extracted item.",
+      "locator": "meetings/lkt-scripted-meeting-001/utterances/utterance-03#t=11800,15700&chars=127,190",
+      "payload": {
+        "end_ms": 15700,
+        "language": "en",
+        "speaker": "Maya",
+        "start_ms": 11800,
+        "timing_basis": "scripted fixture timing, not measured from audio",
+        "transcript_end_char": 190,
+        "transcript_start_char": 127,
+        "utterance_end_char": 63,
+        "utterance_start_char": 0
+      },
+      "source_entry_id": "utterance-03",
+      "source_hash": "4087a4626f719379ff78971865c9a5e931c1024aea8a24d77116f7f54f956d74"
+    },
+    {
+      "corpus_id": "lkt-project-owned-scripted-meeting",
+      "evidence_id": "evidence-a243b625-8581-57e2-baf6-1fa18d34e11b",
+      "excerpt": "现在说话人标签在快速切换时会错位，需要人工修正。",
+      "locator": "meetings/lkt-scripted-meeting-001/utterances/utterance-04#t=16500,21300&chars=197,221",
+      "payload": {
+        "end_ms": 21300,
+        "language": "zh",
+        "speaker": "Chen",
+        "start_ms": 16500,
+        "timing_basis": "scripted fixture timing, not measured from audio",
+        "transcript_end_char": 221,
+        "transcript_start_char": 197,
+        "utterance_end_char": 24,
+        "utterance_start_char": 0
+      },
+      "source_entry_id": "utterance-04",
+      "source_hash": "4087a4626f719379ff78971865c9a5e931c1024aea8a24d77116f7f54f956d74"
+    },
+    {
+      "corpus_id": "lkt-project-owned-scripted-meeting",
+      "evidence_id": "evidence-0fef3120-9144-5a57-8598-17904bc7ff00",
+      "excerpt": "We will ship upload-first because it is easier to audit than a live meeting bot.",
+      "locator": "meetings/lkt-scripted-meeting-001/utterances/utterance-05#t=22200,27500&chars=228,308",
+      "payload": {
+        "end_ms": 27500,
+        "language": "en",
+        "speaker": "Maya",
+        "start_ms": 22200,
+        "timing_basis": "scripted fixture timing, not measured from audio",
+        "transcript_end_char": 308,
+        "transcript_start_char": 228,
+        "utterance_end_char": 80,
+        "utterance_start_char": 0
+      },
+      "source_entry_id": "utterance-05",
+      "source_hash": "4087a4626f719379ff78971865c9a5e931c1024aea8a24d77116f7f54f956d74"
+    },
+    {
+      "corpus_id": "lkt-project-owned-scripted-meeting",
+      "evidence_id": "evidence-1e7b4d2b-01df-5892-b80b-16fbb0109458",
+      "excerpt": "如果原文删除后只剩摘要，我们会失去可追溯性。",
+      "locator": "meetings/lkt-scripted-meeting-001/utterances/utterance-06#t=28400,32900&chars=315,337",
+      "payload": {
+        "end_ms": 32900,
+        "language": "zh",
+        "speaker": "Chen",
+        "start_ms": 28400,
+        "timing_basis": "scripted fixture timing, not measured from audio",
+        "transcript_end_char": 337,
+        "transcript_start_char": 315,
+        "utterance_end_char": 22,
+        "utterance_start_char": 0
+      },
+      "source_entry_id": "utterance-06",
+      "source_hash": "4087a4626f719379ff78971865c9a5e931c1024aea8a24d77116f7f54f956d74"
+    },
+    {
+      "corpus_id": "lkt-project-owned-scripted-meeting",
+      "evidence_id": "evidence-ade66f43-f247-5b58-bcb1-7d65b92da2ef",
+      "excerpt": "We still need to verify whether exports preserve Chinese punctuation.",
+      "locator": "meetings/lkt-scripted-meeting-001/utterances/utterance-07#t=33700,38200&chars=344,413",
+      "payload": {
+        "end_ms": 38200,
+        "language": "en",
+        "speaker": "Maya",
+        "start_ms": 33700,
+        "timing_basis": "scripted fixture timing, not measured from audio",
+        "transcript_end_char": 413,
+        "transcript_start_char": 344,
+        "utterance_end_char": 69,
+        "utterance_start_char": 0
+      },
+      "source_entry_id": "utterance-07",
+      "source_hash": "4087a4626f719379ff78971865c9a5e931c1024aea8a24d77116f7f54f956d74"
+    },
+    {
+      "corpus_id": "lkt-project-owned-scripted-meeting",
+      "evidence_id": "evidence-03b4228e-6462-5493-9aea-e2f61df22434",
+      "excerpt": "如果大学实验室也需要同样的本地工作流，这可能是新机会。",
+      "locator": "meetings/lkt-scripted-meeting-001/utterances/utterance-08#t=39000,43500&chars=420,447",
+      "payload": {
+        "end_ms": 43500,
+        "language": "zh",
+        "speaker": "Chen",
+        "start_ms": 39000,
+        "timing_basis": "scripted fixture timing, not measured from audio",
+        "transcript_end_char": 447,
+        "transcript_start_char": 420,
+        "utterance_end_char": 27,
+        "utterance_start_char": 0
+      },
+      "source_entry_id": "utterance-08",
+      "source_hash": "4087a4626f719379ff78971865c9a5e931c1024aea8a24d77116f7f54f956d74"
+    },
+    {
+      "corpus_id": "lkt-project-owned-scripted-meeting",
+      "evidence_id": "evidence-b90b52a9-58d9-5caf-8b48-6279f90cacdf",
+      "excerpt": "The fictional competitor exports summaries but omits the source passages.",
+      "locator": "meetings/lkt-scripted-meeting-001/utterances/utterance-09#t=44300,49100&chars=454,527",
+      "payload": {
+        "end_ms": 49100,
+        "language": "en",
+        "speaker": "Maya",
+        "start_ms": 44300,
+        "timing_basis": "scripted fixture timing, not measured from audio",
+        "transcript_end_char": 527,
+        "transcript_start_char": 454,
+        "utterance_end_char": 73,
+        "utterance_start_char": 0
+      },
+      "source_entry_id": "utterance-09",
+      "source_hash": "4087a4626f719379ff78971865c9a5e931c1024aea8a24d77116f7f54f956d74"
+    },
+    {
+      "corpus_id": "lkt-project-owned-scripted-meeting",
+      "evidence_id": "evidence-1345aac4-92db-5ccf-9d1a-9d9fcf37cf2f",
+      "excerpt": "我周五前整理三份虚构样本，并记录每项修改。",
+      "locator": "meetings/lkt-scripted-meeting-001/utterances/utterance-10#t=49900,54800&chars=534,555",
+      "payload": {
+        "end_ms": 54800,
+        "language": "zh",
+        "speaker": "Chen",
+        "start_ms": 49900,
+        "timing_basis": "scripted fixture timing, not measured from audio",
+        "transcript_end_char": 555,
+        "transcript_start_char": 534,
+        "utterance_end_char": 21,
+        "utterance_start_char": 0
+      },
+      "source_entry_id": "utterance-10",
+      "source_hash": "4087a4626f719379ff78971865c9a5e931c1024aea8a24d77116f7f54f956d74"
+    }
+  ],
+  "example": {
+    "description": "A deterministic transformation of one project-owned scripted English/Mandarin meeting into ten manually reviewed knowledge units.",
+    "not_claimed": [
+      "automatic speech recognition or diarization",
+      "automatic knowledge extraction",
+      "ASR, diarization, extraction, or translation accuracy benchmark",
+      "customer deployment or customer result",
+      "production readiness or enterprise scale"
+    ],
+    "ownership": "Local Knowledge Terminal project-owned fixture",
+    "review_status": "manually reviewed",
+    "scripted": true
+  },
+  "graph": {
+    "edges": [
+      {
+        "assertion_id": "assertion-056040bc-7c56-5831-8574-ccb6622a19b3",
+        "basis": "reviewed",
+        "confidence": 1.0,
+        "evidence_ids": [
+          "evidence-03b4228e-6462-5493-9aea-e2f61df22434"
+        ],
+        "id": "assertion-056040bc-7c56-5831-8574-ccb6622a19b3",
+        "properties": {
+          "knowledge_type": "new-opportunity",
+          "modes": [
+            "meeting"
+          ],
+          "review_status": "manually reviewed",
+          "type_label": "new opportunity",
+          "unit_id": "unit-08"
+        },
+        "relation": "has-new-opportunity",
+        "revision": 1,
+        "source": "content-item-6e5739cd-211c-5eee-9437-d4479cfa13c1",
+        "subject_entity_id": "content-item-6e5739cd-211c-5eee-9437-d4479cfa13c1",
+        "target": "term-f5c04d98-6e9b-5c06-b5f3-2a6d30ba1c48"
+      },
+      {
+        "assertion_id": "assertion-098b5b24-1bf0-53cf-861d-bf936017c2f2",
+        "basis": "reviewed",
+        "confidence": 1.0,
+        "evidence_ids": [
+          "evidence-0fef3120-9144-5a57-8598-17904bc7ff00"
+        ],
+        "id": "assertion-098b5b24-1bf0-53cf-861d-bf936017c2f2",
+        "properties": {
+          "knowledge_type": "decision-rationale",
+          "modes": [
+            "meeting"
+          ],
+          "review_status": "manually reviewed",
+          "type_label": "decision/rationale",
+          "unit_id": "unit-05"
+        },
+        "relation": "has-decision-rationale",
+        "revision": 1,
+        "source": "content-item-6e5739cd-211c-5eee-9437-d4479cfa13c1",
+        "subject_entity_id": "content-item-6e5739cd-211c-5eee-9437-d4479cfa13c1",
+        "target": "term-a49478a6-a1f5-5fce-8270-b7f7a82a929e"
+      },
+      {
+        "assertion_id": "assertion-16a1feb4-c54d-50c6-b09b-936cfdecc234",
+        "basis": "reviewed",
+        "confidence": 1.0,
+        "evidence_ids": [
+          "evidence-ade66f43-f247-5b58-bcb1-7d65b92da2ef"
+        ],
+        "id": "assertion-16a1feb4-c54d-50c6-b09b-936cfdecc234",
+        "properties": {
+          "knowledge_type": "item-requiring-verification",
+          "modes": [
+            "meeting"
+          ],
+          "review_status": "manually reviewed",
+          "type_label": "item requiring verification",
+          "unit_id": "unit-07"
+        },
+        "relation": "has-item-requiring-verification",
+        "revision": 1,
+        "source": "content-item-6e5739cd-211c-5eee-9437-d4479cfa13c1",
+        "subject_entity_id": "content-item-6e5739cd-211c-5eee-9437-d4479cfa13c1",
+        "target": "term-a8ae9e78-7113-5d44-aed4-478fd25c609a"
+      },
+      {
+        "assertion_id": "assertion-2b50ce27-a78c-527e-915e-ab838746d97b",
+        "basis": "reviewed",
+        "confidence": 1.0,
+        "evidence_ids": [
+          "evidence-fd6cb24a-6159-5160-a93c-686739d353b0"
+        ],
+        "id": "assertion-2b50ce27-a78c-527e-915e-ab838746d97b",
+        "properties": {
+          "knowledge_type": "customer-requirement",
+          "modes": [
+            "meeting"
+          ],
+          "review_status": "manually reviewed",
+          "type_label": "customer requirement",
+          "unit_id": "unit-01"
+        },
+        "relation": "has-customer-requirement",
+        "revision": 1,
+        "source": "content-item-6e5739cd-211c-5eee-9437-d4479cfa13c1",
+        "subject_entity_id": "content-item-6e5739cd-211c-5eee-9437-d4479cfa13c1",
+        "target": "term-f0f5a2d5-9aac-552c-a9ca-b635fed53e2f"
+      },
+      {
+        "assertion_id": "assertion-482fe710-4156-5680-9c74-8366fb6ced12",
+        "basis": "reviewed",
+        "confidence": 1.0,
+        "evidence_ids": [
+          "evidence-1345aac4-92db-5ccf-9d1a-9d9fcf37cf2f"
+        ],
+        "id": "assertion-482fe710-4156-5680-9c74-8366fb6ced12",
+        "properties": {
+          "knowledge_type": "commitment-action",
+          "modes": [
+            "meeting"
+          ],
+          "review_status": "manually reviewed",
+          "type_label": "commitment/action",
+          "unit_id": "unit-10"
+        },
+        "relation": "has-commitment-action",
+        "revision": 1,
+        "source": "content-item-6e5739cd-211c-5eee-9437-d4479cfa13c1",
+        "subject_entity_id": "content-item-6e5739cd-211c-5eee-9437-d4479cfa13c1",
+        "target": "term-64a71d30-a395-51f2-aed2-334372a0ec21"
+      },
+      {
+        "assertion_id": "assertion-562b0dc5-7361-5d8b-bceb-fdd5e4b495cb",
+        "basis": "reviewed",
+        "confidence": 1.0,
+        "evidence_ids": [
+          "evidence-b90b52a9-58d9-5caf-8b48-6279f90cacdf"
+        ],
+        "id": "assertion-562b0dc5-7361-5d8b-bceb-fdd5e4b495cb",
+        "properties": {
+          "knowledge_type": "competitor-information",
+          "modes": [
+            "meeting"
+          ],
+          "review_status": "manually reviewed",
+          "type_label": "competitor information",
+          "unit_id": "unit-09"
+        },
+        "relation": "has-competitor-information",
+        "revision": 1,
+        "source": "content-item-6e5739cd-211c-5eee-9437-d4479cfa13c1",
+        "subject_entity_id": "content-item-6e5739cd-211c-5eee-9437-d4479cfa13c1",
+        "target": "term-511994b0-4936-531b-944b-f5fcad7bdd13"
+      },
+      {
+        "assertion_id": "assertion-62bab3dd-c7d0-53d9-abcd-18ced35a6d81",
+        "basis": "reviewed",
+        "confidence": 1.0,
+        "evidence_ids": [
+          "evidence-870eae97-a1db-5657-a2de-ccf02cd7b532"
+        ],
+        "id": "assertion-62bab3dd-c7d0-53d9-abcd-18ced35a6d81",
+        "properties": {
+          "knowledge_type": "product-suggestion",
+          "modes": [
+            "meeting"
+          ],
+          "review_status": "manually reviewed",
+          "type_label": "product suggestion",
+          "unit_id": "unit-03"
+        },
+        "relation": "has-product-suggestion",
+        "revision": 1,
+        "source": "content-item-6e5739cd-211c-5eee-9437-d4479cfa13c1",
+        "subject_entity_id": "content-item-6e5739cd-211c-5eee-9437-d4479cfa13c1",
+        "target": "term-c074f2a6-60dd-51ff-8044-ec80e30d1064"
+      },
+      {
+        "assertion_id": "assertion-6f962ab3-5d4f-5a4f-8bf6-a08910ffa159",
+        "basis": "reviewed",
+        "confidence": 1.0,
+        "evidence_ids": [
+          "evidence-2ddf2f7d-caf2-5962-998d-9f16dc51062e"
+        ],
+        "id": "assertion-6f962ab3-5d4f-5a4f-8bf6-a08910ffa159",
+        "properties": {
+          "knowledge_type": "market-signal",
+          "modes": [
+            "meeting"
+          ],
+          "review_status": "manually reviewed",
+          "type_label": "market signal",
+          "unit_id": "unit-02"
+        },
+        "relation": "has-market-signal",
+        "revision": 1,
+        "source": "content-item-6e5739cd-211c-5eee-9437-d4479cfa13c1",
+        "subject_entity_id": "content-item-6e5739cd-211c-5eee-9437-d4479cfa13c1",
+        "target": "term-c57303e2-f132-5793-91c8-7980b075dbe3"
+      },
+      {
+        "assertion_id": "assertion-f3b382ea-24ee-569a-9181-944164cc6b0c",
+        "basis": "reviewed",
+        "confidence": 1.0,
+        "evidence_ids": [
+          "evidence-a243b625-8581-57e2-baf6-1fa18d34e11b"
+        ],
+        "id": "assertion-f3b382ea-24ee-569a-9181-944164cc6b0c",
+        "properties": {
+          "knowledge_type": "technical-issue",
+          "modes": [
+            "meeting"
+          ],
+          "review_status": "manually reviewed",
+          "type_label": "technical issue",
+          "unit_id": "unit-04"
+        },
+        "relation": "has-technical-issue",
+        "revision": 1,
+        "source": "content-item-6e5739cd-211c-5eee-9437-d4479cfa13c1",
+        "subject_entity_id": "content-item-6e5739cd-211c-5eee-9437-d4479cfa13c1",
+        "target": "term-fa6510d1-98fc-52d9-b57f-f3b95c737a0a"
+      },
+      {
+        "assertion_id": "assertion-f8dcea6d-ecf8-505a-ba16-d4dfe9492b80",
+        "basis": "reviewed",
+        "confidence": 1.0,
+        "evidence_ids": [
+          "evidence-1e7b4d2b-01df-5892-b80b-16fbb0109458"
+        ],
+        "id": "assertion-f8dcea6d-ecf8-505a-ba16-d4dfe9492b80",
+        "properties": {
+          "knowledge_type": "risk",
+          "modes": [
+            "meeting"
+          ],
+          "review_status": "manually reviewed",
+          "type_label": "risk",
+          "unit_id": "unit-06"
+        },
+        "relation": "has-risk",
+        "revision": 1,
+        "source": "content-item-6e5739cd-211c-5eee-9437-d4479cfa13c1",
+        "subject_entity_id": "content-item-6e5739cd-211c-5eee-9437-d4479cfa13c1",
+        "target": "term-a091a679-e190-5339-b63f-ac5680e87dcb"
+      }
+    ],
+    "graph_revision": 10,
+    "limits": {
+      "depth": 2,
+      "edges": 16,
+      "nodes": 16
+    },
+    "mode": "meeting",
+    "nodes": [
+      {
+        "id": "content-item-6e5739cd-211c-5eee-9437-d4479cfa13c1",
+        "key": "content:sentence:mul:lkt-scripted-meeting-001:maya: the pilot must keep every source excerpt and citation on the team's own machine. chen: 在模拟反馈中,三个测试角色都要求中英混合资料一起搜索。 maya: let's add a bilingual evidence view beside each extracted item. chen: 现在说话人标签在快速切换时会错位,需要人工修正。 maya: we will ship upload-first because it is easier to audit than a live meeting bot. chen: 如果原文删除后只剩摘要,我们会失去可追溯性。 maya: we still need to verify whether exports preserve chinese punctuation. chen: 如果大学实验室也需要同样的本地工作流,这可能是新机会。 maya: the fictional competitor exports summaries but omits the source passages. chen: 我周五前整理三份虚构样本,并记录每项修改。",
+        "label": "Maya: The pilot must keep every source excerpt and citation on the team's own machine.\nChen: 在模拟反馈中，三个测试角色都要求中英混合资料一起搜索。\nMaya: Let's add a bilingual evidence view beside each extracted item.\nChen: 现在说话人标签在快速切换时会错位，需要人工修正。\nMaya: We will ship upload-first because it is easier to audit than a live meeting bot.\nChen: 如果原文删除后只剩摘要，我们会失去可追溯性。\nMaya: We still need to verify whether exports preserve Chinese punctuation.\nChen: 如果大学实验室也需要同样的本地工作流，这可能是新机会。\nMaya: The fictional competitor exports summaries but omits the source passages.\nChen: 我周五前整理三份虚构样本，并记录每项修改。",
+        "payload": {},
+        "quality": null,
+        "type": "content-item"
+      },
+      {
+        "id": "term-511994b0-4936-531b-944b-f5fcad7bdd13",
+        "key": "term:mul:meeting-competitor-information:the fictional competitor's export omits source passages.",
+        "label": "The fictional competitor's export omits source passages.",
+        "payload": {
+          "knowledge_type": "competitor-information",
+          "review_status": "manually reviewed",
+          "unit_id": "unit-09"
+        },
+        "quality": 1.0,
+        "type": "term"
+      },
+      {
+        "id": "term-64a71d30-a395-51f2-aed2-334372a0ec21",
+        "key": "term:mul:meeting-commitment-action:周五前整理三份虚构样本,并记录每项修改。",
+        "label": "周五前整理三份虚构样本，并记录每项修改。",
+        "payload": {
+          "knowledge_type": "commitment-action",
+          "review_status": "manually reviewed",
+          "unit_id": "unit-10"
+        },
+        "quality": 1.0,
+        "type": "term"
+      },
+      {
+        "id": "term-a091a679-e190-5339-b63f-ac5680e87dcb",
+        "key": "term:mul:meeting-risk:删除原文、只保留摘要会破坏可追溯性。",
+        "label": "删除原文、只保留摘要会破坏可追溯性。",
+        "payload": {
+          "knowledge_type": "risk",
+          "review_status": "manually reviewed",
+          "unit_id": "unit-06"
+        },
+        "quality": 1.0,
+        "type": "term"
+      },
+      {
+        "id": "term-a49478a6-a1f5-5fce-8270-b7f7a82a929e",
+        "key": "term:mul:meeting-decision-rationale:ship an upload-first workflow because it is easier to audit than a live meeting bot.",
+        "label": "Ship an upload-first workflow because it is easier to audit than a live meeting bot.",
+        "payload": {
+          "knowledge_type": "decision-rationale",
+          "review_status": "manually reviewed",
+          "unit_id": "unit-05"
+        },
+        "quality": 1.0,
+        "type": "term"
+      },
+      {
+        "id": "term-a8ae9e78-7113-5d44-aed4-478fd25c609a",
+        "key": "term:mul:meeting-item-requiring-verification:verify whether exports preserve chinese punctuation.",
+        "label": "Verify whether exports preserve Chinese punctuation.",
+        "payload": {
+          "knowledge_type": "item-requiring-verification",
+          "review_status": "manually reviewed",
+          "unit_id": "unit-07"
+        },
+        "quality": 1.0,
+        "type": "term"
+      },
+      {
+        "id": "term-c074f2a6-60dd-51ff-8044-ec80e30d1064",
+        "key": "term:mul:meeting-product-suggestion:add a bilingual evidence view beside each extracted item.",
+        "label": "Add a bilingual evidence view beside each extracted item.",
+        "payload": {
+          "knowledge_type": "product-suggestion",
+          "review_status": "manually reviewed",
+          "unit_id": "unit-03"
+        },
+        "quality": 1.0,
+        "type": "term"
+      },
+      {
+        "id": "term-c57303e2-f132-5793-91c8-7980b075dbe3",
+        "key": "term:mul:meeting-market-signal:模拟反馈中的三个测试角色都要求搜索中英混合资料。",
+        "label": "模拟反馈中的三个测试角色都要求搜索中英混合资料。",
+        "payload": {
+          "knowledge_type": "market-signal",
+          "review_status": "manually reviewed",
+          "unit_id": "unit-02"
+        },
+        "quality": 1.0,
+        "type": "term"
+      },
+      {
+        "id": "term-f0f5a2d5-9aac-552c-a9ca-b635fed53e2f",
+        "key": "term:mul:meeting-customer-requirement:keep source excerpts and citations on the team's own machine.",
+        "label": "Keep source excerpts and citations on the team's own machine.",
+        "payload": {
+          "knowledge_type": "customer-requirement",
+          "review_status": "manually reviewed",
+          "unit_id": "unit-01"
+        },
+        "quality": 1.0,
+        "type": "term"
+      },
+      {
+        "id": "term-f5c04d98-6e9b-5c06-b5f3-2a6d30ba1c48",
+        "key": "term:mul:meeting-new-opportunity:需要本地工作流的大学实验室可能是新机会。",
+        "label": "需要本地工作流的大学实验室可能是新机会。",
+        "payload": {
+          "knowledge_type": "new-opportunity",
+          "review_status": "manually reviewed",
+          "unit_id": "unit-08"
+        },
+        "quality": 1.0,
+        "type": "term"
+      },
+      {
+        "id": "term-fa6510d1-98fc-52d9-b57f-f3b95c737a0a",
+        "key": "term:mul:meeting-technical-issue:快速切换说话人时标签会错位,需要人工修正。",
+        "label": "快速切换说话人时标签会错位，需要人工修正。",
+        "payload": {
+          "knowledge_type": "technical-issue",
+          "review_status": "manually reviewed",
+          "unit_id": "unit-04"
+        },
+        "quality": 1.0,
+        "type": "term"
+      }
+    ],
+    "projection_hash": "b6245ad23eca26b5be742d7a0967796ed8e05c963921bc23a8b3a10738db91ca",
+    "subject_entity_id": "content-item-6e5739cd-211c-5eee-9437-d4479cfa13c1",
+    "truncated": false
+  },
+  "knowledge_units": [
+    {
+      "entity_id": "term-f0f5a2d5-9aac-552c-a9ca-b635fed53e2f",
+      "evidence_id": "evidence-fd6cb24a-6159-5160-a93c-686739d353b0",
+      "review_status": "manually reviewed",
+      "source_span": {
+        "end_ms": 5200,
+        "language": "en",
+        "source_hash": "4087a4626f719379ff78971865c9a5e931c1024aea8a24d77116f7f54f956d74",
+        "speaker": "Maya",
+        "start_ms": 0,
+        "text": "The pilot must keep every source excerpt and citation on the team's own machine.",
+        "transcript_end_char": 86,
+        "transcript_start_char": 6,
+        "utterance_end_char": 80,
+        "utterance_id": "utterance-01",
+        "utterance_start_char": 0
+      },
+      "summary": "Keep source excerpts and citations on the team's own machine.",
+      "type": "customer-requirement",
+      "type_label": "customer requirement",
+      "unit_id": "unit-01"
+    },
+    {
+      "entity_id": "term-c57303e2-f132-5793-91c8-7980b075dbe3",
+      "evidence_id": "evidence-2ddf2f7d-caf2-5962-998d-9f16dc51062e",
+      "review_status": "manually reviewed",
+      "source_span": {
+        "end_ms": 11000,
+        "language": "zh",
+        "source_hash": "4087a4626f719379ff78971865c9a5e931c1024aea8a24d77116f7f54f956d74",
+        "speaker": "Chen",
+        "start_ms": 6000,
+        "text": "在模拟反馈中，三个测试角色都要求中英混合资料一起搜索。",
+        "transcript_end_char": 120,
+        "transcript_start_char": 93,
+        "utterance_end_char": 27,
+        "utterance_id": "utterance-02",
+        "utterance_start_char": 0
+      },
+      "summary": "模拟反馈中的三个测试角色都要求搜索中英混合资料。",
+      "type": "market-signal",
+      "type_label": "market signal",
+      "unit_id": "unit-02"
+    },
+    {
+      "entity_id": "term-c074f2a6-60dd-51ff-8044-ec80e30d1064",
+      "evidence_id": "evidence-870eae97-a1db-5657-a2de-ccf02cd7b532",
+      "review_status": "manually reviewed",
+      "source_span": {
+        "end_ms": 15700,
+        "language": "en",
+        "source_hash": "4087a4626f719379ff78971865c9a5e931c1024aea8a24d77116f7f54f956d74",
+        "speaker": "Maya",
+        "start_ms": 11800,
+        "text": "Let's add a bilingual evidence view beside each extracted item.",
+        "transcript_end_char": 190,
+        "transcript_start_char": 127,
+        "utterance_end_char": 63,
+        "utterance_id": "utterance-03",
+        "utterance_start_char": 0
+      },
+      "summary": "Add a bilingual evidence view beside each extracted item.",
+      "type": "product-suggestion",
+      "type_label": "product suggestion",
+      "unit_id": "unit-03"
+    },
+    {
+      "entity_id": "term-fa6510d1-98fc-52d9-b57f-f3b95c737a0a",
+      "evidence_id": "evidence-a243b625-8581-57e2-baf6-1fa18d34e11b",
+      "review_status": "manually reviewed",
+      "source_span": {
+        "end_ms": 21300,
+        "language": "zh",
+        "source_hash": "4087a4626f719379ff78971865c9a5e931c1024aea8a24d77116f7f54f956d74",
+        "speaker": "Chen",
+        "start_ms": 16500,
+        "text": "现在说话人标签在快速切换时会错位，需要人工修正。",
+        "transcript_end_char": 221,
+        "transcript_start_char": 197,
+        "utterance_end_char": 24,
+        "utterance_id": "utterance-04",
+        "utterance_start_char": 0
+      },
+      "summary": "快速切换说话人时标签会错位，需要人工修正。",
+      "type": "technical-issue",
+      "type_label": "technical issue",
+      "unit_id": "unit-04"
+    },
+    {
+      "entity_id": "term-a49478a6-a1f5-5fce-8270-b7f7a82a929e",
+      "evidence_id": "evidence-0fef3120-9144-5a57-8598-17904bc7ff00",
+      "review_status": "manually reviewed",
+      "source_span": {
+        "end_ms": 27500,
+        "language": "en",
+        "source_hash": "4087a4626f719379ff78971865c9a5e931c1024aea8a24d77116f7f54f956d74",
+        "speaker": "Maya",
+        "start_ms": 22200,
+        "text": "We will ship upload-first because it is easier to audit than a live meeting bot.",
+        "transcript_end_char": 308,
+        "transcript_start_char": 228,
+        "utterance_end_char": 80,
+        "utterance_id": "utterance-05",
+        "utterance_start_char": 0
+      },
+      "summary": "Ship an upload-first workflow because it is easier to audit than a live meeting bot.",
+      "type": "decision-rationale",
+      "type_label": "decision/rationale",
+      "unit_id": "unit-05"
+    },
+    {
+      "entity_id": "term-a091a679-e190-5339-b63f-ac5680e87dcb",
+      "evidence_id": "evidence-1e7b4d2b-01df-5892-b80b-16fbb0109458",
+      "review_status": "manually reviewed",
+      "source_span": {
+        "end_ms": 32900,
+        "language": "zh",
+        "source_hash": "4087a4626f719379ff78971865c9a5e931c1024aea8a24d77116f7f54f956d74",
+        "speaker": "Chen",
+        "start_ms": 28400,
+        "text": "如果原文删除后只剩摘要，我们会失去可追溯性。",
+        "transcript_end_char": 337,
+        "transcript_start_char": 315,
+        "utterance_end_char": 22,
+        "utterance_id": "utterance-06",
+        "utterance_start_char": 0
+      },
+      "summary": "删除原文、只保留摘要会破坏可追溯性。",
+      "type": "risk",
+      "type_label": "risk",
+      "unit_id": "unit-06"
+    },
+    {
+      "entity_id": "term-a8ae9e78-7113-5d44-aed4-478fd25c609a",
+      "evidence_id": "evidence-ade66f43-f247-5b58-bcb1-7d65b92da2ef",
+      "review_status": "manually reviewed",
+      "source_span": {
+        "end_ms": 38200,
+        "language": "en",
+        "source_hash": "4087a4626f719379ff78971865c9a5e931c1024aea8a24d77116f7f54f956d74",
+        "speaker": "Maya",
+        "start_ms": 33700,
+        "text": "We still need to verify whether exports preserve Chinese punctuation.",
+        "transcript_end_char": 413,
+        "transcript_start_char": 344,
+        "utterance_end_char": 69,
+        "utterance_id": "utterance-07",
+        "utterance_start_char": 0
+      },
+      "summary": "Verify whether exports preserve Chinese punctuation.",
+      "type": "item-requiring-verification",
+      "type_label": "item requiring verification",
+      "unit_id": "unit-07"
+    },
+    {
+      "entity_id": "term-f5c04d98-6e9b-5c06-b5f3-2a6d30ba1c48",
+      "evidence_id": "evidence-03b4228e-6462-5493-9aea-e2f61df22434",
+      "review_status": "manually reviewed",
+      "source_span": {
+        "end_ms": 43500,
+        "language": "zh",
+        "source_hash": "4087a4626f719379ff78971865c9a5e931c1024aea8a24d77116f7f54f956d74",
+        "speaker": "Chen",
+        "start_ms": 39000,
+        "text": "如果大学实验室也需要同样的本地工作流，这可能是新机会。",
+        "transcript_end_char": 447,
+        "transcript_start_char": 420,
+        "utterance_end_char": 27,
+        "utterance_id": "utterance-08",
+        "utterance_start_char": 0
+      },
+      "summary": "需要本地工作流的大学实验室可能是新机会。",
+      "type": "new-opportunity",
+      "type_label": "new opportunity",
+      "unit_id": "unit-08"
+    },
+    {
+      "entity_id": "term-511994b0-4936-531b-944b-f5fcad7bdd13",
+      "evidence_id": "evidence-b90b52a9-58d9-5caf-8b48-6279f90cacdf",
+      "review_status": "manually reviewed",
+      "source_span": {
+        "end_ms": 49100,
+        "language": "en",
+        "source_hash": "4087a4626f719379ff78971865c9a5e931c1024aea8a24d77116f7f54f956d74",
+        "speaker": "Maya",
+        "start_ms": 44300,
+        "text": "The fictional competitor exports summaries but omits the source passages.",
+        "transcript_end_char": 527,
+        "transcript_start_char": 454,
+        "utterance_end_char": 73,
+        "utterance_id": "utterance-09",
+        "utterance_start_char": 0
+      },
+      "summary": "The fictional competitor's export omits source passages.",
+      "type": "competitor-information",
+      "type_label": "competitor information",
+      "unit_id": "unit-09"
+    },
+    {
+      "entity_id": "term-64a71d30-a395-51f2-aed2-334372a0ec21",
+      "evidence_id": "evidence-1345aac4-92db-5ccf-9d1a-9d9fcf37cf2f",
+      "review_status": "manually reviewed",
+      "source_span": {
+        "end_ms": 54800,
+        "language": "zh",
+        "source_hash": "4087a4626f719379ff78971865c9a5e931c1024aea8a24d77116f7f54f956d74",
+        "speaker": "Chen",
+        "start_ms": 49900,
+        "text": "我周五前整理三份虚构样本，并记录每项修改。",
+        "transcript_end_char": 555,
+        "transcript_start_char": 534,
+        "utterance_end_char": 21,
+        "utterance_id": "utterance-10",
+        "utterance_start_char": 0
+      },
+      "summary": "周五前整理三份虚构样本，并记录每项修改。",
+      "type": "commitment-action",
+      "type_label": "commitment/action",
+      "unit_id": "unit-10"
+    }
+  ],
+  "review_lifecycle": [
+    {
+      "knowledge_type": "customer-requirement",
+      "review_method": "manual",
+      "review_note": "manually reviewed against the exact transcript span",
+      "revision": 1,
+      "status": "accepted",
+      "summary": "Keep source excerpts and citations on the team's own machine.",
+      "unit_id": "unit-01"
+    },
+    {
+      "knowledge_type": "market-signal",
+      "review_method": "manual",
+      "review_note": "manually reviewed against the exact transcript span",
+      "revision": 1,
+      "status": "accepted",
+      "summary": "模拟反馈中的三个测试角色都要求搜索中英混合资料。",
+      "unit_id": "unit-02"
+    },
+    {
+      "knowledge_type": "product-suggestion",
+      "review_method": "manual",
+      "review_note": "superseded by manual correction",
+      "revision": 1,
+      "status": "superseded",
+      "summary": "Add a bilingual summary panel.",
+      "unit_id": "unit-03"
+    },
+    {
+      "knowledge_type": "product-suggestion",
+      "review_method": "manual",
+      "review_note": "manually reviewed against the exact transcript span",
+      "revision": 2,
+      "status": "accepted",
+      "summary": "Add a bilingual evidence view beside each extracted item.",
+      "unit_id": "unit-03"
+    },
+    {
+      "knowledge_type": "technical-issue",
+      "review_method": "manual",
+      "review_note": "manually reviewed against the exact transcript span",
+      "revision": 1,
+      "status": "accepted",
+      "summary": "快速切换说话人时标签会错位，需要人工修正。",
+      "unit_id": "unit-04"
+    },
+    {
+      "knowledge_type": "decision-rationale",
+      "review_method": "manual",
+      "review_note": "manually reviewed against the exact transcript span",
+      "revision": 1,
+      "status": "accepted",
+      "summary": "Ship an upload-first workflow because it is easier to audit than a live meeting bot.",
+      "unit_id": "unit-05"
+    },
+    {
+      "knowledge_type": "risk",
+      "review_method": "manual",
+      "review_note": "manually reviewed against the exact transcript span",
+      "revision": 1,
+      "status": "accepted",
+      "summary": "删除原文、只保留摘要会破坏可追溯性。",
+      "unit_id": "unit-06"
+    },
+    {
+      "knowledge_type": "item-requiring-verification",
+      "review_method": "manual",
+      "review_note": "manually reviewed against the exact transcript span",
+      "revision": 1,
+      "status": "accepted",
+      "summary": "Verify whether exports preserve Chinese punctuation.",
+      "unit_id": "unit-07"
+    },
+    {
+      "knowledge_type": "new-opportunity",
+      "review_method": "manual",
+      "review_note": "manually reviewed against the exact transcript span",
+      "revision": 1,
+      "status": "accepted",
+      "summary": "需要本地工作流的大学实验室可能是新机会。",
+      "unit_id": "unit-08"
+    },
+    {
+      "knowledge_type": "competitor-information",
+      "review_method": "manual",
+      "review_note": "manually reviewed against the exact transcript span",
+      "revision": 1,
+      "status": "accepted",
+      "summary": "The fictional competitor's export omits source passages.",
+      "unit_id": "unit-09"
+    },
+    {
+      "knowledge_type": "commitment-action",
+      "review_method": "manual",
+      "review_note": "manually reviewed against the exact transcript span",
+      "revision": 1,
+      "status": "accepted",
+      "summary": "周五前整理三份虚构样本，并记录每项修改。",
+      "unit_id": "unit-10"
+    }
+  ],
+  "schema_version": "1.0",
+  "source": {
+    "duration_ms": 54800,
+    "fixture_path": "examples/fixtures/scripted-bilingual-meeting.json",
+    "meeting_id": "lkt-scripted-meeting-001",
+    "note": "Every person, organization, signal, competitor, and event in this short meeting is fictional and was written for this deterministic example.",
+    "recording_exists": false,
+    "sha256": "4087a4626f719379ff78971865c9a5e931c1024aea8a24d77116f7f54f956d74",
+    "timing_basis": "Authored fixture timing, not measured from audio",
+    "title": "Bilingual local knowledge pilot review",
+    "transcript": "Maya: The pilot must keep every source excerpt and citation on the team's own machine.\nChen: 在模拟反馈中，三个测试角色都要求中英混合资料一起搜索。\nMaya: Let's add a bilingual evidence view beside each extracted item.\nChen: 现在说话人标签在快速切换时会错位，需要人工修正。\nMaya: We will ship upload-first because it is easier to audit than a live meeting bot.\nChen: 如果原文删除后只剩摘要，我们会失去可追溯性。\nMaya: We still need to verify whether exports preserve Chinese punctuation.\nChen: 如果大学实验室也需要同样的本地工作流，这可能是新机会。\nMaya: The fictional competitor exports summaries but omits the source passages.\nChen: 我周五前整理三份虚构样本，并记录每项修改。",
+    "utterance_count": 10
+  }
+}

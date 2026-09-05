@@ -1,0 +1,146 @@
+{
+  "schema_version": "1.0",
+  "meeting": {
+    "meeting_id": "lkt-scripted-meeting-001",
+    "title": "Bilingual local knowledge pilot review",
+    "ownership": "Local Knowledge Terminal project-owned fixture",
+    "scripted": true,
+    "recording_exists": false,
+    "timing_basis": "Authored fixture timing, not measured from audio",
+    "review_status": "manually reviewed",
+    "note": "Every person, organization, signal, competitor, and event in this short meeting is fictional and was written for this deterministic example."
+  },
+  "utterances": [
+    {
+      "utterance_id": "utterance-01",
+      "speaker": "Maya",
+      "language": "en",
+      "start_ms": 0,
+      "end_ms": 5200,
+      "text": "The pilot must keep every source excerpt and citation on the team's own machine.",
+      "knowledge_unit": {
+        "unit_id": "unit-01",
+        "type": "customer-requirement",
+        "summary": "Keep source excerpts and citations on the team's own machine."
+      }
+    },
+    {
+      "utterance_id": "utterance-02",
+      "speaker": "Chen",
+      "language": "zh",
+      "start_ms": 6000,
+      "end_ms": 11000,
+      "text": "在模拟反馈中，三个测试角色都要求中英混合资料一起搜索。",
+      "knowledge_unit": {
+        "unit_id": "unit-02",
+        "type": "market-signal",
+        "summary": "模拟反馈中的三个测试角色都要求搜索中英混合资料。"
+      }
+    },
+    {
+      "utterance_id": "utterance-03",
+      "speaker": "Maya",
+      "language": "en",
+      "start_ms": 11800,
+      "end_ms": 15700,
+      "text": "Let's add a bilingual evidence view beside each extracted item.",
+      "knowledge_unit": {
+        "unit_id": "unit-03",
+        "type": "product-suggestion",
+        "summary": "Add a bilingual evidence view beside each extracted item.",
+        "superseded_summary": "Add a bilingual summary panel."
+      }
+    },
+    {
+      "utterance_id": "utterance-04",
+      "speaker": "Chen",
+      "language": "zh",
+      "start_ms": 16500,
+      "end_ms": 21300,
+      "text": "现在说话人标签在快速切换时会错位，需要人工修正。",
+      "knowledge_unit": {
+        "unit_id": "unit-04",
+        "type": "technical-issue",
+        "summary": "快速切换说话人时标签会错位，需要人工修正。"
+      }
+    },
+    {
+      "utterance_id": "utterance-05",
+      "speaker": "Maya",
+      "language": "en",
+      "start_ms": 22200,
+      "end_ms": 27500,
+      "text": "We will ship upload-first because it is easier to audit than a live meeting bot.",
+      "knowledge_unit": {
+        "unit_id": "unit-05",
+        "type": "decision-rationale",
+        "summary": "Ship an upload-first workflow because it is easier to audit than a live meeting bot."
+      }
+    },
+    {
+      "utterance_id": "utterance-06",
+      "speaker": "Chen",
+      "language": "zh",
+      "start_ms": 28400,
+      "end_ms": 32900,
+      "text": "如果原文删除后只剩摘要，我们会失去可追溯性。",
+      "knowledge_unit": {
+        "unit_id": "unit-06",
+        "type": "risk",
+        "summary": "删除原文、只保留摘要会破坏可追溯性。"
+      }
+    },
+    {
+      "utterance_id": "utterance-07",
+      "speaker": "Maya",
+      "language": "en",
+      "start_ms": 33700,
+      "end_ms": 38200,
+      "text": "We still need to verify whether exports preserve Chinese punctuation.",
+      "knowledge_unit": {
+        "unit_id": "unit-07",
+        "type": "item-requiring-verification",
+        "summary": "Verify whether exports preserve Chinese punctuation."
+      }
+    },
+    {
+      "utterance_id": "utterance-08",
+      "speaker": "Chen",
+      "language": "zh",
+      "start_ms": 39000,
+      "end_ms": 43500,
+      "text": "如果大学实验室也需要同样的本地工作流，这可能是新机会。",
+      "knowledge_unit": {
+        "unit_id": "unit-08",
+        "type": "new-opportunity",
+        "summary": "需要本地工作流的大学实验室可能是新机会。"
+      }
+    },
+    {
+      "utterance_id": "utterance-09",
+      "speaker": "Maya",
+      "language": "en",
+      "start_ms": 44300,
+      "end_ms": 49100,
+      "text": "The fictional competitor exports summaries but omits the source passages.",
+      "knowledge_unit": {
+        "unit_id": "unit-09",
+        "type": "competitor-information",
+        "summary": "The fictional competitor's export omits source passages."
+      }
+    },
+    {
+      "utterance_id": "utterance-10",
+      "speaker": "Chen",
+      "language": "zh",
+      "start_ms": 49900,
+      "end_ms": 54800,
+      "text": "我周五前整理三份虚构样本，并记录每项修改。",
+      "knowledge_unit": {
+        "unit_id": "unit-10",
+        "type": "commitment-action",
+        "summary": "周五前整理三份虚构样本，并记录每项修改。"
+      }
+    }
+  ]
+}

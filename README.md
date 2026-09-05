@@ -133,6 +133,27 @@ python examples/pocketpolyglot_passage_graph.py
 python examples/pocketpolyglot_passage_graph.py --check
 ```
 
+### Scripted bilingual meeting proof
+
+The [bilingual meeting example](examples/artifacts/scripted-bilingual-meeting-knowledge.json)
+maps ten individually timestamped English and Mandarin utterances to ten typed,
+manually reviewed knowledge units. Each unit retains its speaker, timestamp,
+exact transcript character span, source-file hash, and evidence-backed graph
+relation. Its review ledger includes one correction whose earlier version is
+kept as superseded through the real `KnowledgeStore` artifact lifecycle.
+The same artifact has an
+[interactive browser proof](https://lazying.art/meeting-intelligence/) for
+following a unit back to its exact source words.
+
+The transcript and timing are project-owned scripted fixtures. This is not an
+ASR, diarization, extraction, or translation accuracy benchmark, and it is not
+a customer deployment or customer result. Rebuild or verify the portable JSON:
+
+```bash
+python examples/scripted_bilingual_meeting_knowledge.py
+python examples/scripted_bilingual_meeting_knowledge.py --check
+```
+
 Preparation uses small dependency-aware jobs: retrieve evidence, prepare one
 meaning, split components, recursively expand each origin branch, prepare each
 language/pronunciation independently, validate, then compose. Successful stages
