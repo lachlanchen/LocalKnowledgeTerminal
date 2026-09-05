@@ -135,6 +135,26 @@ python examples/pocketpolyglot_passage_graph.py
 python examples/pocketpolyglot_passage_graph.py --check
 ```
 
+### Read-only Markdown vault proof
+
+The [Markdown vault example](examples/artifacts/markdown-vault-index.json) keeps
+two project-owned multilingual notes as the canonical files and builds a local,
+disposable SQLite FTS index beside them. Every result returns the relative file,
+heading, exact line range and excerpt, and source SHA-256. Only explicit
+`[[wikilinks]]` become edges. Hidden folders, `.obsidian`, generated folders,
+and symlinks are excluded, and a failed rebuild leaves the previous index in
+place.
+
+This is a deterministic lexical-search and provenance proof. It is not native
+Obsidian integration, semantic/vector search, automatic concept discovery,
+write-back, whole-vault question answering, or a customer result. Rebuild or
+verify the project-owned artifact:
+
+```bash
+python examples/markdown_vault_index.py
+python examples/markdown_vault_index.py --check
+```
+
 ### Scripted bilingual meeting proof
 
 The [bilingual meeting example](examples/artifacts/scripted-bilingual-meeting-knowledge.json)
@@ -276,6 +296,7 @@ the configured book has no evidence, the app does not generate a card.
 | `lkt/lexicon.py` | Compact multilingual WordNet correction evidence |
 | `lkt/freedict.py` | Exact FreeDict English-Arabic ingestion and correction retrieval |
 | `lkt/jmdict.py` | Full JMdict exact-form reading index and provenance |
+| `lkt/markdown.py` | Read-only Markdown scan, atomic disposable FTS index, wikilinks, and exact source provenance |
 | `lkt/web.py` | Dependency-free HTTP API and GUI server |
 | `lkt/outputs.py` | Stable web/e-ink/audio output boundary |
 | `lkt/static/` | Desktop-class GUI, responsive enough for later kiosk use |
@@ -313,6 +334,8 @@ python -m lkt.cli ingest-jmdict "C:\path\to\jmdict-eng-3.6.2.json" --release "3.
 python -m lkt.cli audit-japanese-readings
 python -m lkt.cli search abacus
 python -m lkt.cli search technology --corpus question
+python -m lkt.cli ingest-markdown "C:\path\to\canonical-markdown-vault"
+python -m lkt.cli search-markdown "source provenance"
 python -m lkt.cli knowledge-status
 python -m lkt.cli sync-card-knowledge
 python -m lkt.cli plan-word inspection --display-languages en ja zh fr ar

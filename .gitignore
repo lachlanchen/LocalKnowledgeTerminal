@@ -4,6 +4,7 @@ __pycache__/
 .ruff_cache/
 .coverage
 .venv/
+*.egg-info/
 
 # Runtime state is installed or generated, never versioned.
 /data/

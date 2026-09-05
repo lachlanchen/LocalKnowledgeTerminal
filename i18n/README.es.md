@@ -152,6 +152,28 @@ python examples/pocketpolyglot_passage_graph.py
 python examples/pocketpolyglot_passage_graph.py --check
 ```
 
+### Prueba de bóveda Markdown de solo lectura
+
+El [ejemplo de bóveda Markdown](../examples/artifacts/markdown-vault-index.json)
+mantiene dos notas multilingües propiedad del proyecto como archivos canónicos y
+construye junto a ellas un índice FTS de SQLite local y desechable. Cada resultado
+devuelve la ruta relativa del archivo, el encabezado, el intervalo exacto de
+líneas y el fragmento, además del SHA-256 de la fuente. Solo los `[[wikilinks]]`
+explícitos se convierten en aristas. Se excluyen las carpetas ocultas, `.obsidian`,
+las carpetas generadas y los enlaces simbólicos; si la reconstrucción falla, el
+índice anterior permanece intacto.
+
+Esta es una prueba determinista de búsqueda léxica y procedencia. No es una
+integración nativa con Obsidian, búsqueda semántica/vectorial, descubrimiento
+automático de conceptos, escritura sobre los archivos fuente, respuesta a
+preguntas sobre toda la bóveda ni un resultado de cliente. Reconstruye o verifica
+el artefacto propiedad del proyecto:
+
+```bash
+python examples/markdown_vault_index.py
+python examples/markdown_vault_index.py --check
+```
+
 ### Prueba de reunión bilingüe guionizada
 
 El [ejemplo de reunión bilingüe](../examples/artifacts/scripted-bilingual-meeting-knowledge.json)
@@ -308,6 +330,7 @@ libro configurado no contiene evidencia, la aplicación no genera una tarjeta.
 | `lkt/lexicon.py` | Evidencia compacta de corrección WordNet multilingüe |
 | `lkt/freedict.py` | Ingesta exacta inglés-árabe de FreeDict y recuperación de correcciones |
 | `lkt/jmdict.py` | Índice completo de lectura por forma exacta de JMdict y procedencia |
+| `lkt/markdown.py` | Escaneo Markdown de solo lectura, índice FTS atómico y desechable, wikilinks y procedencia exacta de la fuente |
 | `lkt/web.py` | API HTTP sin dependencias y servidor de interfaz web |
 | `lkt/outputs.py` | Límite estable de salida para web/tinta electrónica/audio |
 | `lkt/static/` | Interfaz de clase escritorio, suficientemente adaptable para futuro uso en quiosco |
@@ -345,6 +368,8 @@ python -m lkt.cli ingest-jmdict "C:\path\to\jmdict-eng-3.6.2.json" --release "3.
 python -m lkt.cli audit-japanese-readings
 python -m lkt.cli search abacus
 python -m lkt.cli search technology --corpus question
+python -m lkt.cli ingest-markdown "C:\path\to\canonical-markdown-vault"
+python -m lkt.cli search-markdown "source provenance"
 python -m lkt.cli knowledge-status
 python -m lkt.cli sync-card-knowledge
 python -m lkt.cli plan-word inspection --display-languages en ja zh fr ar

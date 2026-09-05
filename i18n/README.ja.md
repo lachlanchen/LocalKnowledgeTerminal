@@ -125,6 +125,24 @@ python examples/pocketpolyglot_passage_graph.py
 python examples/pocketpolyglot_passage_graph.py --check
 ```
 
+### 読み取り専用 Markdown Vault の実証
+
+[Markdown Vault の例](../examples/artifacts/markdown-vault-index.json)は、プロジェクト所有の
+多言語ノート2つを正本ファイルとして維持し、その隣にローカルで破棄可能な SQLite FTS
+インデックスを構築します。各結果は、相対ファイルパス、見出し、正確な行範囲と抜粋、
+ソースの SHA-256 を返します。辺になるのは明示的な `[[wikilinks]]` だけです。隠しフォルダー、
+`.obsidian`、生成フォルダー、シンボリックリンクは除外され、再構築に失敗した場合も以前の
+インデックスがそのまま残ります。
+
+これは、決定論的な字句検索と来歴の実証です。Obsidian ネイティブ統合、意味／ベクトル検索、
+概念の自動発見、書き戻し、Vault 全体への質問応答、顧客向け成果ではありません。
+プロジェクト所有の成果物を再構築するか検証します。
+
+```bash
+python examples/markdown_vault_index.py
+python examples/markdown_vault_index.py --check
+```
+
 ### 台本付き二言語会議の実証
 
 [二言語会議の例](../examples/artifacts/scripted-bilingual-meeting-knowledge.json)は、個別に
@@ -246,6 +264,7 @@ Book Question ─► question search / draw ──────┘              �
 | `lkt/lexicon.py` | 簡潔な多言語 WordNet 修正証拠 |
 | `lkt/freedict.py` | 正確な FreeDict 英語―アラビア語の取り込みと修正検索 |
 | `lkt/jmdict.py` | JMdict 完全版の完全一致表記読みインデックスと来歴 |
+| `lkt/markdown.py` | 読み取り専用 Markdown スキャン、アトミックで破棄可能な FTS インデックス、wikilinks、正確なソース来歴 |
 | `lkt/web.py` | 依存関係のない HTTP API と GUI サーバー |
 | `lkt/outputs.py` | 安定した Web／電子ペーパー／音声出力境界 |
 | `lkt/static/` | デスクトップ級 GUI、将来のキオスクにも十分なレスポンシブ性 |
@@ -283,6 +302,8 @@ python -m lkt.cli ingest-jmdict "C:\path\to\jmdict-eng-3.6.2.json" --release "3.
 python -m lkt.cli audit-japanese-readings
 python -m lkt.cli search abacus
 python -m lkt.cli search technology --corpus question
+python -m lkt.cli ingest-markdown "C:\path\to\canonical-markdown-vault"
+python -m lkt.cli search-markdown "source provenance"
 python -m lkt.cli knowledge-status
 python -m lkt.cli sync-card-knowledge
 python -m lkt.cli plan-word inspection --display-languages en ja zh fr ar

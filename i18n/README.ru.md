@@ -63,6 +63,17 @@ python examples/pocketpolyglot_passage_graph.py
 python examples/pocketpolyglot_passage_graph.py --check
 ```
 
+### Демонстрация хранилища Markdown только для чтения
+
+[Пример хранилища Markdown](../examples/artifacts/markdown-vault-index.json) сохраняет две принадлежащие проекту многоязычные заметки в качестве канонических файлов и создаёт рядом с ними локальный одноразовый индекс SQLite FTS. Каждый результат возвращает относительный путь к файлу, заголовок, точный диапазон строк и выдержку, а также SHA-256 источника. Только явные `[[wikilinks]]` становятся рёбрами. Скрытые папки, `.obsidian`, сгенерированные папки и символические ссылки исключаются, а при неудачной перестройке прежний индекс остаётся на месте.
+
+Это детерминированная демонстрация лексического поиска и происхождения. Это не нативная интеграция с Obsidian, не семантический/векторный поиск, не автоматическое выявление понятий, не обратная запись, не ответы на вопросы по всему хранилищу и не результат для клиента. Пересоберите или проверьте принадлежащий проекту артефакт:
+
+```bash
+python examples/markdown_vault_index.py
+python examples/markdown_vault_index.py --check
+```
+
 ### Демонстрация сценарной двуязычной встречи
 
 [Пример двуязычной встречи](../examples/artifacts/scripted-bilingual-meeting-knowledge.json) сопоставляет десять отдельных английских и китайских реплик с временными метками десяти типизированным, вручную проверенным единицам знания. Каждая единица сохраняет говорящего, время, точный диапазон символов расшифровки, хеш исходного файла и подтверждённую графовую связь. Журнал проверки содержит одно исправление; его более ранняя версия сохраняется как заменённая посредством настоящего жизненного цикла артефакта `KnowledgeStore`.
@@ -134,6 +145,7 @@ Book Question ─► question search / draw ──────┘              �
 | `lkt/lexicon.py` | Компактные многоязычные доказательства исправлений WordNet |
 | `lkt/freedict.py` | Точный импорт англо-арабского FreeDict и поиск исправлений |
 | `lkt/jmdict.py` | Полный индекс чтений точных форм JMdict и происхождение |
+| `lkt/markdown.py` | Сканирование Markdown только для чтения, атомарный одноразовый индекс FTS, wikilinks и точное происхождение источника |
 | `lkt/web.py` | HTTP API и сервер GUI без зависимостей |
 | `lkt/outputs.py` | Стабильная граница вывода для веба, электронных чернил и аудио |
 | `lkt/static/` | Полноценный настольный GUI с достаточной адаптивностью для будущего киоска |
@@ -171,6 +183,8 @@ python -m lkt.cli ingest-jmdict "C:\path\to\jmdict-eng-3.6.2.json" --release "3.
 python -m lkt.cli audit-japanese-readings
 python -m lkt.cli search abacus
 python -m lkt.cli search technology --corpus question
+python -m lkt.cli ingest-markdown "C:\path\to\canonical-markdown-vault"
+python -m lkt.cli search-markdown "source provenance"
 python -m lkt.cli knowledge-status
 python -m lkt.cli sync-card-knowledge
 python -m lkt.cli plan-word inspection --display-languages en ja zh fr ar

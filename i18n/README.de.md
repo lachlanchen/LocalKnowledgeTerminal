@@ -154,6 +154,28 @@ python examples/pocketpolyglot_passage_graph.py
 python examples/pocketpolyglot_passage_graph.py --check
 ```
 
+### Nachweis eines schreibgeschützten Markdown-Vaults
+
+Das [Markdown-Vault-Beispiel](../examples/artifacts/markdown-vault-index.json)
+behält zwei projekteigene mehrsprachige Notizen als kanonische Dateien und
+erstellt daneben einen lokalen, verwerfbaren SQLite-FTS-Index. Jedes Ergebnis
+gibt den relativen Dateipfad, die Überschrift, den exakten Zeilenbereich und
+Auszug sowie den SHA-256-Hash der Quelle zurück. Nur explizite `[[Wikilinks]]`
+werden zu Kanten. Versteckte Ordner, `.obsidian`, generierte Ordner und
+symbolische Verknüpfungen werden ausgeschlossen; bei fehlgeschlagenem Neuaufbau
+bleibt der vorherige Index erhalten.
+
+Dies ist ein deterministischer Nachweis für lexikalische Suche und Provenienz.
+Es handelt sich weder um eine native Obsidian-Integration noch um semantische
+oder Vektorsuche, automatische Begriffserkennung, Zurückschreiben,
+Fragebeantwortung über den gesamten Vault oder ein Kundenergebnis. Erstellen Sie
+das projekteigene Artefakt neu oder prüfen Sie es:
+
+```bash
+python examples/markdown_vault_index.py
+python examples/markdown_vault_index.py --check
+```
+
 ### Nachweis eines geskripteten zweisprachigen Meetings
 
 Das [zweisprachige Meetingbeispiel](../examples/artifacts/scripted-bilingual-meeting-knowledge.json)
@@ -309,6 +331,7 @@ Anwendung keine Karte.
 | `lkt/lexicon.py` | Kompakte mehrsprachige WordNet-Korrekturbelege |
 | `lkt/freedict.py` | Exakter Englisch-Arabisch-FreeDict-Import und Korrekturabruf |
 | `lkt/jmdict.py` | Vollständiger JMdict-Index exakter Formen/Lesungen und Provenienz |
+| `lkt/markdown.py` | Schreibgeschützter Markdown-Scan, atomarer verwerfbarer FTS-Index, Wikilinks und exakte Quellenprovenienz |
 | `lkt/web.py` | Abhängigkeitsfreie HTTP-API und GUI-Server |
 | `lkt/outputs.py` | Stabile Ausgabegrenze für Web/E-Ink/Audio |
 | `lkt/static/` | Desktopgerechte, für spätere Kiosknutzung ausreichend responsive GUI |
@@ -347,6 +370,8 @@ python -m lkt.cli ingest-jmdict "C:\path\to\jmdict-eng-3.6.2.json" --release "3.
 python -m lkt.cli audit-japanese-readings
 python -m lkt.cli search abacus
 python -m lkt.cli search technology --corpus question
+python -m lkt.cli ingest-markdown "C:\path\to\canonical-markdown-vault"
+python -m lkt.cli search-markdown "source provenance"
 python -m lkt.cli knowledge-status
 python -m lkt.cli sync-card-knowledge
 python -m lkt.cli plan-word inspection --display-languages en ja zh fr ar

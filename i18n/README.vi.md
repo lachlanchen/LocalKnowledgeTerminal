@@ -127,6 +127,26 @@ python examples/pocketpolyglot_passage_graph.py
 python examples/pocketpolyglot_passage_graph.py --check
 ```
 
+### Minh chứng kho Markdown chỉ đọc
+
+[Ví dụ kho Markdown](../examples/artifacts/markdown-vault-index.json) giữ hai ghi
+chú đa ngôn ngữ thuộc sở hữu dự án làm tệp chuẩn tắc và dựng bên cạnh chúng một
+chỉ mục SQLite FTS cục bộ, có thể loại bỏ. Mỗi kết quả trả về đường dẫn tệp tương
+đối, tiêu đề, phạm vi dòng và trích đoạn chính xác, cùng SHA-256 của nguồn. Chỉ
+các `[[wikilinks]]` tường minh mới trở thành cạnh. Các thư mục ẩn, `.obsidian`,
+thư mục được tạo tự động và liên kết tượng trưng đều bị loại trừ; nếu dựng lại
+thất bại, chỉ mục trước đó vẫn được giữ nguyên.
+
+Đây là minh chứng xác định cho tìm kiếm từ vựng và nguồn gốc. Nó không phải tích
+hợp Obsidian nguyên bản, tìm kiếm ngữ nghĩa/vectơ, tự động khám phá khái niệm,
+ghi ngược vào nguồn, hỏi đáp trên toàn bộ kho hay kết quả cho khách hàng. Hãy
+dựng lại hoặc kiểm tra sản phẩm thuộc sở hữu dự án:
+
+```bash
+python examples/markdown_vault_index.py
+python examples/markdown_vault_index.py --check
+```
+
 ### Minh chứng cuộc họp song ngữ có kịch bản
 
 [Ví dụ cuộc họp song ngữ](../examples/artifacts/scripted-bilingual-meeting-knowledge.json)
@@ -253,6 +273,7 @@ kiến thức mô hình. Nếu sách cấu hình không có bằng chứng, ứn
 | `lkt/lexicon.py` | Bằng chứng sửa WordNet đa ngôn ngữ gọn |
 | `lkt/freedict.py` | Nhập FreeDict Anh–Ả Rập chính xác và truy xuất sửa lỗi |
 | `lkt/jmdict.py` | Chỉ mục cách đọc theo dạng chính xác và nguồn gốc từ JMdict đầy đủ |
+| `lkt/markdown.py` | Quét Markdown chỉ đọc, chỉ mục FTS nguyên tử có thể loại bỏ, wikilinks và nguồn gốc nguồn chính xác |
 | `lkt/web.py` | API HTTP và máy chủ GUI không phụ thuộc |
 | `lkt/outputs.py` | Ranh giới đầu ra web/giấy điện tử/âm thanh ổn định |
 | `lkt/static/` | GUI cấp máy tính để bàn, đủ đáp ứng cho kiosk sau này |
@@ -290,6 +311,8 @@ python -m lkt.cli ingest-jmdict "C:\path\to\jmdict-eng-3.6.2.json" --release "3.
 python -m lkt.cli audit-japanese-readings
 python -m lkt.cli search abacus
 python -m lkt.cli search technology --corpus question
+python -m lkt.cli ingest-markdown "C:\path\to\canonical-markdown-vault"
+python -m lkt.cli search-markdown "source provenance"
 python -m lkt.cli knowledge-status
 python -m lkt.cli sync-card-knowledge
 python -m lkt.cli plan-word inspection --display-languages en ja zh fr ar

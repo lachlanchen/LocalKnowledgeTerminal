@@ -63,6 +63,17 @@ python examples/pocketpolyglot_passage_graph.py
 python examples/pocketpolyglot_passage_graph.py --check
 ```
 
+### 唯讀 Markdown 知識庫證明
+
+[Markdown 知識庫範例](../examples/artifacts/markdown-vault-index.json)保留兩篇專案自有的多語言筆記作為權威檔案，並在旁邊建置一個本機、可丟棄的 SQLite FTS 索引。每項結果都會傳回相對檔案路徑、標題、精確的行範圍與摘錄，以及來源檔案的 SHA-256。只有明確的 `[[wikilinks]]` 會成為邊。隱藏資料夾、`.obsidian`、產生的資料夾和符號連結均會被排除；如果重新建置失敗，先前的索引會原樣保留。
+
+這是確定性的詞彙檢索與來源證明。它不是 Obsidian 原生整合、語意／向量搜尋、自動概念探索、回寫、全庫問答或客戶成果。可以重新建置或驗證專案自有的成品：
+
+```bash
+python examples/markdown_vault_index.py
+python examples/markdown_vault_index.py --check
+```
+
 ### 腳本化雙語會議證明
 
 [雙語會議範例](../examples/artifacts/scripted-bilingual-meeting-knowledge.json)把十條分別附時間戳的英語和普通話發言映射成十個有類型、經人工審閱的知識單元。每個單元保留發言者、時間戳、準確的轉錄字元範圍、來源檔案雜湊，以及有證據支持的圖關係。其審閱帳本包含一次修正，並透過真實的 `KnowledgeStore` 成品生命週期，把早期版本保留為已取代版本。
@@ -134,6 +145,7 @@ Book Question ─► question search / draw ──────┘              �
 | `lkt/lexicon.py` | 精簡的多語言 WordNet 修正證據 |
 | `lkt/freedict.py` | 精確 FreeDict 英阿匯入與修正檢索 |
 | `lkt/jmdict.py` | 完整 JMdict 精確形式讀音索引與來源記錄 |
+| `lkt/markdown.py` | 唯讀 Markdown 掃描、原子化可丟棄 FTS 索引、wikilinks 和精確來源記錄 |
 | `lkt/web.py` | 無相依套件的 HTTP API 與 GUI 伺服器 |
 | `lkt/outputs.py` | 穩定的網頁／電子紙／音訊輸出邊界 |
 | `lkt/static/` | 桌面級 GUI，並具備足夠的響應能力供日後資訊看板使用 |
@@ -171,6 +183,8 @@ python -m lkt.cli ingest-jmdict "C:\path\to\jmdict-eng-3.6.2.json" --release "3.
 python -m lkt.cli audit-japanese-readings
 python -m lkt.cli search abacus
 python -m lkt.cli search technology --corpus question
+python -m lkt.cli ingest-markdown "C:\path\to\canonical-markdown-vault"
+python -m lkt.cli search-markdown "source provenance"
 python -m lkt.cli knowledge-status
 python -m lkt.cli sync-card-knowledge
 python -m lkt.cli plan-word inspection --display-languages en ja zh fr ar

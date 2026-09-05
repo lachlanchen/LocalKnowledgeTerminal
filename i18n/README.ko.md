@@ -116,6 +116,23 @@ python examples/pocketpolyglot_passage_graph.py
 python examples/pocketpolyglot_passage_graph.py --check
 ```
 
+### 읽기 전용 Markdown 보관함 증명
+
+[Markdown 보관함 예제](../examples/artifacts/markdown-vault-index.json)는 프로젝트가 소유한
+다국어 노트 두 개를 정본 파일로 유지하고 그 옆에 로컬에서 폐기 가능한 SQLite FTS 인덱스를
+구축합니다. 각 결과는 상대 파일 경로, 제목, 정확한 줄 범위와 발췌문, 소스 SHA-256을 반환합니다.
+명시적인 `[[wikilinks]]`만 간선이 됩니다. 숨김 폴더, `.obsidian`, 생성된 폴더, 심볼릭 링크는
+제외하며, 재구축에 실패해도 이전 인덱스는 그대로 보존됩니다.
+
+이는 결정론적 어휘 검색과 출처 계보의 증명입니다. Obsidian 네이티브 통합, 의미/벡터 검색,
+자동 개념 발견, 원본에 다시 쓰기, 보관함 전체 질의응답, 고객 결과물이 아닙니다. 프로젝트 소유
+산출물을 다시 만들거나 검증하세요.
+
+```bash
+python examples/markdown_vault_index.py
+python examples/markdown_vault_index.py --check
+```
+
 ### 대본형 이중 언어 회의 증명
 
 [이중 언어 회의 예제](../examples/artifacts/scripted-bilingual-meeting-knowledge.json)는 개별 타임스탬프가
@@ -228,6 +245,7 @@ Word Origin은 신뢰할 수 있는 언어학적 맥락을 더할 수 있지만 
 | `lkt/lexicon.py` | 압축 다국어 WordNet 수정 근거 |
 | `lkt/freedict.py` | 정확한 FreeDict 영어-아랍어 수집 및 수정 검색 |
 | `lkt/jmdict.py` | 전체 JMdict 정확 표기 읽기 인덱스와 출처 계보 |
+| `lkt/markdown.py` | 읽기 전용 Markdown 스캔, 원자적 일회용 FTS 인덱스, wikilinks, 정확한 소스 출처 계보 |
 | `lkt/web.py` | 의존성 없는 HTTP API와 GUI 서버 |
 | `lkt/outputs.py` | 안정적인 웹/전자잉크/오디오 출력 경계 |
 | `lkt/static/` | 데스크톱급 GUI, 향후 키오스크에 충분한 반응형 구성 |
@@ -265,6 +283,8 @@ python -m lkt.cli ingest-jmdict "C:\path\to\jmdict-eng-3.6.2.json" --release "3.
 python -m lkt.cli audit-japanese-readings
 python -m lkt.cli search abacus
 python -m lkt.cli search technology --corpus question
+python -m lkt.cli ingest-markdown "C:\path\to\canonical-markdown-vault"
+python -m lkt.cli search-markdown "source provenance"
 python -m lkt.cli knowledge-status
 python -m lkt.cli sync-card-knowledge
 python -m lkt.cli plan-word inspection --display-languages en ja zh fr ar

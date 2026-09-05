@@ -29,6 +29,7 @@ from .device import (
 from .graph import rebuild_ladybug
 from .freedict import build_freedict_index
 from .llm import LlamaCppClient
+from .markdown import MarkdownIndex, build_markdown_index
 from .knowledge import KnowledgeStore
 from .jmdict import JapaneseReadingIndex, build_jmdict_index
 from .lexicon import LocalLexiconRag
@@ -88,6 +89,30 @@ def command_search(args: argparse.Namespace) -> int:
     print(
         json.dumps([item.to_dict() for item in evidence], ensure_ascii=False, indent=2)
     )
+    return 0
+
+
+def command_ingest_markdown(args: argparse.Namespace) -> int:
+    settings = _settings()
+    destination = (
+        Path(args.database).resolve()
+        if args.database
+        else settings.data_dir / "markdown-vault.sqlite3"
+    )
+    result = build_markdown_index(Path(args.vault), destination)
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0
+
+
+def command_search_markdown(args: argparse.Namespace) -> int:
+    settings = _settings()
+    database = (
+        Path(args.database).resolve()
+        if args.database
+        else settings.data_dir / "markdown-vault.sqlite3"
+    )
+    results = MarkdownIndex(database).search(args.query, args.limit)
+    print(json.dumps(results, ensure_ascii=False, indent=2))
     return 0
 
 
@@ -972,6 +997,23 @@ def parser() -> argparse.ArgumentParser:
         default="word-origins",
     )
     search.set_defaults(handler=command_search)
+
+    markdown_ingest = commands.add_parser(
+        "ingest-markdown",
+        help="build a disposable local index from a read-only Markdown vault",
+    )
+    markdown_ingest.add_argument("vault", help="path to the canonical Markdown vault")
+    markdown_ingest.add_argument("--database", help="override destination database")
+    markdown_ingest.set_defaults(handler=command_ingest_markdown)
+
+    markdown_search = commands.add_parser(
+        "search-markdown",
+        help="search Markdown with exact file, heading, line, and hash provenance",
+    )
+    markdown_search.add_argument("query")
+    markdown_search.add_argument("--limit", type=int, default=8)
+    markdown_search.add_argument("--database", help="override Markdown index database")
+    markdown_search.set_defaults(handler=command_search_markdown)
 
     generate = commands.add_parser(
         "generate",

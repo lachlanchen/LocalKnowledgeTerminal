@@ -157,6 +157,28 @@ python examples/pocketpolyglot_passage_graph.py
 python examples/pocketpolyglot_passage_graph.py --check
 ```
 
+### Preuve d’un coffre Markdown en lecture seule
+
+L’[exemple de coffre Markdown](../examples/artifacts/markdown-vault-index.json)
+conserve deux notes multilingues propres au projet comme fichiers canoniques et
+crée à côté un index FTS SQLite local et jetable. Chaque résultat renvoie le
+chemin relatif du fichier, le titre, la plage de lignes exacte et l’extrait,
+ainsi que le SHA-256 de la source. Seuls les `[[wikilinks]]` explicites deviennent
+des arêtes. Les dossiers cachés, `.obsidian`, les dossiers générés et les liens
+symboliques sont exclus ; en cas d’échec de la reconstruction, l’index précédent
+reste en place.
+
+Il s’agit d’une preuve déterministe de recherche lexicale et de provenance. Ce
+n’est ni une intégration native à Obsidian, ni une recherche sémantique/vectorielle,
+ni une découverte automatique des concepts, ni une écriture dans les fichiers
+source, ni un système de questions-réponses sur l’ensemble du coffre, ni un
+résultat client. Reconstruisez ou vérifiez l’artefact propre au projet :
+
+```bash
+python examples/markdown_vault_index.py
+python examples/markdown_vault_index.py --check
+```
+
 ### Preuve de réunion bilingue scénarisée
 
 L’[exemple de réunion bilingue](../examples/artifacts/scripted-bilingual-meeting-knowledge.json)
@@ -316,6 +338,7 @@ l’application ne génère pas de fiche.
 | `lkt/lexicon.py` | Preuves compactes de correction WordNet multilingue |
 | `lkt/freedict.py` | Ingestion anglaise-arabe exacte de FreeDict et recherche des corrections |
 | `lkt/jmdict.py` | Index complet des lectures JMdict par forme exacte et provenance |
+| `lkt/markdown.py` | Analyse Markdown en lecture seule, index FTS atomique et jetable, wikilinks et provenance exacte des sources |
 | `lkt/web.py` | API HTTP sans dépendance et serveur d’interface web |
 | `lkt/outputs.py` | Frontière stable des sorties web/encre électronique/audio |
 | `lkt/static/` | Interface de niveau bureau, assez adaptative pour un futur usage en kiosque |
@@ -353,6 +376,8 @@ python -m lkt.cli ingest-jmdict "C:\path\to\jmdict-eng-3.6.2.json" --release "3.
 python -m lkt.cli audit-japanese-readings
 python -m lkt.cli search abacus
 python -m lkt.cli search technology --corpus question
+python -m lkt.cli ingest-markdown "C:\path\to\canonical-markdown-vault"
+python -m lkt.cli search-markdown "source provenance"
 python -m lkt.cli knowledge-status
 python -m lkt.cli sync-card-knowledge
 python -m lkt.cli plan-word inspection --display-languages en ja zh fr ar
