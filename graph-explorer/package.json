@@ -1,0 +1,20 @@
+{
+  "name": "lkt-lexicon-atlas",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=24.0.0" },
+  "scripts": {
+    "build": "vite build",
+    "start": "node server.mjs",
+    "sync": "node scripts/sync-pi.mjs",
+    "test": "node --test tests/*.test.mjs"
+  },
+  "dependencies": {
+    "@fontsource-variable/space-grotesk": "5.3.0",
+    "@fontsource/ibm-plex-mono": "5.3.0",
+    "d3-force-3d": "3.0.6",
+    "three": "0.185.1"
+  },
+  "devDependencies": { "vite": "8.2.2" }
+}
