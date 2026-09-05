@@ -1,0 +1,22 @@
+cff-version: 1.2.0
+message: "If you use Local Knowledge Terminal, please cite it using this metadata."
+title: Local Knowledge Terminal
+type: software
+authors:
+  - family-names: Chen
+    given-names: Lachlan
+version: 0.1.0
+repository-code: "https://github.com/lachlanchen/LocalKnowledgeTerminal"
+url: "https://lazying.art/lkt/"
+abstract: >-
+  A local-first system that turns private book and dictionary collections into
+  cited multilingual knowledge cards and provenance-linked knowledge graphs on
+  user-controlled hardware.
+keywords:
+  - local-first
+  - multilingual
+  - knowledge graph
+  - retrieval-augmented generation
+  - citations
+  - provenance
+  - Raspberry Pi
