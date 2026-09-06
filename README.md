@@ -497,3 +497,29 @@ which reads [`CITATION.cff`](CITATION.cff), or use:
   url = {https://github.com/lachlanchen/LocalKnowledgeTerminal}
 }
 ```
+
+<!-- lexicon-atlas-introduction -->
+## English word knowledge graph: Lexicon Atlas
+
+LKT's lexical knowledge is a connected graph, not only a collection of word cards.
+Words connect to roots, prefixes, suffixes, historical forms, pronunciations,
+senses, and multilingual meanings. Local language-model inference and retrieval
+from books and dictionaries prepare this knowledge upstream.
+
+[![Lexicon Atlas: the English word knowledge graph in 3D](https://raw.githubusercontent.com/lachlanchen/LexiconAtlas/main/docs/images/atlas-desktop.png)](https://github.com/lachlanchen/LexiconAtlas)
+
+**[Explore the standalone Lexicon Atlas repository](https://github.com/lachlanchen/LexiconAtlas)**
+| **[Download the graph database](https://github.com/lachlanchen/LexiconAtlas/releases/latest)**
+| **[Dataset schema and limitations](https://github.com/lachlanchen/LexiconAtlas/blob/main/docs/DATASET.md)**
+
+Lexicon Atlas is a local-first, read-only 3D interface built with Three.js and a D3
+force layout. Search the network, filter languages and node types, follow a word's
+neighborhood, and inspect stored relationships and source references. It is an
+independent app; LKT retains ingestion, local-LLM enrichment, repair, and cards.
+
+The public SQLite release contains lexical graph records, not the original books
+or the operational database. Book excerpts, prompts, inquiry history, worker
+state, and arbitrary payloads are omitted. Coverage and correctness remain uneven;
+a released snapshot does not update itself or guarantee every etymology is correct.
+Follow the standalone README to run on Windows, Linux, or macOS at
+`http://127.0.0.1:8091/`.
