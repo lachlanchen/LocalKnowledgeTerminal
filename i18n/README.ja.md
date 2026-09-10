@@ -125,6 +125,31 @@ python examples/pocketpolyglot_passage_graph.py
 python examples/pocketpolyglot_passage_graph.py --check
 ```
 
+<!-- lexicon-atlas-introduction -->
+## 英単語の知識グラフ：Lexicon Atlas
+
+LKT の語彙知識は、単語カードの集合だけではなく、つながりを持つグラフです。
+単語は語根、接頭辞、接尾辞、歴史的語形、発音、語義、多言語の意味と結ばれます。
+ローカル言語モデルによる推論と、書籍・辞書からの検索が、この知識を上流で
+準備します。
+
+[![Lexicon Atlas：英単語知識グラフの3D表示](https://raw.githubusercontent.com/lachlanchen/LexiconAtlas/main/docs/images/atlas-desktop.png)](https://github.com/lachlanchen/LexiconAtlas)
+
+**[独立した Lexicon Atlas リポジトリを見る](https://github.com/lachlanchen/LexiconAtlas)**
+| **[グラフデータベースをダウンロード](https://github.com/lachlanchen/LexiconAtlas/releases/latest)**
+| **[データセットのスキーマと制約](https://github.com/lachlanchen/LexiconAtlas/blob/main/docs/DATASET.md)**
+
+Lexicon Atlas は Three.js と D3 のフォースレイアウトで構築した、ローカル優先・
+読み取り専用の3Dインターフェースです。ネットワーク検索、言語やノード種別の
+絞り込み、単語周辺の追跡、保存済み関係と出典参照の確認ができます。独立した
+アプリであり、取り込み、ローカル LLM による強化、修復、カードは LKT が担います。
+
+公開 SQLite 版に含まれるのは語彙グラフのレコードで、原書や運用データベースでは
+ありません。書籍の抜粋、プロンプト、問い合わせ履歴、ワーカー状態、任意の
+ペイロードは除外されています。収録範囲と正確さにはまだばらつきがあり、公開
+スナップショットは自動更新されず、全語源の正しさも保証しません。Windows、
+Linux、macOS で `http://127.0.0.1:8091/` を開く方法は独立版 README にあります。
+
 ### 読み取り専用 Markdown Vault の実証
 
 [Markdown Vault の例](../examples/artifacts/markdown-vault-index.json)は、プロジェクト所有の
@@ -234,6 +259,27 @@ Book Question ─► question search / draw ──────┘              �
                           Web GUI   E-ink     Audio
                           (ready)  (adapter)  (adapter)
 ```
+
+### 読み取り専用 MCP ブリッジ
+
+LKT には、`knowledge.sqlite3` の承認済み知識を決定的に参照するための、
+独立したオプションの MCP 2.x アダプターがあります。読み取り専用ツール
+`query_private_knowledge` と `trace_private_claim`、およびコレクション状態
+リソースを公開します。Qwen は呼び出さず、書き込み操作も公開しません。
+
+```bash
+python -m pip install -e '.[mcp]'
+lkt-mcp --transport stdio
+lkt-mcp --transport streamable-http
+```
+
+HTTP の既定値は `http://127.0.0.1:8091/mcp` です。現時点ではアプリ認証が
+ないため、ループバック以外へのバインドを拒否します。リモートクライアントを
+接続すると、問い合わせ、該当テキスト、抜粋、不透明化されたコレクション／
+ソース ID、安全な相対ロケーター、検証済みソースハッシュが端末外へ送られる
+可能性があります。生の識別子と危険なロケーターは返しません。現時点で
+Alexa／Alexa+ 対応はうたっていません。接続前に
+[MCP の境界と利用ガイド](../docs/mcp.md)を確認してください。
 
 ## 根拠付けの規則
 

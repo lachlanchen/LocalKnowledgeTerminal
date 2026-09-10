@@ -63,6 +63,29 @@ python examples/pocketpolyglot_passage_graph.py
 python examples/pocketpolyglot_passage_graph.py --check
 ```
 
+<!-- lexicon-atlas-introduction -->
+## 英語詞彙知識圖譜：Lexicon Atlas
+
+LKT 的詞彙知識是一張彼此連接的圖，而不只是一組單字卡。單字可連接到詞根、前綴、
+後綴、歷史詞形、發音、義項和多語言釋義。LKT 在上游透過本機語言模型推論以及從
+書籍、詞典檢索來準備這些知識。
+
+[![Lexicon Atlas：三維英語詞彙知識圖譜](https://raw.githubusercontent.com/lachlanchen/LexiconAtlas/main/docs/images/atlas-desktop.png)](https://github.com/lachlanchen/LexiconAtlas)
+
+**[瀏覽獨立的 Lexicon Atlas 儲存庫](https://github.com/lachlanchen/LexiconAtlas)**
+| **[下載圖資料庫](https://github.com/lachlanchen/LexiconAtlas/releases/latest)**
+| **[資料集結構與限制](https://github.com/lachlanchen/LexiconAtlas/blob/main/docs/DATASET.md)**
+
+Lexicon Atlas 是一個以 Three.js 和 D3 力導向配置建立的本機優先、唯讀三維介面。
+你可以搜尋網路、依語言和節點類型篩選、沿著某個單字的鄰域瀏覽，並查看已儲存的
+關係及來源引用。它是獨立應用程式；語料匯入、本機 LLM 豐富、修復和卡片仍由 LKT 負責。
+
+公開的 SQLite 版本只含詞彙圖譜記錄，不含原始書籍或運作資料庫。書籍摘錄、提示詞、
+查詢歷史、工作程序狀態和任意負載均被排除。涵蓋範圍和正確性仍不均勻；已發布快照
+不會自行更新，也不保證每條詞源都正確。請依獨立 README 在 Windows、Linux 或
+macOS 上執行，並造訪 `http://127.0.0.1:8091/`。
+下載前請先閱讀資料說明，核對版本、欄位來源和已知限制。
+
 ### 唯讀 Markdown 知識庫證明
 
 [Markdown 知識庫範例](../examples/artifacts/markdown-vault-index.json)保留兩篇專案自有的多語言筆記作為權威檔案，並在旁邊建置一個本機、可丟棄的 SQLite FTS 索引。每項結果都會傳回相對檔案路徑、標題、精確的行範圍與摘錄，以及來源檔案的 SHA-256。只有明確的 `[[wikilinks]]` 會成為邊。隱藏資料夾、`.obsidian`、產生的資料夾和符號連結均會被排除；如果重新建置失敗，先前的索引會原樣保留。
@@ -119,6 +142,33 @@ Book Question ─► question search / draw ──────┘              �
                           Web GUI   E-ink     Audio
                           (ready)  (adapter)  (adapter)
 ```
+
+### 唯讀 MCP 橋接器
+
+LKT 提供一個可選、獨立的 MCP 2.x 適配器，用於確定性地讀取
+`knowledge.sqlite3` 中已接受的知識。它只公開兩個唯讀工具
+`query_private_knowledge`、`trace_private_claim` 和一個藏書狀態資源；不呼叫
+Qwen，也不提供寫入操作。
+
+```bash
+python -m pip install -e '.[mcp]'
+lkt-mcp --transport stdio
+lkt-mcp --transport streamable-http
+```
+
+HTTP 預設位址是 `http://127.0.0.1:8091/mcp`。目前版本尚無應用程式驗證，因此
+拒絕綁定非迴環位址。遠端用戶端可能把查詢、匹配文字、摘錄、不透明的藏書/來源
+ID、安全的相對定位符和通過驗證的來源雜湊帶離裝置。原始藏書/來源項目識別字和
+不安全定位符不會回傳。專案目前不宣稱支援 Alexa 或 Alexa+。連接遠端用戶端前
+請閱讀 [MCP 邊界與使用指南](../docs/mcp.md)。
+
+這個邊界適合讓本機桌面代理、開發工具或經審查的自動化流程檢索現有知識，而不是
+讓遠端服務直接控制 LKT。查詢長度、結果數量、圖深度、節點、關係、證據、藏書數量
+和 SQLite 工作量都有上限；同一輸入和同一帳本會得到穩定排序及結果雜湊。只有狀態
+已接受、三個關係端點都已接受、依據不是模型輸出且確有來源證據的關係可以被查詢或
+追溯。啟動橋接器不會初始化、遷移或修改資料庫。若以後需要跨裝置存取，應在它前面
+另行部署經過驗證和加密的邊界，並先明確哪些藏書、摘錄和查詢可以離開裝置，也應
+定期審查存取記錄。
 
 ## 依據規則
 

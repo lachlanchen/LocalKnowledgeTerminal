@@ -128,6 +128,31 @@ python examples/pocketpolyglot_passage_graph.py
 python examples/pocketpolyglot_passage_graph.py --check
 ```
 
+<!-- lexicon-atlas-introduction -->
+## رسم المعرفة للكلمات الإنجليزية: Lexicon Atlas
+
+المعرفة المعجمية في LKT رسم مترابط وليست مجرد مجموعة بطاقات كلمات. ترتبط
+الكلمات بالجذور والبادئات واللواحق والصيغ التاريخية والنطق والمعاني والدلالات
+متعددة اللغات. يُعدّ LKT هذه المعرفة مسبقًا بالاستدلال المحلي لنموذج اللغة
+والاسترجاع من الكتب والقواميس.
+
+[![Lexicon Atlas: رسم المعرفة للكلمات الإنجليزية ثلاثي الأبعاد](https://raw.githubusercontent.com/lachlanchen/LexiconAtlas/main/docs/images/atlas-desktop.png)](https://github.com/lachlanchen/LexiconAtlas)
+
+**[استكشف مستودع Lexicon Atlas المستقل](https://github.com/lachlanchen/LexiconAtlas)**
+| **[نزّل قاعدة بيانات الرسم](https://github.com/lachlanchen/LexiconAtlas/releases/latest)**
+| **[مخطط مجموعة البيانات وحدودها](https://github.com/lachlanchen/LexiconAtlas/blob/main/docs/DATASET.md)**
+
+Lexicon Atlas واجهة ثلاثية الأبعاد، محلية أولًا وللقراءة فقط، مبنية باستخدام
+Three.js وتخطيط قوى D3. ابحث في الشبكة، ورشّح اللغات وأنواع العقد، وتتبع جوار
+الكلمة، وافحص العلاقات المخزنة ومراجع المصادر. إنه تطبيق مستقل؛ ويظل LKT مسؤولًا
+عن الاستيعاب والإثراء بالنموذج المحلي والإصلاح والبطاقات.
+
+يحتوي إصدار SQLite العام على سجلات الرسم المعجمي، لا الكتب الأصلية ولا قاعدة
+البيانات التشغيلية. وتُستبعد مقتطفات الكتب والمطالبات وسجل الاستعلام وحالة العامل
+والحمولات العشوائية. لا تزال التغطية والدقة متفاوتتين؛ فاللقطة المنشورة لا تحدّث
+نفسها ولا تضمن صحة كل اشتقاق. اتبع README المستقل للتشغيل على Windows أو Linux
+أو macOS في `http://127.0.0.1:8091/`.
+
 ### برهان خزينة Markdown للقراءة فقط
 
 يُبقي [مثال خزينة Markdown](../examples/artifacts/markdown-vault-index.json)
@@ -244,6 +269,26 @@ Book Question ─► question search / draw ──────┘              �
                           Web GUI   E-ink     Audio
                           (ready)  (adapter)  (adapter)
 ```
+
+### جسر MCP للقراءة فقط
+
+يتضمن LKT محولاً اختيارياً مستقلاً لـ MCP 2.x للوصول الحتمي إلى المعرفة
+المقبولة في `knowledge.sqlite3`. وهو يوفّر أداتين للقراءة فقط،
+`query_private_knowledge` و`trace_private_claim`، ومورداً واحداً لحالة
+المجموعات. لا يستدعي Qwen ولا يتيح أي عملية كتابة.
+
+```bash
+python -m pip install -e '.[mcp]'
+lkt-mcp --transport stdio
+lkt-mcp --transport streamable-http
+```
+
+يستمع HTTP افتراضياً على `http://127.0.0.1:8091/mcp` ويرفض العناوين غير
+المحلية لأنه لا يوفّر مصادقة للتطبيق بعد. قد ترسل عميلة بعيدة الاستعلامات
+والنصوص والمقتطفات ومعرّفات المجموعة/المصدر المعتمة والمواقع النسبية الآمنة
+وتجزئات المصدر المتحقق منها خارج الجهاز. تُحجب المعرّفات الأصلية والمواقع غير
+الآمنة. لا يدّعي المشروع حالياً دعماً لـ Alexa أو Alexa+. راجع
+[دليل الحدود والاستخدام](../docs/mcp.md) قبل ربط عميلة بعيدة.
 
 ## قاعدة الإسناد
 

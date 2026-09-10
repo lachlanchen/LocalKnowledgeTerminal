@@ -176,6 +176,33 @@ python examples/scripted_bilingual_meeting_knowledge.py
 python examples/scripted_bilingual_meeting_knowledge.py --check
 ```
 
+### Read-only MCP bridge
+
+LKT also has an optional, standalone MCP 2.x adapter for deterministic access
+to accepted knowledge in `knowledge.sqlite3`. It exposes two read-only tools
+(`query_private_knowledge` and `trace_private_claim`) plus one collection-status
+resource. The adapter opens SQLite in read-only/query-only mode, never invokes
+Qwen, and does not expose ingestion, review, archive, or other write operations.
+
+Install the optional dependency and start either stdio or loopback-only
+Streamable HTTP:
+
+```bash
+python -m pip install -e '.[mcp]'
+lkt-mcp --transport stdio
+lkt-mcp --transport streamable-http
+```
+
+The HTTP default is `http://127.0.0.1:8091/mcp`. This first bridge has no
+application authentication and therefore refuses non-loopback bind addresses.
+An MCP client running elsewhere can still cause private queries, matched text,
+source excerpts, opaque collection/source IDs, safe relative locators, and
+validated source hashes to leave the device through whatever authenticated
+relay or tunnel you configure. Raw corpus/source-entry identifiers and unsafe
+locators are withheld. LKT does not currently ship or claim Amazon Alexa/Alexa+
+integration. See the [MCP boundary and usage guide](docs/mcp.md) before
+connecting any remote client.
+
 Preparation uses small dependency-aware jobs: retrieve evidence, prepare one
 meaning, split components, recursively expand each origin branch, prepare each
 language/pronunciation independently, validate, then compose. Successful stages
@@ -290,6 +317,8 @@ the configured book has no evidence, the app does not generate a card.
 | `lkt/pronunciation.py` | Deterministic pinyin/ruby and versioned offline IPA |
 | `lkt/store.py` | Versioned cards, preparation artifacts, revisions, archive, and chat ledger |
 | `lkt/knowledge.py` | Atomic established knowledge, evidence, jobs, revisions, and inquiry lineage |
+| `lkt/mcp_query.py` | Bounded, deterministic, read-only SQLite knowledge and provenance queries |
+| `lkt/mcp_server.py` | Optional stdio and loopback Streamable-HTTP MCP adapter |
 | `lkt/preparation.py` | Dependency-aware divide-and-conquer word/content planning |
 | `lkt/atomic.py` | Bounded atomic preparation and deterministic card assembly |
 | `lkt/graph.py` | Rebuildable LadybugDB traversal projection from accepted SQLite atoms |
@@ -305,6 +334,7 @@ the configured book has no evidence, the app does not generate a card.
 | `docs/lineage.md` | Exact legacy-project and corpus provenance |
 | `docs/product-brief.md` | Durable owner requirements and acceptance criteria |
 | `docs/knowledge-architecture.md` | Atomic SQLite, graph projection, and staged preparation contract |
+| `docs/mcp.md` | MCP tools, transports, privacy boundary, and deployment limits |
 | `docs/owner-request-log.md` | Chronological, privacy-redacted owner direction |
 | `docs/voice-hardware.md` | Supported microphone choice and staged audio tests |
 | `docs/mode-roadmap.md` | Extension plan for future suffix, affix, and root books |

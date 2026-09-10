@@ -154,6 +154,34 @@ python examples/pocketpolyglot_passage_graph.py
 python examples/pocketpolyglot_passage_graph.py --check
 ```
 
+<!-- lexicon-atlas-introduction -->
+## Englischer Wortwissensgraph: Lexicon Atlas
+
+Das lexikalische Wissen von LKT ist ein verbundenes Netz und nicht nur eine
+Sammlung von Wortkarten. Wörter sind mit Wurzeln, Präfixen, Suffixen,
+historischen Formen, Aussprachen, Bedeutungen und mehrsprachigen Entsprechungen
+verknüpft. Lokale Sprachmodell-Inferenz und die Suche in Büchern und Wörterbüchern
+bereiten dieses Wissen vorab auf.
+
+[![Lexicon Atlas: der englische Wortwissensgraph in 3D](https://raw.githubusercontent.com/lachlanchen/LexiconAtlas/main/docs/images/atlas-desktop.png)](https://github.com/lachlanchen/LexiconAtlas)
+
+**[Eigenständiges Lexicon-Atlas-Repository erkunden](https://github.com/lachlanchen/LexiconAtlas)**
+| **[Graphdatenbank herunterladen](https://github.com/lachlanchen/LexiconAtlas/releases/latest)**
+| **[Datenschema und Grenzen](https://github.com/lachlanchen/LexiconAtlas/blob/main/docs/DATASET.md)**
+
+Lexicon Atlas ist eine lokale, schreibgeschützte 3D-Oberfläche mit Three.js und
+einem D3-Kraftlayout. Das Netz lässt sich durchsuchen, nach Sprachen und Knotentypen
+filtern und vom Umfeld eines Wortes bis zu gespeicherten Beziehungen und
+Quellenverweisen verfolgen. Die App ist eigenständig; Aufnahme, lokale
+LLM-Anreicherung, Reparatur und Karten verbleiben in LKT.
+
+Die öffentliche SQLite-Veröffentlichung enthält lexikalische Graphdatensätze,
+nicht die Originalbücher oder die Betriebsdatenbank. Buchauszüge, Prompts,
+Anfrageverlauf, Worker-Zustand und beliebige Payloads fehlen. Abdeckung und
+Korrektheit sind noch uneinheitlich; ein Snapshot aktualisiert sich nicht selbst
+und garantiert nicht jede Etymologie. Die eigenständige README erklärt den Start
+unter Windows, Linux oder macOS auf `http://127.0.0.1:8091/`.
+
 ### Nachweis eines schreibgeschützten Markdown-Vaults
 
 Das [Markdown-Vault-Beispiel](../examples/artifacts/markdown-vault-index.json)
@@ -299,6 +327,28 @@ Book Question ─► question search / draw ──────┘              �
                           Web GUI   E-ink     Audio
                           (ready)  (adapter)  (adapter)
 ```
+
+### Schreibgeschützte MCP-Brücke
+
+LKT enthält einen optionalen, eigenständigen MCP-2.x-Adapter für den
+deterministischen Zugriff auf akzeptiertes Wissen in `knowledge.sqlite3`. Er
+stellt die beiden schreibgeschützten Werkzeuge `query_private_knowledge` und
+`trace_private_claim` sowie eine Ressource zum Sammlungsstatus bereit. Qwen wird
+nicht aufgerufen, und Schreiboperationen werden nicht angeboten.
+
+```bash
+python -m pip install -e '.[mcp]'
+lkt-mcp --transport stdio
+lkt-mcp --transport streamable-http
+```
+
+HTTP lauscht standardmäßig auf `http://127.0.0.1:8091/mcp` und verweigert
+nicht-lokale Bindungen, da noch keine Anwendungsauthentifizierung vorhanden ist.
+Ein entfernter Client kann Anfragen, gefundene Texte, Auszüge, undurchsichtige
+Sammlungs-/Quell-IDs, sichere relative Fundstellen und geprüfte Quell-Hashes vom
+Gerät übertragen. Rohe Korpus-/Quell-IDs und unsichere Fundstellen werden
+zurückgehalten. Alexa- oder Alexa+-Unterstützung wird derzeit nicht beansprucht.
+Vor einer Fernverbindung gilt der [MCP-Grenz- und Nutzungsleitfaden](../docs/mcp.md).
 
 ## Belegregel
 

@@ -116,6 +116,30 @@ python examples/pocketpolyglot_passage_graph.py
 python examples/pocketpolyglot_passage_graph.py --check
 ```
 
+<!-- lexicon-atlas-introduction -->
+## 영어 단어 지식 그래프: Lexicon Atlas
+
+LKT의 어휘 지식은 단어 카드 모음만이 아니라 연결된 그래프입니다. 단어는 어근,
+접두사, 접미사, 역사적 형태, 발음, 뜻, 다국어 의미와 연결됩니다. 로컬 언어 모델
+추론과 책·사전 검색이 이 지식을 상위 단계에서 준비합니다.
+
+[![Lexicon Atlas: 영어 단어 지식 그래프의 3D 화면](https://raw.githubusercontent.com/lachlanchen/LexiconAtlas/main/docs/images/atlas-desktop.png)](https://github.com/lachlanchen/LexiconAtlas)
+
+**[독립형 Lexicon Atlas 저장소 살펴보기](https://github.com/lachlanchen/LexiconAtlas)**
+| **[그래프 데이터베이스 다운로드](https://github.com/lachlanchen/LexiconAtlas/releases/latest)**
+| **[데이터셋 스키마와 한계](https://github.com/lachlanchen/LexiconAtlas/blob/main/docs/DATASET.md)**
+
+Lexicon Atlas는 Three.js와 D3 포스 레이아웃으로 만든 로컬 우선, 읽기 전용 3D
+인터페이스입니다. 네트워크 검색, 언어와 노드 유형 필터, 단어 주변 탐색, 저장된
+관계와 출처 참조 확인을 지원합니다. 독립 앱이며 수집, 로컬 LLM 보강, 복구,
+카드 생성은 계속 LKT가 담당합니다.
+
+공개 SQLite 릴리스에는 어휘 그래프 레코드만 있고 원본 책과 운영 데이터베이스는
+없습니다. 책 발췌, 프롬프트, 질의 기록, 작업자 상태, 임의 페이로드도 제외됩니다.
+범위와 정확도는 아직 고르지 않으며 공개 스냅샷은 스스로 갱신되지 않고 모든 어원을
+보장하지 않습니다. Windows, Linux, macOS에서 `http://127.0.0.1:8091/`로 실행하는
+방법은 독립형 README를 따르세요.
+
 ### 읽기 전용 Markdown 보관함 증명
 
 [Markdown 보관함 예제](../examples/artifacts/markdown-vault-index.json)는 프로젝트가 소유한
@@ -216,6 +240,26 @@ Book Question ─► question search / draw ──────┘              �
                           Web GUI   E-ink     Audio
                           (ready)  (adapter)  (adapter)
 ```
+
+### 읽기 전용 MCP 브리지
+
+LKT에는 `knowledge.sqlite3`의 승인된 지식을 결정적으로 읽기 위한 독립형
+선택 MCP 2.x 어댑터가 있습니다. 읽기 전용 도구
+`query_private_knowledge`, `trace_private_claim`과 컬렉션 상태 리소스 하나를
+제공합니다. Qwen을 호출하지 않으며 쓰기 작업도 노출하지 않습니다.
+
+```bash
+python -m pip install -e '.[mcp]'
+lkt-mcp --transport stdio
+lkt-mcp --transport streamable-http
+```
+
+HTTP 기본 주소는 `http://127.0.0.1:8091/mcp`입니다. 아직 애플리케이션 인증이
+없으므로 루프백 이외의 바인딩을 거부합니다. 원격 클라이언트는 질의, 일치 텍스트,
+발췌, 불투명 컬렉션/출처 ID, 안전한 상대 로케이터, 검증된 출처 해시를 기기 밖으로
+보낼 수 있습니다. 원시 식별자와 안전하지 않은 로케이터는 숨깁니다. 현재 Alexa
+또는 Alexa+ 지원을 주장하지 않습니다. 원격 연결 전
+[MCP 경계 및 사용 안내](../docs/mcp.md)를 확인하세요.
 
 ## 근거 규칙
 

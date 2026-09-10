@@ -127,6 +127,31 @@ python examples/pocketpolyglot_passage_graph.py
 python examples/pocketpolyglot_passage_graph.py --check
 ```
 
+<!-- lexicon-atlas-introduction -->
+## Đồ thị tri thức từ tiếng Anh: Lexicon Atlas
+
+Tri thức từ vựng của LKT là một đồ thị liên kết, không chỉ là tập hợp thẻ từ.
+Từ được nối với gốc từ, tiền tố, hậu tố, dạng lịch sử, phát âm, nghĩa và ý nghĩa
+đa ngôn ngữ. Suy luận bằng mô hình ngôn ngữ cục bộ và truy hồi từ sách, từ điển
+chuẩn bị tri thức này ở thượng nguồn.
+
+[![Lexicon Atlas: đồ thị tri thức từ tiếng Anh 3D](https://raw.githubusercontent.com/lachlanchen/LexiconAtlas/main/docs/images/atlas-desktop.png)](https://github.com/lachlanchen/LexiconAtlas)
+
+**[Khám phá kho Lexicon Atlas độc lập](https://github.com/lachlanchen/LexiconAtlas)**
+| **[Tải cơ sở dữ liệu đồ thị](https://github.com/lachlanchen/LexiconAtlas/releases/latest)**
+| **[Lược đồ và giới hạn dữ liệu](https://github.com/lachlanchen/LexiconAtlas/blob/main/docs/DATASET.md)**
+
+Lexicon Atlas là giao diện 3D ưu tiên cục bộ, chỉ đọc, xây bằng Three.js và bố cục
+lực D3. Bạn có thể tìm mạng, lọc ngôn ngữ và loại nút, theo dõi vùng lân cận của
+một từ, rồi xem quan hệ đã lưu và tham chiếu nguồn. Đây là ứng dụng độc lập; LKT
+vẫn phụ trách nhập dữ liệu, làm giàu bằng LLM cục bộ, sửa chữa và tạo thẻ.
+
+Bản SQLite công khai chứa bản ghi đồ thị từ vựng, không chứa sách gốc hay cơ sở
+dữ liệu vận hành. Trích đoạn sách, prompt, lịch sử truy vấn, trạng thái worker và
+payload tùy ý đều bị loại. Độ bao phủ và độ đúng vẫn chưa đồng đều; snapshot không
+tự cập nhật và không bảo đảm mọi từ nguyên. Làm theo README độc lập để chạy trên
+Windows, Linux hoặc macOS tại `http://127.0.0.1:8091/`.
+
 ### Minh chứng kho Markdown chỉ đọc
 
 [Ví dụ kho Markdown](../examples/artifacts/markdown-vault-index.json) giữ hai ghi
@@ -243,6 +268,27 @@ Book Question ─► question search / draw ──────┘              �
                           Web GUI   E-ink     Audio
                           (ready)  (adapter)  (adapter)
 ```
+
+### Cầu nối MCP chỉ đọc
+
+LKT có bộ chuyển đổi MCP 2.x độc lập, tùy chọn để truy cập có tính xác định vào
+phần tri thức đã được chấp nhận trong `knowledge.sqlite3`. Bộ chuyển đổi cung cấp
+hai công cụ chỉ đọc `query_private_knowledge`, `trace_private_claim` và một tài
+nguyên trạng thái bộ sưu tập. Nó không gọi Qwen và không cung cấp thao tác ghi.
+
+```bash
+python -m pip install -e '.[mcp]'
+lkt-mcp --transport stdio
+lkt-mcp --transport streamable-http
+```
+
+HTTP mặc định dùng `http://127.0.0.1:8091/mcp` và từ chối địa chỉ không phải
+loopback vì phiên bản này chưa có xác thực ứng dụng. Máy khách từ xa có thể đưa
+truy vấn, văn bản khớp, trích đoạn, ID bộ sưu tập/nguồn đã làm mờ, bộ định vị
+tương đối an toàn và hàm băm nguồn đã xác thực ra khỏi thiết bị. ID thô và bộ
+định vị không an toàn được ẩn. Dự án hiện không tuyên bố hỗ trợ Alexa hoặc
+Alexa+. Hãy đọc [hướng dẫn ranh giới và sử dụng](../docs/mcp.md) trước khi kết
+nối máy khách từ xa.
 
 ## Quy tắc căn cứ
 

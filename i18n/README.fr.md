@@ -157,6 +157,34 @@ python examples/pocketpolyglot_passage_graph.py
 python examples/pocketpolyglot_passage_graph.py --check
 ```
 
+<!-- lexicon-atlas-introduction -->
+## Graphe de connaissances des mots anglais : Lexicon Atlas
+
+Les connaissances lexicales de LKT forment un graphe connecté, pas seulement
+une collection de fiches. Les mots sont reliés aux racines, préfixes, suffixes,
+formes historiques, prononciations, sens et équivalents multilingues. L’inférence
+locale du modèle de langue et la recherche dans les livres et dictionnaires
+préparent ces connaissances en amont.
+
+[![Lexicon Atlas : le graphe 3D des mots anglais](https://raw.githubusercontent.com/lachlanchen/LexiconAtlas/main/docs/images/atlas-desktop.png)](https://github.com/lachlanchen/LexiconAtlas)
+
+**[Explorer le dépôt autonome Lexicon Atlas](https://github.com/lachlanchen/LexiconAtlas)**
+| **[Télécharger la base du graphe](https://github.com/lachlanchen/LexiconAtlas/releases/latest)**
+| **[Schéma et limites du jeu de données](https://github.com/lachlanchen/LexiconAtlas/blob/main/docs/DATASET.md)**
+
+Lexicon Atlas est une interface 3D locale et en lecture seule, construite avec
+Three.js et une disposition de forces D3. Recherchez dans le réseau, filtrez les
+langues et types de nœuds, parcourez le voisinage d’un mot et inspectez les
+relations enregistrées et références de source. L’application est indépendante ;
+LKT conserve l’ingestion, l’enrichissement par LLM local, la réparation et les fiches.
+
+La publication SQLite contient les enregistrements du graphe lexical, et non les
+livres originaux ni la base opérationnelle. Les extraits, prompts, historiques de
+requêtes, états des workers et charges arbitraires sont omis. La couverture et la
+justesse restent inégales : un instantané ne se met pas à jour seul et ne garantit
+pas chaque étymologie. Suivez le README autonome pour Windows, Linux ou macOS à
+`http://127.0.0.1:8091/`.
+
 ### Preuve d’un coffre Markdown en lecture seule
 
 L’[exemple de coffre Markdown](../examples/artifacts/markdown-vault-index.json)
@@ -305,6 +333,29 @@ Book Question ─► question search / draw ──────┘              �
                           Web GUI   E-ink     Audio
                           (ready)  (adapter)  (adapter)
 ```
+
+### Pont MCP en lecture seule
+
+LKT propose un adaptateur MCP 2.x facultatif et autonome pour consulter de
+manière déterministe les connaissances acceptées de `knowledge.sqlite3`. Il
+expose deux outils en lecture seule, `query_private_knowledge` et
+`trace_private_claim`, ainsi qu’une ressource d’état des collections. Il
+n’appelle pas Qwen et n’expose aucune opération d’écriture.
+
+```bash
+python -m pip install -e '.[mcp]'
+lkt-mcp --transport stdio
+lkt-mcp --transport streamable-http
+```
+
+HTTP écoute par défaut sur `http://127.0.0.1:8091/mcp` et refuse toute adresse
+non locale, car cette version ne possède pas encore d’authentification applicative.
+Un client distant peut faire sortir de l’appareil les requêtes, textes trouvés,
+extraits, identifiants opaques de collection/source, localisateurs relatifs sûrs
+et empreintes de source validées. Les identifiants bruts et localisateurs
+dangereux sont masqués. Le projet ne revendique actuellement aucune intégration
+Alexa ou Alexa+. Consultez le [guide des limites et de l’utilisation](../docs/mcp.md)
+avant de connecter un client distant.
 
 ## Règle de fondement
 
