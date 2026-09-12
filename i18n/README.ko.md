@@ -261,6 +261,8 @@ HTTP 기본 주소는 `http://127.0.0.1:8091/mcp`입니다. 아직 애플리케�
 또는 Alexa+ 지원을 주장하지 않습니다. 원격 연결 전
 [MCP 경계 및 사용 안내](../docs/mcp.md)를 확인하세요.
 
+다른 MCP 서버를 검토하고 있나요? [실행을 마친 LKT 샘플](https://lazying.art/mcp-boundary-review/sample-report/?utm_source=github&utm_medium=readme&utm_campaign=mcp_boundary_review&utm_content=lkt_readme_sample)을 확인하거나 [메타데이터만 받는 적합성 확인](https://lazying.art/mcp-boundary-review/fit-check/?utm_source=github&utm_medium=readme&utm_campaign=mcp_boundary_review&utm_content=lkt_readme_fit)부터 시작할 수 있습니다. 범위가 고정된 배포 전 검토는 500 USD입니다.
+
 ## 근거 규칙
 
 언어 모델은 설명과 부족한 언어 보조 정보를 작성하지만 인용 목록은 쓰지 않습니다. LKT는 항목 ID,

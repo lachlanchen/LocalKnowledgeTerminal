@@ -350,6 +350,8 @@ procesar y los localizadores inseguros se ocultan. El proyecto no afirma
 compatibilidad actual con Alexa ni Alexa+. Consulta la
 [guía de límites y uso](../docs/mcp.md) antes de conectar un cliente remoto.
 
+¿Estás revisando otro servidor MCP? [Examina la muestra ejecutada de LKT](https://lazying.art/mcp-boundary-review/sample-report/?utm_source=github&utm_medium=readme&utm_campaign=mcp_boundary_review&utm_content=lkt_readme_sample) o [empieza con una comprobación de encaje basada solo en metadatos](https://lazying.art/mcp-boundary-review/fit-check/?utm_source=github&utm_medium=readme&utm_campaign=mcp_boundary_review&utm_content=lkt_readme_fit); la revisión previa al despliegue de alcance fijo cuesta 500 USD.
+
 ## Regla de fundamentación
 
 El modelo de lenguaje escribe explicaciones y ayudas lingüísticas que falten,

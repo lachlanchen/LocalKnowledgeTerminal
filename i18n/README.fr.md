@@ -357,6 +357,8 @@ dangereux sont masqués. Le projet ne revendique actuellement aucune intégratio
 Alexa ou Alexa+. Consultez le [guide des limites et de l’utilisation](../docs/mcp.md)
 avant de connecter un client distant.
 
+Vous évaluez un autre serveur MCP ? [Consultez l’exemple LKT exécuté](https://lazying.art/mcp-boundary-review/sample-report/?utm_source=github&utm_medium=readme&utm_campaign=mcp_boundary_review&utm_content=lkt_readme_sample) ou [commencez par une vérification d’adéquation limitée aux métadonnées](https://lazying.art/mcp-boundary-review/fit-check/?utm_source=github&utm_medium=readme&utm_campaign=mcp_boundary_review&utm_content=lkt_readme_fit) ; la revue pré-déploiement au périmètre fixe coûte 500 USD.
+
 ## Règle de fondement
 
 Le modèle de langage rédige les explications et les aides linguistiques

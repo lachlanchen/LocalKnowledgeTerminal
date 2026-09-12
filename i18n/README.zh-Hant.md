@@ -170,6 +170,8 @@ ID、安全的相對定位符和通過驗證的來源雜湊帶離裝置。原始
 另行部署經過驗證和加密的邊界，並先明確哪些藏書、摘錄和查詢可以離開裝置，也應
 定期審查存取記錄。
 
+如果你正在檢查另一個 MCP 伺服器，可以先[查看已實際執行的 LKT 範例](https://lazying.art/mcp-boundary-review/sample-report/?utm_source=github&utm_medium=readme&utm_campaign=mcp_boundary_review&utm_content=lkt_readme_sample)，或從[只需中繼資料的適配檢查](https://lazying.art/mcp-boundary-review/fit-check/?utm_source=github&utm_medium=readme&utm_campaign=mcp_boundary_review&utm_content=lkt_readme_fit)開始；固定範圍的部署前審查價格為 500 美元，範例報告與證據包皆可直接下載細閱並檢查。
+
 ## 依據規則
 
 語言模型負責撰寫說明和缺少的語言輔助內容，但絕不撰寫引文清單。LKT 直接從檢索記錄附加條目 ID、摘錄、章節、頁碼、數位定位資訊和經審閱的卡片書籍譯文。Word Origin 可以補充可靠的語言學背景，但圖中每個節點都會記錄它來自書籍錨點還是模型知識。如果設定的書籍沒有證據，應用程式便不會產生卡片。

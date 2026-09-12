@@ -203,6 +203,8 @@ locators are withheld. LKT does not currently ship or claim Amazon Alexa/Alexa+
 integration. See the [MCP boundary and usage guide](docs/mcp.md) before
 connecting any remote client.
 
+Reviewing another MCP server? [Inspect the executed LKT sample](https://lazying.art/mcp-boundary-review/sample-report/?utm_source=github&utm_medium=readme&utm_campaign=mcp_boundary_review&utm_content=lkt_readme_sample) or [start with a metadata-only fit check](https://lazying.art/mcp-boundary-review/fit-check/?utm_source=github&utm_medium=readme&utm_campaign=mcp_boundary_review&utm_content=lkt_readme_fit); the fixed pre-deployment review is USD 500.
+
 Preparation uses small dependency-aware jobs: retrieve evidence, prepare one
 meaning, split components, recursively expand each origin branch, prepare each
 language/pronunciation independently, validate, then compose. Successful stages

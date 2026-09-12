@@ -169,6 +169,8 @@ HTTP 默认地址是 `http://127.0.0.1:8091/mcp`。当前版本尚无应用认�
 追溯。启动桥接器不会初始化、迁移或修改数据库。若以后需要跨设备访问，应在它前面
 单独部署经过认证和加密的边界，并先明确哪些藏书、摘录和查询可以离开设备。
 
+如果你正在检查另一个 MCP 服务器，可以先[查看已经实际执行的 LKT 样例](https://lazying.art/mcp-boundary-review/sample-report/?utm_source=github&utm_medium=readme&utm_campaign=mcp_boundary_review&utm_content=lkt_readme_sample)，或从[仅需元数据的适配检查](https://lazying.art/mcp-boundary-review/fit-check/?utm_source=github&utm_medium=readme&utm_campaign=mcp_boundary_review&utm_content=lkt_readme_fit)开始；固定范围的部署前审查价格为 500 美元，样例报告和证据包均可直接下载检查。
+
 ## 依据规则
 
 语言模型负责撰写解释和缺失的语言辅助内容，但绝不撰写引文列表。LKT 直接从检索记录附加条目 ID、摘录、章节、页码、数字定位信息和审阅过的卡片书籍译文。Word Origin 可以补充可靠的语言学背景，但图中每个节点都会记录它来自书籍锚点还是模型知识。如果配置的书籍没有证据，应用就不会生成卡片。

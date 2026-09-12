@@ -290,6 +290,8 @@ tương đối an toàn và hàm băm nguồn đã xác thực ra khỏi thiết
 Alexa+. Hãy đọc [hướng dẫn ranh giới và sử dụng](../docs/mcp.md) trước khi kết
 nối máy khách từ xa.
 
+Bạn đang xem xét một máy chủ MCP khác? Hãy [xem mẫu LKT đã chạy thực tế](https://lazying.art/mcp-boundary-review/sample-report/?utm_source=github&utm_medium=readme&utm_campaign=mcp_boundary_review&utm_content=lkt_readme_sample) hoặc [bắt đầu bằng bước kiểm tra độ phù hợp chỉ dùng siêu dữ liệu](https://lazying.art/mcp-boundary-review/fit-check/?utm_source=github&utm_medium=readme&utm_campaign=mcp_boundary_review&utm_content=lkt_readme_fit); gói đánh giá trước triển khai với phạm vi cố định có giá 500 USD.
+
 ## Quy tắc căn cứ
 
 Mô hình ngôn ngữ viết lời giải thích và phần hỗ trợ ngôn ngữ còn thiếu, nhưng không bao

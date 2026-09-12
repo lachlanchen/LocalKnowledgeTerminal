@@ -281,6 +281,8 @@ HTTP の既定値は `http://127.0.0.1:8091/mcp` です。現時点ではアプ�
 Alexa／Alexa+ 対応はうたっていません。接続前に
 [MCP の境界と利用ガイド](../docs/mcp.md)を確認してください。
 
+別の MCP サーバーを検討していますか。[実行済みの LKT サンプル](https://lazying.art/mcp-boundary-review/sample-report/?utm_source=github&utm_medium=readme&utm_campaign=mcp_boundary_review&utm_content=lkt_readme_sample)を確認するか、[メタデータだけの適合確認](https://lazying.art/mcp-boundary-review/fit-check/?utm_source=github&utm_medium=readme&utm_campaign=mcp_boundary_review&utm_content=lkt_readme_fit)から始められます。範囲固定のデプロイ前レビューは 500 USD です。
+
 ## 根拠付けの規則
 
 言語モデルは説明と不足する言語補助を記述しますが、引用一覧は記述しません。LKT は、

@@ -350,6 +350,8 @@ Gerät übertragen. Rohe Korpus-/Quell-IDs und unsichere Fundstellen werden
 zurückgehalten. Alexa- oder Alexa+-Unterstützung wird derzeit nicht beansprucht.
 Vor einer Fernverbindung gilt der [MCP-Grenz- und Nutzungsleitfaden](../docs/mcp.md).
 
+Prüfen Sie einen anderen MCP-Server? [Sehen Sie sich das ausgeführte LKT-Beispiel an](https://lazying.art/mcp-boundary-review/sample-report/?utm_source=github&utm_medium=readme&utm_campaign=mcp_boundary_review&utm_content=lkt_readme_sample) oder [beginnen Sie mit einer Eignungsprüfung nur anhand von Metadaten](https://lazying.art/mcp-boundary-review/fit-check/?utm_source=github&utm_medium=readme&utm_campaign=mcp_boundary_review&utm_content=lkt_readme_fit); die klar abgegrenzte Prüfung vor der Bereitstellung kostet 500 USD.
+
 ## Belegregel
 
 Das Sprachmodell schreibt Erklärungen und fehlende Sprachhilfen, jedoch niemals

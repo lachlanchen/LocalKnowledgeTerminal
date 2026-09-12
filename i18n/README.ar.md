@@ -290,6 +290,8 @@ lkt-mcp --transport streamable-http
 الآمنة. لا يدّعي المشروع حالياً دعماً لـ Alexa أو Alexa+. راجع
 [دليل الحدود والاستخدام](../docs/mcp.md) قبل ربط عميلة بعيدة.
 
+إذا كنت تراجع خادم MCP آخر، يمكنك [فحص عينة LKT المنفّذة](https://lazying.art/mcp-boundary-review/sample-report/?utm_source=github&utm_medium=readme&utm_campaign=mcp_boundary_review&utm_content=lkt_readme_sample) أو [البدء بفحص ملاءمة يطلب بيانات وصفية فقط](https://lazying.art/mcp-boundary-review/fit-check/?utm_source=github&utm_medium=readme&utm_campaign=mcp_boundary_review&utm_content=lkt_readme_fit)؛ سعر مراجعة ما قبل النشر ذات النطاق الثابت هو 500 دولار أمريكي.
+
 ## قاعدة الإسناد
 
 يكتب النموذج اللغوي الشروح والمساعدات اللغوية الناقصة، لكنه لا يكتب قائمة
