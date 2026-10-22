@@ -8,11 +8,16 @@ version = "0.1.0"
 description = "Private, book-grounded intelligence on your own hardware"
 requires-python = ">=3.11"
 authors = [{name = "Lachlan Chen"}]
+license = {file = "LICENSE"}
 keywords = ["rag", "qwen", "raspberry-pi", "etymology", "knowledge-cards"]
 dependencies = ["pypinyin==0.55.0"]
 
+[project.optional-dependencies]
+mcp = ["mcp>=2.2,<3"]
+
 [project.scripts]
 lkt = "lkt.cli:main"
+lkt-mcp = "lkt.mcp_server:main"
 
 [tool.setuptools]
 include-package-data = true

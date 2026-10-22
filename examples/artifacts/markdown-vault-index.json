@@ -1,0 +1,61 @@
+{
+  "boundary": {
+    "automatic_concept_discovery": false,
+    "canonical_source": "project-owned Markdown fixture",
+    "index": "disposable local SQLite FTS projection",
+    "semantic_or_vector_search": false,
+    "whole_vault_question_answering": false,
+    "writes_to_vault": false
+  },
+  "build": {
+    "files": 2,
+    "sections": 5,
+    "vault_fingerprint": "b1b46c9e3d720d48f1af77d4e62d7be20fb198d46485089dbce42bf17b7c80e6",
+    "wikilinks": 1
+  },
+  "explicit_wikilink_edges": [
+    {
+      "label": "成功陷阱",
+      "source_section_id": "markdown-a4261daae86949d608ee",
+      "target": "Concepts/Success Trap"
+    }
+  ],
+  "searches": {
+    "chinese": [
+      {
+        "excerpt": "## 原始想法\n\n成功有时会变成限制。This reviewed note links to [[Concepts/Success Trap|成功陷阱]].\n\n",
+        "heading": "原始想法",
+        "heading_level": 2,
+        "line_end": 8,
+        "line_start": 5,
+        "path": "Inbox.md",
+        "section_id": "markdown-a4261daae86949d608ee",
+        "source_sha256": "a0680286f8457dd3b786c7ccdaec88811b0bfb993a80f8bc6b40b04b0b39fc3c",
+        "wikilinks": [
+          {
+            "label": "成功陷阱",
+            "target": "Concepts/Success Trap"
+          }
+        ]
+      }
+    ],
+    "english": [
+      {
+        "excerpt": "# Success Trap\n\nA strength that produced an earlier success can narrow later choices when its assumptions go unexamined.\n\n",
+        "heading": "Success Trap",
+        "heading_level": 1,
+        "line_end": 4,
+        "line_start": 1,
+        "path": "Concepts/Success Trap.md",
+        "section_id": "markdown-522190014e8a5e62b0db",
+        "source_sha256": "bfb99f5aeab31a81eba0156cc8fc663c2b6db6dd3b0ffa0483cd5bf906fbe735",
+        "wikilinks": []
+      }
+    ]
+  },
+  "source_hashes": {
+    "Concepts/Success Trap.md": "bfb99f5aeab31a81eba0156cc8fc663c2b6db6dd3b0ffa0483cd5bf906fbe735",
+    "Inbox.md": "a0680286f8457dd3b786c7ccdaec88811b0bfb993a80f8bc6b40b04b0b39fc3c"
+  },
+  "version": 1
+}

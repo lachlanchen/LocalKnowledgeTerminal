@@ -1,4 +1,6 @@
-[![Local Knowledge Terminal banner](docs/assets/banner.svg)](docs/assets/banner.svg)
+[English](README.md) · [العربية](i18n/README.ar.md) · [Español](i18n/README.es.md) · [Français](i18n/README.fr.md) · [日本語](i18n/README.ja.md) · [한국어](i18n/README.ko.md) · [Tiếng Việt](i18n/README.vi.md) · [中文 (简体)](i18n/README.zh-Hans.md) · [中文（繁體）](i18n/README.zh-Hant.md) · [Deutsch](i18n/README.de.md) · [Русский](i18n/README.ru.md)
+
+[![LazyingArt banner — apps and four buddies](https://lazying.art/media/brand/lazyingart-intro.gif)](https://lazying.art)
 
 # Local Knowledge Terminal
 
@@ -18,6 +20,25 @@ on an 8 GB Raspberry Pi 5 with Qwen3-8B as an optional slower profile; retrieval
 inference, history,
 and the browser GUI operate without a cloud API.
 
+## Try it with one collection
+
+If you already have a bounded private book or dictionary collection, the
+[founding USD 250 collection-fit sprint](https://lazying.art/lkt/) starts with a
+free fit check. It covers one collection, one language goal, and one existing
+machine, then delivers a data/privacy/citation map, an agreed sample capped at
+12 source units and 20 test questions, up to two cited browser cards when the
+material is usable, a go/no-go recommendation, and one factual correction pass.
+The written scope defines the source unit—for example, a passage, record, or
+representative page—before payment.
+Hardware, shipping, custom OCR, bulk conversion, production deployment, and
+ongoing support are outside that fixed scope.
+
+To see exactly what those three deliverables look like without sharing any
+customer material, read the
+[sample collection-fit report](docs/sample-fit-report.md). It applies the
+format to LKT's own documented reference collection and is explicitly not a
+customer result or paid-engagement claim.
+
 ## Six independent experiences, one card contract
 
 - **Word Origin** uses its own one-entry retriever and prompt to make a bounded,
@@ -31,9 +52,9 @@ and the browser GUI operate without a cloud API.
   the published answer translations, and adds a reflective note.
 - **Book Question** searches 291 reviewed questions by theme and falls back to a
   reproducible draw when no lexical match exists.
-- **Root Graph** prioritizes 6,327 reviewed root records, then exact supporting
+- **Root Graph** prioritizes 4,018 content-bearing root records, then exact supporting
   affix entries, and saves a recursive word-family graph.
-- **Affix Graph** reverses that priority across 5,189 reviewed affix records and
+- **Affix Graph** reverses that priority across 5,179 content-bearing affix records and
   the Root Dictionary while retaining one complete center-word graph.
 
 Each mode has its own retrieval policy and strict model prompt. Word Origin and
@@ -133,6 +154,89 @@ language in a separate bounded job. A result is accepted only when its ordered
 parts reconstruct the reviewed sentence character-for-character; accepted
 parts, evidence links, model revision, and superseded analyses remain reusable
 knowledge rather than presentation-only markup.
+
+### Passage-to-provenance proof
+
+The [PocketPolyglot passage example](examples/artifacts/pocketpolyglot-passage-graph.json)
+turns one project-authored aligned passage into a small, hand-reviewed concept
+graph. Every relation resolves to the exact passage unit, excerpt, and pinned
+source-file hash through LKT's production knowledge APIs. Rebuild it or verify
+that the committed artifact is current:
+
+```bash
+python examples/pocketpolyglot_passage_graph.py
+python examples/pocketpolyglot_passage_graph.py --check
+```
+
+### Read-only Markdown vault proof
+
+The [Markdown vault example](examples/artifacts/markdown-vault-index.json) keeps
+two project-owned multilingual notes as the canonical files and builds a local,
+disposable SQLite FTS index beside them. Every result returns the relative file,
+heading, exact line range and excerpt, and source SHA-256. Only explicit
+`[[wikilinks]]` become edges. Hidden folders, `.obsidian`, generated folders,
+and symlinks are excluded, and a failed rebuild leaves the previous index in
+place.
+
+This is a deterministic lexical-search and provenance proof. It is not native
+Obsidian integration, semantic/vector search, automatic concept discovery,
+write-back, whole-vault question answering, or a customer result. Rebuild or
+verify the project-owned artifact:
+
+```bash
+python examples/markdown_vault_index.py
+python examples/markdown_vault_index.py --check
+```
+
+### Scripted bilingual meeting proof
+
+The [bilingual meeting example](examples/artifacts/scripted-bilingual-meeting-knowledge.json)
+maps ten individually timestamped English and Mandarin utterances to ten typed,
+manually reviewed knowledge units. Each unit retains its speaker, timestamp,
+exact transcript character span, source-file hash, and evidence-backed graph
+relation. Its review ledger includes one correction whose earlier version is
+kept as superseded through the real `KnowledgeStore` artifact lifecycle.
+The same artifact has an
+[interactive browser proof](https://lazying.art/meeting-intelligence/) for
+following a unit back to its exact source words.
+
+The transcript and timing are project-owned scripted fixtures. This is not an
+ASR, diarization, extraction, or translation accuracy benchmark, and it is not
+a customer deployment or customer result. Rebuild or verify the portable JSON:
+
+```bash
+python examples/scripted_bilingual_meeting_knowledge.py
+python examples/scripted_bilingual_meeting_knowledge.py --check
+```
+
+### Read-only MCP bridge
+
+LKT also has an optional, standalone MCP 2.x adapter for deterministic access
+to accepted knowledge in `knowledge.sqlite3`. It exposes two read-only tools
+(`query_private_knowledge` and `trace_private_claim`) plus one collection-status
+resource. The adapter opens SQLite in read-only/query-only mode, never invokes
+Qwen, and does not expose ingestion, review, archive, or other write operations.
+
+Install the optional dependency and start either stdio or loopback-only
+Streamable HTTP:
+
+```bash
+python -m pip install -e '.[mcp]'
+lkt-mcp --transport stdio
+lkt-mcp --transport streamable-http
+```
+
+The HTTP default is `http://127.0.0.1:8091/mcp`. This first bridge has no
+application authentication and therefore refuses non-loopback bind addresses.
+An MCP client running elsewhere can still cause private queries, matched text,
+source excerpts, opaque collection/source IDs, safe relative locators, and
+validated source hashes to leave the device through whatever authenticated
+relay or tunnel you configure. Raw corpus/source-entry identifiers and unsafe
+locators are withheld. LKT does not currently ship or claim Amazon Alexa/Alexa+
+integration. See the [MCP boundary and usage guide](docs/mcp.md) before
+connecting any remote client.
+
+Reviewing another MCP server? [Inspect the executed LKT sample](https://lazying.art/mcp-boundary-review/sample-report/?utm_source=github&utm_medium=readme&utm_campaign=mcp_boundary_review&utm_content=lkt_readme_sample) or [start with a metadata-only fit check](https://lazying.art/mcp-boundary-review/fit-check/?utm_source=github&utm_medium=readme&utm_campaign=mcp_boundary_review&utm_content=lkt_readme_fit); the fixed pre-deployment review is USD 500.
 
 Preparation uses small dependency-aware jobs: retrieve evidence, prepare one
 meaning, split components, recursively expand each origin branch, prepare each
@@ -248,11 +352,14 @@ the configured book has no evidence, the app does not generate a card.
 | `lkt/pronunciation.py` | Deterministic pinyin/ruby and versioned offline IPA |
 | `lkt/store.py` | Versioned cards, preparation artifacts, revisions, archive, and chat ledger |
 | `lkt/knowledge.py` | Atomic established knowledge, evidence, jobs, revisions, and inquiry lineage |
+| `lkt/mcp_query.py` | Bounded, deterministic, read-only SQLite knowledge and provenance queries |
+| `lkt/mcp_server.py` | Optional stdio and loopback Streamable-HTTP MCP adapter |
 | `lkt/preparation.py` | Dependency-aware divide-and-conquer word/content planning |
 | `lkt/atomic.py` | Bounded atomic preparation and deterministic card assembly |
 | `lkt/lexicon.py` | Compact multilingual WordNet correction evidence |
 | `lkt/freedict.py` | Exact FreeDict English-Arabic ingestion and correction retrieval |
 | `lkt/jmdict.py` | Full JMdict exact-form reading index and provenance |
+| `lkt/markdown.py` | Read-only Markdown scan, atomic disposable FTS index, wikilinks, and exact source provenance |
 | `lkt/web.py` | Dependency-free HTTP API and GUI server |
 | `lkt/outputs.py` | Stable web/e-ink/audio output boundary |
 | `lkt/static/` | Desktop-class GUI, responsive enough for later kiosk use |
@@ -262,6 +369,7 @@ the configured book has no evidence, the app does not generate a card.
 | `docs/product-brief.md` | Durable owner requirements and acceptance criteria |
 | `docs/knowledge-architecture.md` | Atomic SQLite, graph projection, and staged preparation contract |
 | `docs/huggingface-dataset.md` | Sanitized lexical graph artifact and private-first Hub release procedure |
+| `docs/mcp.md` | MCP tools, transports, privacy boundary, and deployment limits |
 | `docs/owner-request-log.md` | Chronological, privacy-redacted owner direction |
 | `docs/voice-hardware.md` | Supported microphone choice and staged audio tests |
 | `docs/mode-roadmap.md` | Extension plan for future suffix, affix, and root books |
@@ -291,6 +399,8 @@ python -m lkt.cli ingest-jmdict "C:\path\to\jmdict-eng-3.6.2.json" --release "3.
 python -m lkt.cli audit-japanese-readings
 python -m lkt.cli search abacus
 python -m lkt.cli search technology --corpus question
+python -m lkt.cli ingest-markdown "C:\path\to\canonical-markdown-vault"
+python -m lkt.cli search-markdown "source provenance"
 python -m lkt.cli knowledge-status
 python -m lkt.cli sync-card-knowledge
 python -m lkt.cli plan-word inspection --display-languages en ja zh fr ar
@@ -433,9 +543,27 @@ their monolithic runtime or hardware dependencies. See
 
 ## Support
 
-| Donate | PayPal | Stripe |
-| --- | --- | --- |
-| [![Donate](https://img.shields.io/badge/Donate-LazyingArt-0EA5E9?style=for-the-badge&logo=ko-fi&logoColor=white)](https://chat.lazying.art/donate) | [![PayPal](https://img.shields.io/badge/PayPal-RongzhouChen-00457C?style=for-the-badge&logo=paypal&logoColor=white)](https://paypal.me/RongzhouChen) | [![Stripe](https://img.shields.io/badge/Stripe-Donate-635BFF?style=for-the-badge&logo=stripe&logoColor=white)](https://buy.stripe.com/aFadR8gIaflgfQV6T4fw400) |
+<!-- support:start -->
+[![GitHub Sponsors](https://img.shields.io/badge/GitHub-Sponsors-EA4AAA?style=for-the-badge&logo=githubsponsors&logoColor=white)](https://github.com/sponsors/lachlanchen)
+[![LazyingArt Support](https://img.shields.io/badge/LazyingArt-Support-0EA5E9?style=for-the-badge)](https://chat.lazying.art/donate)
+[![PayPal Support](https://img.shields.io/badge/PayPal-Support-00457C?style=for-the-badge&logo=paypal&logoColor=white)](https://paypal.me/RongzhouChen)
+[![Stripe Support](https://img.shields.io/badge/Stripe-Support-635BFF?style=for-the-badge&logo=stripe&logoColor=white)](https://buy.stripe.com/aFadR8gIaflgfQV6T4fw400)
+<!-- support:end -->
+
+## Citation
+
+If LKT supports your work, cite it with GitHub's **Cite this repository** menu,
+which reads [`CITATION.cff`](CITATION.cff), or use:
+
+```bibtex
+@software{chen_local_knowledge_terminal_2026,
+  author = {Chen, Lachlan},
+  title = {Local Knowledge Terminal},
+  year = {2026},
+  version = {0.1.0},
+  url = {https://github.com/lachlanchen/LocalKnowledgeTerminal}
+}
+```
 
 <!-- lexicon-atlas-introduction -->
 ## English word knowledge graph: Lexicon Atlas
