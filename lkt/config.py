@@ -18,7 +18,6 @@ class Settings:
     affixes_db: Path
     cards_db: Path
     knowledge_db: Path
-    graph_db: Path
     freedict_db: Path
     jmdict_db: Path
     llm_url: str
@@ -59,9 +58,6 @@ class Settings:
             ).resolve(),
             knowledge_db=Path(
                 os.environ.get("LKT_KNOWLEDGE_DB", data_dir / "knowledge.sqlite3")
-            ).resolve(),
-            graph_db=Path(
-                os.environ.get("LKT_GRAPH_DB", data_dir / "knowledge-graph.lbdb")
             ).resolve(),
             freedict_db=Path(
                 os.environ.get(

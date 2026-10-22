@@ -47,6 +47,12 @@ class PronunciationTests(unittest.TestCase):
     @patch("lkt.pronunciation.subprocess.run")
     def test_espeak_adapter_uses_fixed_voice_and_returns_provenance(self, run) -> None:
         run.side_effect = [
+            SimpleNamespace(
+                stdout=(
+                    "Pty Language Age/Gender VoiceName File Other Languages\n"
+                    " 5  en-us  M  english-us  en-us\n"
+                )
+            ),
             SimpleNamespace(stdout="\u026ansp\u02c8\u025bk\u0283\u0259n\n"),
             SimpleNamespace(stdout="eSpeak NG text-to-speech: 1.51\n"),
         ]
@@ -57,7 +63,7 @@ class PronunciationTests(unittest.TestCase):
         self.assertEqual(result["dialect"], "en-us")
         self.assertEqual(result["source"]["engine"], "espeak-ng")
         self.assertEqual(
-            run.call_args_list[0].args[0],
+            run.call_args_list[1].args[0],
             [
                 "/usr/bin/espeak-ng",
                 "-q",
@@ -73,6 +79,12 @@ class PronunciationTests(unittest.TestCase):
         self, run
     ) -> None:
         run.side_effect = [
+            SimpleNamespace(
+                stdout=(
+                    "Pty Language Age/Gender VoiceName File Other Languages\n"
+                    " 5  ar  M  arabic  ar\n"
+                )
+            ),
             SimpleNamespace(stdout="mu\u0295\u02c8a\u02d0jan\u02cca\n"),
             SimpleNamespace(stdout="eSpeak NG text-to-speech: 1.51\n"),
         ]
@@ -80,7 +92,7 @@ class PronunciationTests(unittest.TestCase):
             "\u0645\u064f\u0639\u0627\u064a\u0646\u0629", "ar"
         )
         self.assertEqual(
-            run.call_args_list[0].args[0][-1], "\u0645\u0639\u0627\u064a\u0646\u0629"
+            run.call_args_list[1].args[0][-1], "\u0645\u0639\u0627\u064a\u0646\u0629"
         )
         self.assertEqual(
             result["source"]["input_normalization"],

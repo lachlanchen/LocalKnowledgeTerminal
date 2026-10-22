@@ -138,11 +138,10 @@ generation.
   three consecutive grammar jobs completed as independent accepted artifacts;
   available memory remained about 4.3 GiB and all services stayed active.
 
-The LadybugDB traversal projection was rebuilt atomically after the smoke card.
-It contains 286 accepted nodes and 243 accepted edges, fingerprint
-`df204bd4719abc3fddb51c3ecb13c576c4de1e636850d26fd6c233bdeedd9fd1`.
-The previous projection remains beside it for recovery; SQLite remains the
-source of truth.
+The former LadybugDB traversal copy was an early rebuild experiment and is no
+longer read or refreshed by either service. Upgraded installations may retain
+that file as an archival artifact, but live browser projections now read the
+authoritative SQLite graph directly and carry its current revision/hash.
 
 ## Browser audit
 

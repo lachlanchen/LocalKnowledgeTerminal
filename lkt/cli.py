@@ -5,6 +5,8 @@ import json
 import signal
 import sqlite3
 import sys
+from collections.abc import Mapping
+from dataclasses import asdict, is_dataclass
 from pathlib import Path
 from threading import Event, Lock, Thread
 from time import monotonic
@@ -20,20 +22,26 @@ from .deck import (
     AutonomousMorphologySeeder,
     BalancedProductSeeder,
     DeckSeedResult,
+    MorphologyV3EnrichmentSeeder,
 )
 from .device import (
     background_preparation_blocker,
     is_memory_pressure_blocker,
     model_free_preparation_blocker,
 )
-from .graph import rebuild_ladybug
 from .freedict import build_freedict_index
 from .llm import LlamaCppClient
 from .knowledge import KnowledgeStore
+from .language_repair import LanguageRepairSeeder
+from .knowledge_export import export_public_lexical_graph
 from .jmdict import JapaneseReadingIndex, build_jmdict_index
 from .lexicon import LocalLexiconRag
 from .morphology import MorphologyIndex, build_morphology_index
-from .preparation import DISPLAY_LANGUAGES, PreparationPlanner
+from .preparation import (
+    DISPLAY_LANGUAGES,
+    PreparationPlanner,
+    SemanticEnrichmentSeeder,
+)
 from .service import CardService
 from .store import CardStore
 
@@ -153,6 +161,92 @@ def command_ingest_morphology(args: argparse.Namespace) -> int:
     )
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0
+
+
+def command_reprocess_morphology(args: argparse.Namespace) -> int:
+    """Idempotently ingest both reviewed morphology indexes into knowledge."""
+
+    if not bool(args.allow_write):
+        print(
+            "reprocess-morphology requires --allow-write",
+            file=sys.stderr,
+        )
+        return 2
+    settings = _settings()
+    knowledge_db = (
+        Path(args.knowledge_db).resolve()
+        if args.knowledge_db
+        else Path(settings.knowledge_db).resolve()
+    )
+    root_index = (
+        Path(args.root_index).resolve()
+        if args.root_index
+        else Path(settings.roots_db).resolve()
+    )
+    affix_index = (
+        Path(args.affix_index).resolve()
+        if args.affix_index
+        else Path(settings.affixes_db).resolve()
+    )
+    from .morphology_ingest_v3 import run as run_current_morphology_ingest
+
+    result = run_current_morphology_ingest(
+        knowledge_db,
+        (("root", root_index), ("affix", affix_index)),
+        batch_size=args.batch_size,
+    )
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0
+
+
+def command_finalize_morphology_v7(args: argparse.Namespace) -> int:
+    """Audit or apply the ownership-gated v7 morphology finalization."""
+
+    settings = _settings()
+    knowledge_db = Path(args.knowledge_db).resolve() if args.knowledge_db else settings.knowledge_db
+    root_index = Path(args.root_index).resolve() if args.root_index else settings.roots_db
+    affix_index = Path(args.affix_index).resolve() if args.affix_index else settings.affixes_db
+    from contextlib import closing
+    import sqlite3
+
+    from .morphology_contract import CURRENT_MORPHOLOGY_PARSER_VERSION
+    from .relation_support import (
+        finalize_morphology_support_migration,
+        morphology_expected_sources,
+    )
+
+    expected = morphology_expected_sources(
+        (("root", root_index), ("affix", affix_index))
+    )
+    result = None
+    if knowledge_db.exists():
+        read_only_uri = f"{knowledge_db.as_uri()}?mode=ro"
+        with closing(sqlite3.connect(read_only_uri, uri=True)) as connection:
+            result = finalize_morphology_support_migration(
+                connection,
+                parser_version=CURRENT_MORPHOLOGY_PARSER_VERSION,
+                expected_sources=expected,
+                expected_source_records=args.expected_source_records,
+                allow_write=False,
+            )
+    if args.allow_write and not (result and result.get("already_complete")):
+        from .knowledge import KnowledgeStore
+
+        store = KnowledgeStore(knowledge_db)
+        with closing(store._connect()) as connection:
+            result = finalize_morphology_support_migration(
+                connection,
+                parser_version=CURRENT_MORPHOLOGY_PARSER_VERSION,
+                expected_sources=expected,
+                expected_source_records=args.expected_source_records,
+                allow_write=True,
+            )
+    elif args.allow_write and result:
+        result = {**result, "dry_run": False}
+    if result is None:
+        raise FileNotFoundError(knowledge_db)
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0 if result.get("destructive_ready") else 2
 
 
 def command_ingest_freedict(args: argparse.Namespace) -> int:
@@ -304,6 +398,21 @@ def command_knowledge_status(_args: argparse.Namespace) -> int:
     return 0
 
 
+def command_export_knowledge(args: argparse.Namespace) -> int:
+    """Write an accepted-only, sanitized lexical graph release."""
+
+    settings = _settings()
+    database = Path(args.database).resolve() if args.database else settings.knowledge_db
+    result = export_public_lexical_graph(
+        database,
+        Path(args.output).resolve(),
+        dataset_version=args.dataset_version,
+    )
+    payload = result.as_dict()
+    print(json.dumps(payload, ensure_ascii=False, indent=2, default=str))
+    return 0
+
+
 def command_sync_card_knowledge(_args: argparse.Namespace) -> int:
     """Backfill reviewed cards and queue their independent local enrichment."""
 
@@ -348,16 +457,6 @@ def command_sync_card_knowledge(_args: argparse.Namespace) -> int:
             indent=2,
         )
     )
-    return 0
-
-
-def command_rebuild_graph(args: argparse.Namespace) -> int:
-    settings = _settings()
-    destination = Path(args.database).resolve() if args.database else settings.graph_db
-    result = rebuild_ladybug(
-        KnowledgeStore(settings.knowledge_db), destination, replace=args.replace
-    )
-    print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0
 
 
@@ -643,13 +742,36 @@ def _lexical_seeder(settings: Settings) -> AutonomousLexicalSeeder:
     )
 
 
-def _morphology_seeder(settings: Settings) -> AutonomousMorphologySeeder:
+def _morphology_seeder(
+    settings: Settings,
+    *,
+    max_in_flight_subjects: int = (
+        AutonomousMorphologySeeder.DEFAULT_MAX_IN_FLIGHT_SUBJECTS
+    ),
+) -> AutonomousMorphologySeeder:
     return AutonomousMorphologySeeder(
         {
             "root": MorphologyIndex(settings.roots_db),
             "affix": MorphologyIndex(settings.affixes_db),
         },
         CardStore(settings.cards_db),
+        KnowledgeStore(settings.knowledge_db),
+        model=settings.llm_model,
+        max_in_flight_subjects=max_in_flight_subjects,
+    )
+
+
+def _morphology_v3_enrichment_seeder(
+    settings: Settings,
+) -> MorphologyV3EnrichmentSeeder:
+    return MorphologyV3EnrichmentSeeder(
+        KnowledgeStore(settings.knowledge_db),
+        model_name=settings.llm_model,
+    )
+
+
+def _semantic_enrichment_seeder(settings: Settings) -> SemanticEnrichmentSeeder:
+    return SemanticEnrichmentSeeder(
         KnowledgeStore(settings.knowledge_db),
         model=settings.llm_model,
     )
@@ -678,10 +800,10 @@ def guarded_deck_seed(seeder: Any) -> DeckSeedResult:
                 else None
             )
             if lexical is not None:
-                return lexical.run_bounded_once()
+                return lexical.run_bounded_discovery_once()
         return DeckSeedResult(status="paused", message=blocker)
     if isinstance(seeder, AutonomousLexicalSeeder):
-        return seeder.run_bounded_once()
+        return seeder.run_bounded_discovery_once()
     return seeder.run_once()
 
 
@@ -692,7 +814,9 @@ class DurableWorkerHeartbeat:
         self, store: KnowledgeStore, *, interval_seconds: float = 5.0
     ) -> None:
         self.store = store
-        self.interval_seconds = max(1.0, min(float(interval_seconds), 30.0))
+        # The default health check expires after 15 seconds. Leave room for
+        # scheduling and brief SQLite contention even for caller overrides.
+        self.interval_seconds = max(1.0, min(float(interval_seconds), 5.0))
         self.stop_event = Event()
         self.lock = Lock()
         self.blocker = "atomic worker is starting"
@@ -727,7 +851,9 @@ class DurableWorkerHeartbeat:
 
     def close(self) -> None:
         self.stop_event.set()
-        self.thread.join(timeout=self.interval_seconds + 1.0)
+        # SQLite writes have a bounded busy timeout. Wait for an in-flight
+        # write to finish so it cannot replace the final stopped status.
+        self.thread.join()
         self._write("stopped", "atomic worker stopped")
 
 
@@ -742,19 +868,24 @@ def run_atomic_watch(
     idle_action_interval: float = 120.0,
     periodic_action: Callable[[], Any] | None = None,
     periodic_action_interval: float = 120.0,
+    planning_action: Callable[[], Any] | None = None,
+    planning_action_interval: float = 120.0,
+    projection_repair_action: Callable[[], Any] | None = None,
     preparation_blocker: Callable[[], str] = background_preparation_blocker,
     model_free_blocker: Callable[[], str] = model_free_preparation_blocker,
     heartbeat: Callable[[str], None] | None = None,
 ) -> int:
     """Run one persisted task at a time while preserving device headroom.
 
-    Atomic work gets the first opportunity on every iteration. Periodic direct
-    preparation is synchronous and cannot be preempted after it starts, so it
-    may begin only after the atomic worker reports that its queue is idle.
+    Lightweight planning may add one bounded durable discovery round between
+    jobs. Due periodic preparation runs after a completed job or while idle,
+    never concurrently with inference. An infinite graph queue must not starve
+    the independently paced book decks.
     """
 
     next_idle_action = monotonic()
     next_periodic_action = monotonic()
+    next_planning_action = monotonic()
     while not stop_event.is_set():
         # Guard draining the existing queue as well as adding new deck work.
         # A model request can temporarily consume most of a small Pi; checking
@@ -763,17 +894,32 @@ def run_atomic_watch(
         blocker = preparation_blocker()
         if heartbeat is not None:
             heartbeat(blocker)
+        if planning_action is not None and monotonic() >= next_planning_action:
+            emit(planning_action())
+            next_planning_action = monotonic() + max(
+                1.0, planning_action_interval
+            )
+        model_free_blocked = model_free_blocker() if blocker else ""
+        if projection_repair_action is not None and not model_free_blocked:
+            repair = projection_repair_action()
+            if repair is not None:
+                emit(repair)
         result = None
         if blocker:
             # A lower memory floor may drain only handlers structurally proven
             # not to invoke the model. Power and thermal blockers are still
             # returned by both guards and therefore cannot be bypassed.
-            if not model_free_blocker():
+            if not model_free_blocked:
                 result = worker.run_once(MODEL_FREE_ATOMIC_JOBS)
         else:
             result = worker.run_once()
         if result is None:
-            if periodic_action is not None and monotonic() >= next_periodic_action:
+            if (
+                periodic_action is not None
+                and not blocker
+                and not stop_event.is_set()
+                and monotonic() >= next_periodic_action
+            ):
                 emit(periodic_action())
                 next_periodic_action = monotonic() + max(
                     1.0, periodic_action_interval
@@ -791,8 +937,70 @@ def run_atomic_watch(
             stop_event.wait(idle_seconds)
             continue
         emit(result)
+        if (
+            periodic_action is not None
+            and not stop_event.is_set()
+            and monotonic() >= next_periodic_action
+            and not preparation_blocker()
+        ):
+            emit(periodic_action())
+            next_periodic_action = monotonic() + max(1.0, periodic_action_interval)
         stop_event.wait(job_delay)
     return 0
+
+
+def _worker_emit_payload(result: Any) -> dict[str, Any]:
+    """Normalize durable worker and planner results for JSON logging."""
+
+    if isinstance(result, Mapping):
+        return dict(result)
+    if is_dataclass(result) and not isinstance(result, type):
+        return asdict(result)
+    try:
+        return vars(result)
+    except TypeError as exc:
+        raise TypeError(
+            f"worker emitted unsupported result type {type(result).__name__}"
+        ) from exc
+
+
+def _plan_bounded_background_growth(
+    semantic_seeder: Any,
+    growth_seeders: tuple[Any, ...] | list[Any],
+    *,
+    rotation_claim: Callable[[], int],
+    always_seeders: tuple[Any, ...] | list[Any] = (),
+) -> dict[str, Any]:
+    """Admit required work plus one durably rotated bounded growth lane."""
+
+    seeders = tuple(growth_seeders)
+    if not seeders:
+        raise ValueError("background growth requires at least one generic seeder")
+
+    # Semantic claim state enforces one global active subject. Do not return
+    # early when it admits work: every interval still advances exactly one of
+    # the existing bounded lexical/direct-morphology planners. Required
+    # seeders are cheap durable admissions that must not disappear when a
+    # long synchronous model job spans one or more wall-clock rotation slots.
+    semantic_result = guarded_deck_seed(semantic_seeder)
+    always_results = [
+        _worker_emit_payload(guarded_deck_seed(seeder))
+        for seeder in tuple(always_seeders)
+    ]
+    # Claim immediately before the generic attempt. A failed or interrupted
+    # lane has still consumed its turn, so the next restart advances instead
+    # of selecting the same expensive path forever.
+    rotation_slot = max(0, int(rotation_claim()))
+    growth_index = rotation_slot % len(seeders)
+    growth_result = guarded_deck_seed(seeders[growth_index])
+    return {
+        "event": "bounded-background-growth",
+        "rotation_slot": rotation_slot,
+        "growth_index": growth_index,
+        "semantic": _worker_emit_payload(semantic_result),
+        "always": always_results,
+        "growth": _worker_emit_payload(growth_result),
+    }
 
 
 def command_work_atomic(args: argparse.Namespace) -> int:
@@ -834,22 +1042,50 @@ def command_work_atomic(args: argparse.Namespace) -> int:
         JapaneseReadingIndex(settings.jmdict_db),
     )
     if args.watch:
+        # Queue-draining and explicitly filtered workers must not create new
+        # autonomous jobs. The persistent lexical watch owns this policy.
+        worker.continuous_growth = bool(args.autoprepare_lexical_deck)
         stop_event = Event()
         heartbeat = DurableWorkerHeartbeat(knowledge)
         lexical_seeder = (
             _lexical_seeder(settings) if args.autoprepare_lexical_deck else None
         )
+        morphology_v3_seeder = _morphology_v3_enrichment_seeder(settings)
+        semantic_seeder = _semantic_enrichment_seeder(settings)
+        morphology_seeder = _morphology_seeder(
+            settings,
+            max_in_flight_subjects=args.morphology_max_in_flight_subjects,
+        )
+        planning_seeders = (
+            *([lexical_seeder] if lexical_seeder is not None else []),
+            morphology_seeder,
+        )
+        planning_interval = max(
+            10.0, min(float(args.autoprepare_interval_seconds), 86_400.0)
+        )
+
+        language_repair_seeder = LanguageRepairSeeder(
+            semantic_seeder.store, model=settings.llm_model,
+        )
+
+        def plan_background_growth() -> Any:
+            return _plan_bounded_background_growth(
+                semantic_seeder,
+                planning_seeders,
+                rotation_claim=knowledge.claim_background_growth_decision,
+                always_seeders=(morphology_v3_seeder, language_repair_seeder),
+            )
         book_seeder = (
             _deck_seeder(settings, args.autoprepare_modes)
             if args.autoprepare_book_deck
             else None
         )
-        if lexical_seeder is not None and book_seeder is not None:
-            seeder: Any | None = BalancedProductSeeder(
-                book_seeder,
-                lexical_seeder,
-                CardStore(settings.cards_db),
-                morphology=_morphology_seeder(settings),
+        if book_seeder is not None:
+            from .book_cadence import OccasionalBookSeeder
+
+            seeder: Any | None = OccasionalBookSeeder(
+                book_seeder, knowledge,
+                interval_seconds=getattr(args, "book_interval_seconds", 1800.0),
             )
         elif lexical_seeder is not None:
             seeder = lexical_seeder
@@ -869,13 +1105,21 @@ def command_work_atomic(args: argparse.Namespace) -> int:
                 idle_seconds=max(0.25, min(float(args.idle_seconds), 60.0)),
                 job_delay=max(0.0, min(float(args.job_delay), 60.0)),
                 emit=lambda result: print(
-                    json.dumps(result.__dict__, ensure_ascii=False), flush=True
+                    json.dumps(_worker_emit_payload(result), ensure_ascii=False),
+                    flush=True,
                 ),
                 periodic_action=(
                     (lambda: guarded_deck_seed(seeder)) if seeder is not None else None
                 ),
                 periodic_action_interval=max(
                     10.0, min(float(args.autoprepare_interval_seconds), 86_400.0)
+                ),
+                planning_action=plan_background_growth,
+                planning_action_interval=planning_interval,
+                projection_repair_action=(
+                    lexical_seeder._plan_due_projection_repair
+                    if lexical_seeder is not None
+                    else None
                 ),
                 heartbeat=heartbeat.update,
             )
@@ -936,6 +1180,49 @@ def parser() -> argparse.ArgumentParser:
     morphology.add_argument("--title", help="human-readable evidence title")
     morphology.set_defaults(handler=command_ingest_morphology)
 
+    reprocess_morphology = commands.add_parser(
+        "reprocess-morphology",
+        help="idempotently ingest both Root and Affix indexes into knowledge",
+    )
+    reprocess_morphology.add_argument(
+        "--knowledge-db", help="override the normalized knowledge database"
+    )
+    reprocess_morphology.add_argument(
+        "--root-index", help="override the reviewed Root index"
+    )
+    reprocess_morphology.add_argument(
+        "--affix-index", help="override the reviewed Affix index"
+    )
+    reprocess_morphology.add_argument("--batch-size", type=int, default=100)
+    reprocess_morphology.add_argument(
+        "--allow-write",
+        action="store_true",
+        help="required acknowledgement before changing the knowledge database",
+    )
+    reprocess_morphology.set_defaults(handler=command_reprocess_morphology)
+
+    finalize_morphology = commands.add_parser(
+        "finalize-morphology-v7",
+        help="audit or apply ownership-gated morphology v7 cleanup",
+    )
+    finalize_morphology.add_argument(
+        "--knowledge-db", help="override the normalized knowledge database"
+    )
+    finalize_morphology.add_argument(
+        "--root-index", help="override the reviewed Root index"
+    )
+    finalize_morphology.add_argument(
+        "--affix-index", help="override the reviewed Affix index"
+    )
+    finalize_morphology.add_argument(
+        "--expected-source-records", type=int, default=11516
+    )
+    finalize_morphology.add_argument(
+        "--allow-write", action="store_true",
+        help="required acknowledgement before finalizing ownership and aliases",
+    )
+    finalize_morphology.set_defaults(handler=command_finalize_morphology_v7)
+
     freedict = commands.add_parser(
         "ingest-freedict",
         help="build the compact exact English-Arabic correction index",
@@ -991,21 +1278,33 @@ def parser() -> argparse.ArgumentParser:
     )
     knowledge_status.set_defaults(handler=command_knowledge_status)
 
+    export_knowledge = commands.add_parser(
+        "export-knowledge",
+        help="export a sanitized accepted-only lexical graph dataset",
+    )
+    export_knowledge.add_argument(
+        "output",
+        metavar="OUTPUT",
+        help="destination directory for the standalone dataset",
+    )
+    export_knowledge.add_argument(
+        "--database",
+        metavar="PATH",
+        help="override the normalized knowledge database",
+    )
+    export_knowledge.add_argument(
+        "--dataset-version",
+        metavar="VERSION",
+        required=True,
+        help="immutable release version recorded in the manifest",
+    )
+    export_knowledge.set_defaults(handler=command_export_knowledge)
+
     sync_card_knowledge = commands.add_parser(
         "sync-card-knowledge",
         help="backfill accepted Answer/Question text into normalized knowledge",
     )
     sync_card_knowledge.set_defaults(handler=command_sync_card_knowledge)
-
-    rebuild_graph = commands.add_parser(
-        "rebuild-graph",
-        help="rebuild the LadybugDB traversal projection from accepted knowledge",
-    )
-    rebuild_graph.add_argument("--database", help="override graph destination")
-    rebuild_graph.add_argument(
-        "--replace", action="store_true", help="replace an existing projection"
-    )
-    rebuild_graph.set_defaults(handler=command_rebuild_graph)
 
     lexicon_search = commands.add_parser(
         "lexicon-search",
@@ -1041,9 +1340,7 @@ def parser() -> argparse.ArgumentParser:
         help="revisit one language atom without rebuilding the complete word plan",
     )
     plan_translation.add_argument("query")
-    plan_translation.add_argument(
-        "target_language", choices=("ja", "zh", "fr", "ar")
-    )
+    plan_translation.add_argument("target_language", metavar="LANGUAGE")
     plan_translation.add_argument("--source-language", default="en")
     plan_translation.add_argument("--prompt-version", default="atomic-v2")
     plan_translation.add_argument("--source-fingerprint", default="")
@@ -1054,9 +1351,7 @@ def parser() -> argparse.ArgumentParser:
         help="rebuild one translation and its dependent pronunciation",
     )
     plan_language.add_argument("query")
-    plan_language.add_argument(
-        "target_language", choices=("ja", "zh", "fr", "ar")
-    )
+    plan_language.add_argument("target_language", metavar="LANGUAGE")
     plan_language.add_argument("--source-language", default="en")
     plan_language.add_argument("--prompt-version", default="language-v2")
     plan_language.add_argument("--source-fingerprint", default="")
@@ -1129,9 +1424,7 @@ def parser() -> argparse.ArgumentParser:
         help="quarantine one rejected translation and pronunciation pair",
     )
     retire_language.add_argument("query")
-    retire_language.add_argument(
-        "target_language", choices=("ja", "zh", "fr", "ar")
-    )
+    retire_language.add_argument("target_language", metavar="LANGUAGE")
     retire_language.add_argument("--source-language", default="en")
     retire_language.add_argument("--reason", required=True)
     retire_language.set_defaults(handler=command_retire_language)
@@ -1197,7 +1490,7 @@ def parser() -> argparse.ArgumentParser:
     work_atomic.add_argument(
         "--autoprepare-book-deck",
         action="store_true",
-        help="prepare one unseen Answer/Question record whenever the queue is idle",
+        help="occasionally prepare one unseen Answer/Question record between jobs",
     )
     work_atomic.add_argument(
         "--autoprepare-lexical-deck",
@@ -1212,6 +1505,19 @@ def parser() -> argparse.ArgumentParser:
     )
     work_atomic.add_argument(
         "--autoprepare-interval-seconds", type=float, default=120.0
+    )
+    work_atomic.add_argument(
+        "--book-interval-seconds", type=float, default=1800.0,
+        help="minimum cooldown between alternating book attempts; graph work continues",
+    )
+    work_atomic.add_argument(
+        "--morphology-max-in-flight-subjects",
+        type=int,
+        default=AutonomousMorphologySeeder.DEFAULT_MAX_IN_FLIGHT_SUBJECTS,
+        help=(
+            "cap direct Root/Affix source subjects admitted ahead of the "
+            "serial local-model worker"
+        ),
     )
     work_atomic.add_argument(
         "--recover-running",

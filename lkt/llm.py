@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import math
+import os
 import re
 import time
 import unicodedata
@@ -9,6 +11,7 @@ import urllib.request
 from typing import Any, Protocol
 
 from .models import Evidence
+from .model_json import AtomicJsonOutputError, parse_model_json
 from .pronunciation import is_arabic_script_text
 
 
@@ -36,6 +39,367 @@ class CardModel(Protocol):
 
     def generate(self, query: str, mode: str, evidence: list[Evidence]) -> dict[str, Any]:
         ...
+
+
+_DEFAULT_LOCAL_CONTEXT_TOKENS = 3072
+_ATOMIC_CONTEXT_SAFETY_TOKENS = 224
+_ATOMIC_MAX_OUTPUT_TOKENS = 1024
+_PROMPT_IDENTITY_KEYS = frozenset(
+    {
+        "canonical_form",
+        "component_id",
+        "component_surface",
+        "corpus_id",
+        "entry_id",
+        "evidence_id",
+        "form",
+        "headword",
+        "id",
+        "kind",
+        "knowledge_evidence_id",
+        "language",
+        "source",
+        "source_title",
+        "surface",
+        "term",
+    }
+)
+
+
+def _conservative_token_estimate(value: str) -> int:
+    """Estimate Qwen tokens without depending on its runtime tokenizer.
+
+    ASCII JSON is budgeted at only 2.5 characters per token. Multilingual
+    characters are charged at least 1.25 tokens each, while the UTF-8 byte
+    estimate protects CJK and other dense scripts. The deliberate overestimate
+    leaves room for the chat template and tokenizer-specific fragmentation.
+    """
+
+    text = str(value)
+    ascii_count = sum(ord(character) < 128 for character in text)
+    non_ascii_count = len(text) - ascii_count
+    character_estimate = ascii_count / 2.5 + non_ascii_count * 1.25
+    byte_estimate = len(text.encode("utf-8")) / 2.5
+    return max(1, math.ceil(max(character_estimate, byte_estimate)))
+
+
+def _prompt_key(value: Any) -> str:
+    normalized = unicodedata.normalize("NFKD", str(value)).casefold()
+    return "".join(
+        character
+        for character in normalized
+        if character.isalnum() and not unicodedata.combining(character)
+    )
+
+
+def _prompt_term(prompt: str) -> str:
+    match = re.search(
+        r"(?m)^(?:TERM|SOURCE ENGLISH WORD|EXACT CENTER FORM):\s*([^\n]+)",
+        prompt,
+    )
+    return _prompt_key(match.group(1)) if match else ""
+
+
+def _evidence_prompt_score(item: dict[str, Any], term_key: str) -> int:
+    """Prefer exact book evidence, then relevant morphology and dictionaries."""
+
+    source = " ".join(
+        str(item.get(key, ""))
+        for key in ("source", "source_title", "corpus_id", "kind")
+    ).casefold()
+    headword = _prompt_key(item.get("headword", item.get("term", "")))
+    score = 0
+    if term_key and headword == term_key:
+        score += 100
+    if "word origin" in source or "word-origin" in source:
+        score += 50
+    if item.get("component_hint") or item.get("component_surface"):
+        score += 45
+    if "root" in source or "affix" in source:
+        score += 35
+    if any(
+        marker in source
+        for marker in ("dictionary", "freedict", "jmdict", "wordnet", "lexicon")
+    ):
+        score += 25
+    if item.get("evidence_id") or item.get("knowledge_evidence_id"):
+        score += 10
+    return score
+
+
+def _bounded_prompt_text(value: str, limit: int) -> tuple[str, int]:
+    text = str(value)
+    if len(text) <= limit:
+        return text, 0
+    marker_template = " [PROMPT_BUDGET_OMITTED {count} CHARS] "
+    marker = marker_template.format(count=max(0, len(text) - limit))
+    available = max(24, limit - len(marker))
+    head = max(16, int(available * 0.72))
+    tail = max(8, available - head)
+    omitted = max(0, len(text) - head - tail)
+    marker = marker_template.format(count=omitted)
+    return f"{text[:head]}{marker}{text[-tail:]}", omitted
+
+
+def _looks_like_evidence_array(value: list[Any]) -> bool:
+    records = [item for item in value if isinstance(item, dict)]
+    return bool(records) and any(
+        any(
+            key in record
+            for key in (
+                "evidence_id",
+                "knowledge_evidence_id",
+                "corpus_id",
+                "source_title",
+                "excerpt",
+            )
+        )
+        for record in records
+    )
+
+
+def _compact_prompt_json(
+    value: Any,
+    *,
+    term_key: str,
+    string_limit: int,
+    array_limit: int,
+) -> tuple[Any, dict[str, int]]:
+    """Compact a prompt-only JSON copy while retaining durable source IDs."""
+
+    totals = {"items": 0, "characters": 0}
+
+    def compact(raw: Any, key: str = "") -> Any:
+        if isinstance(raw, dict):
+            result: dict[str, Any] = {}
+            omissions: dict[str, dict[str, int]] = {}
+            for child_key, child in raw.items():
+                name = str(child_key)
+                if isinstance(child, list):
+                    original_count = len(child)
+                    selected = list(child)
+                    if _looks_like_evidence_array(selected):
+                        selected = [
+                            item
+                            for index, item in sorted(
+                                enumerate(selected),
+                                key=lambda pair: (
+                                    -_evidence_prompt_score(pair[1], term_key)
+                                    if isinstance(pair[1], dict)
+                                    else 1,
+                                    pair[0],
+                                ),
+                            )
+                        ]
+                    selected = selected[:array_limit]
+                    omitted_items = original_count - len(selected)
+                    if omitted_items:
+                        totals["items"] += omitted_items
+                        omissions[name] = {
+                            "original_items": original_count,
+                            "omitted_items": omitted_items,
+                        }
+                    result[name] = [compact(item, name) for item in selected]
+                else:
+                    result[name] = compact(child, name)
+            if omissions:
+                existing = result.get("_prompt_budget_omissions")
+                if isinstance(existing, dict):
+                    omissions = {**existing, **omissions}
+                result["_prompt_budget_omissions"] = omissions
+            return result
+        if isinstance(raw, list):
+            original_count = len(raw)
+            selected = list(raw)
+            if _looks_like_evidence_array(selected):
+                selected = [
+                    item
+                    for index, item in sorted(
+                        enumerate(selected),
+                        key=lambda pair: (
+                            -_evidence_prompt_score(pair[1], term_key)
+                            if isinstance(pair[1], dict)
+                            else 1,
+                            pair[0],
+                        ),
+                    )
+                ]
+            selected = selected[:array_limit]
+            result = [compact(item, key) for item in selected]
+            omitted_items = original_count - len(selected)
+            if omitted_items:
+                totals["items"] += omitted_items
+                result.append(
+                    {
+                        "_prompt_budget_omission": {
+                            "original_items": original_count,
+                            "omitted_items": omitted_items,
+                            "reason": "local-model context budget",
+                        }
+                    }
+                )
+            return result
+        if isinstance(raw, str) and key not in _PROMPT_IDENTITY_KEYS:
+            bounded, omitted_characters = _bounded_prompt_text(raw, string_limit)
+            totals["characters"] += omitted_characters
+            return bounded
+        return raw
+
+    return compact(value), totals
+
+
+_PROMPT_DATA_LABEL = re.compile(
+    r"(?m)^(?P<label>[A-Z][A-Z0-9 _/(),-]{2,}):[ \t]*"
+)
+
+
+def _compact_labeled_prompt_json(
+    prompt: str,
+    *,
+    string_limit: int,
+    array_limit: int,
+) -> tuple[str, dict[str, int]]:
+    """Compact runtime JSON after uppercase data labels, not schema examples."""
+
+    decoder = json.JSONDecoder()
+    term_key = _prompt_term(prompt)
+    replacements: list[tuple[int, int, str]] = []
+    totals = {"items": 0, "characters": 0, "fragments": 0}
+    for match in _PROMPT_DATA_LABEL.finditer(prompt):
+        label = match.group("label")
+        if not any(
+            marker in label
+            for marker in (
+                "CANDIDATE",
+                "CONTEXT",
+                "DRAFT",
+                "EVIDENCE",
+                "GRAPH",
+                "OFFENDING",
+            )
+        ):
+            continue
+        start = match.end()
+        while start < len(prompt) and prompt[start].isspace():
+            start += 1
+        if start >= len(prompt) or prompt[start] not in "[{":
+            continue
+        try:
+            value, consumed = decoder.raw_decode(prompt[start:])
+        except (TypeError, ValueError):
+            continue
+        if consumed < 160:
+            continue
+        compacted, omissions = _compact_prompt_json(
+            value,
+            term_key=term_key,
+            string_limit=string_limit,
+            array_limit=array_limit,
+        )
+        rendered = json.dumps(compacted, ensure_ascii=False, separators=(",", ":"))
+        if len(rendered) >= consumed:
+            continue
+        replacements.append((start, start + consumed, rendered))
+        totals["items"] += omissions["items"]
+        totals["characters"] += omissions["characters"]
+        totals["fragments"] += 1
+    result = prompt
+    for start, end, rendered in reversed(replacements):
+        result = f"{result[:start]}{rendered}{result[end:]}"
+    return result, totals
+
+
+def _middle_budget_omission(prompt: str, target_tokens: int) -> tuple[str, int]:
+    """Last-resort bounded omission that keeps the task header and constraints."""
+
+    if _conservative_token_estimate(prompt) <= target_tokens:
+        return prompt, 0
+    marker_template = (
+        "\n[PROMPT_BUDGET_OMISSION: {count} characters omitted from prompt-only "
+        "context; durable evidence and citation IDs remain stored]\n"
+    )
+    low, high = 128, len(prompt)
+    initial_omitted = max(0, len(prompt) - 128)
+    best = (
+        prompt[:64]
+        + marker_template.format(count=initial_omitted)
+        + prompt[-64:]
+    )
+    best_omitted = initial_omitted
+    while low <= high:
+        retained = (low + high) // 2
+        head = max(64, int(retained * 0.58))
+        tail = max(64, retained - head)
+        omitted = max(0, len(prompt) - head - tail)
+        candidate = (
+            prompt[:head]
+            + marker_template.format(count=omitted)
+            + prompt[-tail:]
+        )
+        if _conservative_token_estimate(candidate) <= target_tokens:
+            best = candidate
+            best_omitted = omitted
+            low = retained + 1
+        else:
+            high = retained - 1
+    return best, best_omitted
+
+
+def _budget_atomic_prompt(
+    system: str,
+    prompt: str,
+    *,
+    context_tokens: int,
+    output_tokens: int,
+) -> tuple[str, dict[str, Any]]:
+    """Fit one atomic request inside local Qwen without losing provenance."""
+
+    original = str(prompt).strip()
+    input_budget = max(
+        512,
+        int(context_tokens) - int(output_tokens) - _ATOMIC_CONTEXT_SAFETY_TOKENS,
+    )
+    system_tokens = _conservative_token_estimate(system)
+    prompt_budget = max(256, input_budget - system_tokens)
+    before = _conservative_token_estimate(original)
+    compacted = original
+    totals = {"items": 0, "characters": 0, "fragments": 0}
+    if before > prompt_budget:
+        for string_limit, array_limit in (
+            (520, 16),
+            (360, 12),
+            (240, 10),
+            (160, 8),
+            (104, 6),
+            (72, 4),
+        ):
+            compacted, omissions = _compact_labeled_prompt_json(
+                compacted,
+                string_limit=string_limit,
+                array_limit=array_limit,
+            )
+            for key in totals:
+                totals[key] += omissions[key]
+            if _conservative_token_estimate(compacted) <= prompt_budget:
+                break
+    fallback_omitted = 0
+    if _conservative_token_estimate(compacted) > prompt_budget:
+        compacted, fallback_omitted = _middle_budget_omission(
+            compacted, prompt_budget
+        )
+        totals["characters"] += fallback_omitted
+    after = _conservative_token_estimate(compacted)
+    return compacted, {
+        "context_tokens": int(context_tokens),
+        "reserved_output_tokens": int(output_tokens),
+        "input_budget_tokens": input_budget,
+        "estimated_prompt_tokens_before": before,
+        "estimated_prompt_tokens_after": after,
+        "compacted": compacted != original,
+        "omitted_items": totals["items"],
+        "omitted_characters": totals["characters"],
+        "compacted_fragments": totals["fragments"],
+    }
 
 
 def _evidence_context(
@@ -189,7 +553,8 @@ the supplied retrieved book evidence. Return one JSON object only. Work
 evidence-first, then add only useful local-model knowledge as visibly labeled
 hypotheses. A `book` node or edge must cite exact supplied `evidence_ids`; a
 `model` node or edge must use empty evidence_ids and low confidence. Never attach
-a citation to model knowledge. Include one to six useful nodes. The
+a citation to model knowledge. Include one to twelve useful nodes when they add
+real linguistic information. The
 center node form and english.term must exactly match the requested word.
 Components point into words. Historical forms point toward later forms.
 A model prefix-of edge must match the word start, suffix-of the word end, and
@@ -200,10 +565,10 @@ and arabic. Japanese and Chinese ruby token text must concatenate exactly to the
 displayed term. Root Dictionary, and Affix Dictionary evidence may be used only
 when present in supplied records. Never copy instruction or example labels."""
 
-MORPHOLOGY_PROMPT = """Create one compact connected evidence-first morphology
-graph. Return title, summary_en, and
-morphology_graph. The graph has center_id, nodes, edges, and focus_areas. Use one
-to six nodes, proportional to explicit evidence; a one-node graph is valid when
+MORPHOLOGY_PROMPT = """Create one connected evidence-first morphology graph.
+Return title, summary_en, and morphology_graph. The graph has center_id, nodes,
+edges, and focus_areas. Use one to twelve useful nodes, proportional to explicit
+evidence and clearly labeled model context; a one-node graph is valid when
 only the center is useful. Every node and edge has basis, evidence_ids, and
 confidence. Use basis `book` only when exact supplied evidence IDs support the
 claim. Local-model knowledge is allowed with basis `model`, empty evidence_ids,
@@ -465,19 +830,7 @@ def _validate_grounded_morphology_graph(
 
 
 def _extract_json(text: str) -> dict[str, Any]:
-    cleaned = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
-    if cleaned.startswith("```"):
-        cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
-        cleaned = re.sub(r"\s*```$", "", cleaned)
-    decoder = json.JSONDecoder()
-    for match in re.finditer(r"\{", cleaned):
-        try:
-            value, _ = decoder.raw_decode(cleaned[match.start() :])
-        except json.JSONDecodeError:
-            continue
-        if isinstance(value, dict):
-            return value
-    raise ValueError("model response did not contain a JSON object")
+    return parse_model_json(text)[0]
 
 
 def _nonempty_path(value: dict[str, Any], *path: str) -> bool:
@@ -498,8 +851,8 @@ def _morphology_graph_errors(value: dict[str, Any]) -> list[str]:
     edges = graph.get("edges")
     focuses = graph.get("focus_areas")
     center_id = str(graph.get("center_id", "")).strip()
-    if not isinstance(nodes, list) or not 1 <= len(nodes) <= 6:
-        missing.append("morphology_graph.nodes[1-6]")
+    if not isinstance(nodes, list) or not 1 <= len(nodes) <= 12:
+        missing.append("morphology_graph.nodes[1-12]")
         nodes = []
     node_ids = {
         str(node.get("id", "")).strip()
@@ -698,6 +1051,42 @@ class LlamaCppClient:
         self.url = url
         self.model_name = model_name
         self.timeout = timeout
+        configured_context = os.environ.get("LKT_LLM_CONTEXT_TOKENS", "").strip()
+        try:
+            parsed_context = int(configured_context) if configured_context else 0
+        except ValueError:
+            parsed_context = 0
+        self._context_tokens = parsed_context if parsed_context >= 1024 else 0
+        self._context_source = "environment" if self._context_tokens else ""
+        self._context_checked = bool(self._context_tokens)
+
+    def _runtime_context_tokens(self) -> int:
+        """Read llama.cpp's effective n_ctx once, with a conservative fallback."""
+
+        if self._context_checked:
+            return self._context_tokens or _DEFAULT_LOCAL_CONTEXT_TOKENS
+        self._context_checked = True
+        props_url = self.url.split("/v1/", 1)[0].rstrip("/") + "/props"
+        try:
+            with urllib.request.urlopen(
+                props_url, timeout=min(2.0, float(self.timeout))
+            ) as response:
+                props = json.load(response)
+            settings = (
+                props.get("default_generation_settings", {})
+                if isinstance(props, dict)
+                else {}
+            )
+            detected = int(settings.get("n_ctx", 0)) if isinstance(settings, dict) else 0
+            if detected >= 1024:
+                self._context_tokens = detected
+                self._context_source = "llama.cpp /props"
+        except (OSError, TypeError, ValueError, urllib.error.URLError):
+            pass
+        if not self._context_tokens:
+            self._context_tokens = _DEFAULT_LOCAL_CONTEXT_TOKENS
+            self._context_source = "safe default"
+        return self._context_tokens
 
     def health(self, timeout: float = 2.0) -> bool:
         health_url = self.url.split("/v1/", 1)[0].rstrip("/") + "/health"
@@ -799,40 +1188,117 @@ class LlamaCppClient:
         *,
         max_tokens: int = 256,
     ) -> dict[str, Any]:
-        """Run one bounded, low-temperature atomic preparation task."""
+        """Run one atomic task, with syntax recovery and one local format retry."""
+
+        context_tokens = self._runtime_context_tokens()
+        output_tokens = max(
+            64,
+            min(
+                int(max_tokens),
+                _ATOMIC_MAX_OUTPUT_TOKENS,
+                max(64, context_tokens // 2),
+            ),
+        )
+        bounded_prompt, prompt_budget = _budget_atomic_prompt(
+            system.strip(),
+            prompt,
+            context_tokens=context_tokens,
+            output_tokens=output_tokens,
+        )
 
         payload = {
             "model": self.model_name,
             "messages": [
                 {"role": "system", "content": system.strip()},
-                {"role": "user", "content": f"{prompt.strip()}\n\n/no_think"},
+                {"role": "user", "content": f"{bounded_prompt}\n\n/no_think"},
             ],
             "temperature": 0.1,
             "top_p": 0.8,
             "top_k": 20,
-            "max_tokens": max(64, min(int(max_tokens), 512)),
+            "max_tokens": output_tokens,
             "stream": False,
+            "response_format": {"type": "json_object"},
+            "chat_template_kwargs": {"enable_thinking": False},
         }
-        body, elapsed = self._request(payload)
-        content = re.sub(
-            r"<think>.*?</think>", "", self._content(body), flags=re.DOTALL
-        ).strip()
-        value = _extract_json(content)
-        usage = body.get("usage") if isinstance(body.get("usage"), dict) else {}
-        timings = body.get("timings") if isinstance(body.get("timings"), dict) else {}
-        completion_tokens = int(
-            usage.get("completion_tokens") or timings.get("predicted_n") or 0
-        )
+        elapsed = 0.0
+        completion_tokens = 0
+        prompt_tokens = 0
+        failures: list[dict[str, Any]] = []
+        for attempt in range(2):
+            body, request_elapsed = self._request(payload)
+            elapsed += request_elapsed
+            content = re.sub(
+                r"<think>.*?</think>", "", self._content(body), flags=re.DOTALL
+            ).strip()
+            usage = body.get("usage") if isinstance(body.get("usage"), dict) else {}
+            timings = body.get("timings") if isinstance(body.get("timings"), dict) else {}
+            completion_tokens += int(usage.get("completion_tokens") or timings.get("predicted_n") or 0)
+            prompt_tokens += int(usage.get("prompt_tokens") or timings.get("prompt_n") or 0)
+            try:
+                value, recovery = parse_model_json(content)
+                break
+            except ValueError as exc:
+                choices = body.get("choices", [])
+                choice = choices[0] if isinstance(choices, list) and choices and isinstance(choices[0], dict) else {}
+                message = choice.get("message", {})
+                if not isinstance(message, dict):
+                    message = {}
+                failures.append({
+                    "attempt": attempt + 1, "error": str(exc),
+                    "raw": content[:12000],
+                    "finish_reason": str(choice.get("finish_reason", "")),
+                    "message_fields": sorted(str(key) for key in message),
+                    "content_type": type(message.get("content")).__name__,
+                    "reasoning_characters": len(str(message.get("reasoning_content") or "")),
+                    "output_limit": payload["max_tokens"],
+                    "completion_tokens": int(usage.get("completion_tokens") or timings.get("predicted_n") or 0),
+                    "prompt_tokens": int(usage.get("prompt_tokens") or timings.get("prompt_n") or 0),
+                    "elapsed_seconds": round(request_elapsed, 2),
+                })
+                if attempt:
+                    raise AtomicJsonOutputError(
+                        str(exc), model=self.model_name, failures=failures,
+                    ) from exc
+                output_tokens = min(
+                    max(output_tokens, 256), _ATOMIC_MAX_OUTPUT_TOKENS,
+                    max(64, context_tokens // 2),
+                )
+                retry_prompt = (
+                    prompt + "\n\nThe previous reply had invalid JSON syntax. "
+                    "Return the requested JSON object using the original task and "
+                    "supplied evidence. Preserve useful content and supplied IDs; "
+                    "do not invent a citation. Close all strings and containers. "
+                    "No reasoning or markdown.\nPREVIOUS REPLY:\n" + content[:1800]
+                )
+                bounded_prompt, prompt_budget = _budget_atomic_prompt(
+                    system.strip(), retry_prompt, context_tokens=context_tokens,
+                    output_tokens=output_tokens,
+                )
+                payload = {
+                    **payload, "max_tokens": output_tokens,
+                    "messages": [
+                        {"role": "system", "content": system.strip()},
+                        {"role": "user", "content": f"{bounded_prompt}\n\n/no_think"},
+                    ],
+                }
         return {
             "value": value,
             "raw": content,
             "model": self.model_name,
             "metrics": {
                 "elapsed_seconds": round(elapsed, 2),
+                "prompt_tokens": prompt_tokens,
                 "completion_tokens": completion_tokens,
                 "tokens_per_second": round(
                     float(timings.get("predicted_per_second") or 0), 2
                 ),
+                "prompt_budget": {
+                    **prompt_budget,
+                    "context_source": self._context_source,
+                },
+                "json_recovery": recovery,
+                "formatting_retry": bool(attempt),
+                "requests": attempt + 1,
             },
         }
 
@@ -943,13 +1409,13 @@ class LlamaCppClient:
             "top_p": 0.8,
             "top_k": 20,
             "presence_penalty": 0.1,
-            "max_tokens": 760,
+            "max_tokens": 1200,
             "stream": False,
         }
         return self._complete_card_stage(
             payload,
             lambda value: _validate_grounded_morphology_graph(value, query, evidence),
-            repair_tokens=900,
+            repair_tokens=1400,
             repair_instruction=(
                 "Start again from the supplied evidence. Return one complete, concise "
                 "graph JSON object; close every array and object"

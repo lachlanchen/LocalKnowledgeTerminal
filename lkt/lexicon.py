@@ -4,14 +4,11 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from .freedict import FreeDictRag
+from .languages import DISPLAY_LANGUAGES, language_profile, normalize_language_code
 
 
 WORDNET_LEXICONS = {
-    "en": "omw-en:2.0",
-    "ja": "omw-ja:2.0",
-    "zh": "omw-cmn:2.0",
-    "fr": "omw-fr:2.0",
-    "ar": "omw-arb:2.0",
+    code: language_profile(code).wordnet_specifier for code in DISPLAY_LANGUAGES
 }
 
 
@@ -34,13 +31,30 @@ class WordnetRag:
         self.data_directory.mkdir(parents=True, exist_ok=True)
         self.wn.config.data_directory = self.data_directory
 
-    def _wordnet(self, language: str) -> Any:
-        try:
-            specifier = WORDNET_LEXICONS[language]
-        except KeyError as exc:
-            raise ValueError(f"unsupported dictionary language: {language}") from exc
+    def _specifier(self, language: str) -> str:
+        profile = language_profile(language)
+        if profile.wordnet_specifier:
+            return profile.wordnet_specifier
+        language = profile.code
+        primary = language.split("-", 1)[0]
+        candidates: list[str] = []
+        for lexicon in self.wn.lexicons():
+            try:
+                installed_language = normalize_language_code(str(lexicon.language))
+            except ValueError:
+                continue
+            if installed_language not in {language, primary}:
+                continue
+            candidates.append(f"{lexicon.id}:{lexicon.version}")
+        if not candidates:
+            raise ValueError(f"no installed local dictionary for language: {language}")
+        return sorted(candidates)[0]
+
+    def _wordnet(self, language: str) -> tuple[Any, str]:
+        language = normalize_language_code(language)
+        specifier = self._specifier(language)
         expand = "" if language == "en" else WORDNET_LEXICONS["en"]
-        return self.wn.Wordnet(specifier, expand=expand)
+        return self.wn.Wordnet(specifier, expand=expand), specifier
 
     def search(
         self,
@@ -54,12 +68,20 @@ class WordnetRag:
         if not query:
             raise ValueError("lexicon query is empty")
         limit = max(1, min(int(limit), 20))
-        source = self._wordnet(source_language)
-        targets = {
-            language: self._wordnet(language)
-            for language in dict.fromkeys(target_languages)
-            if language != source_language
-        }
+        source_language = normalize_language_code(source_language)
+        try:
+            source, source_specifier = self._wordnet(source_language)
+        except ValueError:
+            return []
+        targets: dict[str, Any] = {}
+        for raw_language in target_languages:
+            language = normalize_language_code(raw_language)
+            if language == source_language or language in targets:
+                continue
+            try:
+                targets[language] = self._wordnet(language)[0]
+            except ValueError:
+                continue
         results: list[dict[str, Any]] = []
         seen: set[tuple[str, str]] = set()
         for word in source.words(query):
@@ -81,14 +103,15 @@ class WordnetRag:
                         translations[language] = lemmas[:8]
                 results.append(
                     {
-                        "entry_id": f"{WORDNET_LEXICONS[source_language]}:{sense.id}",
+                        "entry_id": f"{source_specifier}:{sense.id}",
                         "headword": word.lemma(),
                         "part_of_speech": word.pos,
                         "definition": synset.definition() or "",
                         "forms": word.forms(),
                         "ili": str(ili or ""),
                         "translations": translations,
-                        "corpus_id": WORDNET_LEXICONS[source_language],
+                        "corpus_id": source_specifier,
+                        "source_language": source_language,
                         "source_title": "Open Multilingual Wordnet 2.0",
                         "kind": "dictionary-sense",
                         "license_locator": "lexicon metadata",
@@ -130,7 +153,10 @@ class LocalLexiconRag:
         target_languages: Iterable[str] = ("ja", "zh", "fr", "ar"),
         limit: int = 6,
     ) -> list[dict[str, Any]]:
-        targets = tuple(dict.fromkeys(target_languages))
+        source_language = normalize_language_code(source_language)
+        targets = tuple(
+            dict.fromkeys(normalize_language_code(value) for value in target_languages)
+        )
         records = self.wordnet.search(
             query,
             source_language=source_language,
@@ -138,7 +164,7 @@ class LocalLexiconRag:
             limit=limit,
         )
         if (
-            source_language == "en"
+            source_language.split("-", 1)[0] == "en"
             and "ar" in targets
             and self.freedict.database.is_file()
         ):

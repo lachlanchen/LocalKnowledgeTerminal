@@ -90,8 +90,41 @@ Every generated card receives a new ID and remains in the card ledger. A second,
 normalized `knowledge.sqlite3` database stores accepted terms, senses,
 pronunciations, phoneme/grapheme segments, morphemes, history, translations,
 grammar, provenance, revisions, and inquiry lineage as reusable atoms. Cards are
-reconstructable views over those atoms. A LadybugDB property graph is a derived
-traversal projection and can always be rebuilt from SQLite.
+reconstructable views over those atoms. Browser graph views are deterministic,
+bounded projections read directly from SQLite, so there is no second graph
+database to synchronize or serve stale knowledge.
+
+## Multilingual Lexical Knowledge Graph Dataset
+
+The normalized lexical graph is also designed to be useful independently of
+the LKT interface. It is continuously polished by the local Qwen model against
+book and dictionary RAG evidence, then projected into the same Word Card, Word
+Origin, Root, and Affix views used by the product. English, Japanese, Chinese,
+French, and Arabic are first-class language profiles; the language registry and
+export schema can accommodate additional languages without creating a second
+knowledge system.
+
+Public releases are point-in-time, accepted-only snapshots rather than copies
+of the private runtime database. The exporter removes corpus excerpts, private
+paths, prompts, conversations, job state, and other runtime material while
+retaining typed graph relationships and metadata-only provenance. Accepted
+local-model output can still be incomplete or wrong, language coverage is
+uneven, and source-license metadata remains `other/unverified` until verified
+for each source. Consumers should use confidence, lineage, and evidence fields
+rather than treating acceptance as a guarantee of linguistic truth.
+
+```bash
+lkt export-knowledge dist/lexical-graph-2026.09.02 \
+  --database data/knowledge.sqlite3 \
+  --dataset-version 2026.09.02
+```
+
+The [planned Hugging Face dataset](https://huggingface.co/datasets/lachlanchen/local-knowledge-terminal-lexical-graph)
+is **not yet an authenticated public release**. The first upload remains private
+until its sanitization, checksums, source metadata, and dataset card have been
+reviewed. See [`docs/huggingface-dataset.md`](docs/huggingface-dataset.md) for
+the artifact contract and release procedure.
+
 Accepted Book Answer and Book Question cards also place their exact reviewed
 English, Japanese, and Chinese texts in this normalized store. Each language is
 an independent content atom linked to the retrieval-owned book citation; model
@@ -217,7 +250,6 @@ the configured book has no evidence, the app does not generate a card.
 | `lkt/knowledge.py` | Atomic established knowledge, evidence, jobs, revisions, and inquiry lineage |
 | `lkt/preparation.py` | Dependency-aware divide-and-conquer word/content planning |
 | `lkt/atomic.py` | Bounded atomic preparation and deterministic card assembly |
-| `lkt/graph.py` | Rebuildable LadybugDB traversal projection from accepted SQLite atoms |
 | `lkt/lexicon.py` | Compact multilingual WordNet correction evidence |
 | `lkt/freedict.py` | Exact FreeDict English-Arabic ingestion and correction retrieval |
 | `lkt/jmdict.py` | Full JMdict exact-form reading index and provenance |
@@ -229,6 +261,7 @@ the configured book has no evidence, the app does not generate a card.
 | `docs/lineage.md` | Exact legacy-project and corpus provenance |
 | `docs/product-brief.md` | Durable owner requirements and acceptance criteria |
 | `docs/knowledge-architecture.md` | Atomic SQLite, graph projection, and staged preparation contract |
+| `docs/huggingface-dataset.md` | Sanitized lexical graph artifact and private-first Hub release procedure |
 | `docs/owner-request-log.md` | Chronological, privacy-redacted owner direction |
 | `docs/voice-hardware.md` | Supported microphone choice and staged audio tests |
 | `docs/mode-roadmap.md` | Extension plan for future suffix, affix, and root books |
@@ -328,17 +361,16 @@ The benchmark activates one model at a time, runs the same bounded multilingual
 quality/speed probe, records wall time, llama.cpp token rate, and process memory,
 then restores the model that was active before the benchmark.
 
-Install the compact optional knowledge runtime and build the graph projection:
+Install the compact optional knowledge runtime:
 
 ```bash
 ./scripts/install_knowledge_runtime.sh
-./scripts/rebuild_graph.sh
 ```
 
-This installs eSpeak NG for local IPA, pins LadybugDB 0.19.1 and Wn 1.1.1 in an
-isolated environment, then installs only the OMW 2.0 English, Japanese, Mandarin
-Chinese, French, and Arabic lexicons. It also verifies the pinned full JMdict
-archive, builds the exact-form reading index, and removes the raw download.
+This installs eSpeak NG for local IPA and pins Wn 1.1.1 in an isolated
+environment, then installs only the OMW 2.0 English, Japanese, Mandarin Chinese,
+French, and Arabic lexicons. It also verifies the pinned full JMdict archive,
+builds the exact-form reading index, and removes the raw download.
 Full Wiktionary dumps are intentionally excluded. IPA extraction uses quiet text
 mode and does not enable speech output.
 
@@ -404,3 +436,29 @@ their monolithic runtime or hardware dependencies. See
 | Donate | PayPal | Stripe |
 | --- | --- | --- |
 | [![Donate](https://img.shields.io/badge/Donate-LazyingArt-0EA5E9?style=for-the-badge&logo=ko-fi&logoColor=white)](https://chat.lazying.art/donate) | [![PayPal](https://img.shields.io/badge/PayPal-RongzhouChen-00457C?style=for-the-badge&logo=paypal&logoColor=white)](https://paypal.me/RongzhouChen) | [![Stripe](https://img.shields.io/badge/Stripe-Donate-635BFF?style=for-the-badge&logo=stripe&logoColor=white)](https://buy.stripe.com/aFadR8gIaflgfQV6T4fw400) |
+
+<!-- lexicon-atlas-introduction -->
+## English word knowledge graph: Lexicon Atlas
+
+LKT's lexical knowledge is a connected graph, not only a collection of word cards.
+Words connect to roots, prefixes, suffixes, historical forms, pronunciations,
+senses, and multilingual meanings. Local language-model inference and retrieval
+from books and dictionaries prepare this knowledge upstream.
+
+[![Lexicon Atlas: the English word knowledge graph in 3D](https://raw.githubusercontent.com/lachlanchen/LexiconAtlas/main/docs/images/atlas-desktop.png)](https://github.com/lachlanchen/LexiconAtlas)
+
+**[Explore the standalone Lexicon Atlas repository](https://github.com/lachlanchen/LexiconAtlas)**
+| **[Download the graph database](https://github.com/lachlanchen/LexiconAtlas/releases/latest)**
+| **[Dataset schema and limitations](https://github.com/lachlanchen/LexiconAtlas/blob/main/docs/DATASET.md)**
+
+Lexicon Atlas is a local-first, read-only 3D interface built with Three.js and a D3
+force layout. Search the network, filter languages and node types, follow a word's
+neighborhood, and inspect stored relationships and source references. It is an
+independent app; LKT retains ingestion, local-LLM enrichment, repair, and cards.
+
+The public SQLite release contains lexical graph records, not the original books
+or the operational database. Book excerpts, prompts, inquiry history, worker
+state, and arbitrary payloads are omitted. Coverage and correctness remain uneven;
+a released snapshot does not update itself or guarantee every etymology is correct.
+Follow the standalone README to run on Windows, Linux, or macOS at
+`http://127.0.0.1:8091/`.

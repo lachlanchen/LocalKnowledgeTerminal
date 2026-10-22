@@ -6,12 +6,13 @@ local data responsibilities:
 1. Source indexes retain immutable book/dictionary records for retrieval.
 2. `knowledge.sqlite3` is the authoritative transactional store for accepted
    atomic knowledge and preparation history.
-3. `knowledge-graph.lbdb` is a LadybugDB traversal projection generated only
-   from accepted SQLite entities and edges.
+3. Browser graph responses are deterministic, bounded projections generated
+   directly from accepted SQLite entities and edges.
 
-The graph database is never an independent source of truth. Every projected
-node and edge carries its SQLite ID. A projection has a deterministic source
-fingerprint and can be replaced or rebuilt without model inference.
+There is no independent graph database or synchronization lag. Every projected
+node and edge carries its SQLite ID, graph revision, and deterministic projection
+hash. A legacy `knowledge-graph.lbdb` file may remain on upgraded installations,
+but current services ignore it and it is safe to archive outside the runtime.
 
 ## Balanced autonomous product deck
 
@@ -77,8 +78,8 @@ from current atomic knowledge and current source evidence.
   Chinese, French, and Arabic artifacts can be revised independently.
 - `grammar_analyses` and `grammar_parts` preserve ordered sentence/word roles,
   lemmas, parts of speech, readings, and display color keys.
-- `entity_edges` stores accepted directed relationships; LadybugDB mirrors this
-  table for recursive traversal and focused graph views.
+- `entity_edges` stores accepted directed relationships used directly for
+  recursive traversal and focused graph views.
 - `evidence_records` and `entity_evidence` attach immutable corpus IDs, hashes,
   locators, excerpts, claims, and confidence to the exact supported atom.
 - `entity_revisions` retains model/prompt version and review lineage.
@@ -89,6 +90,33 @@ from current atomic knowledge and current source evidence.
   bounded quality score.
 - `inquiry_threads` and `inquiry_events` preserve parent/child investigation
   history, selected words, source/result entities, and compact summaries.
+
+## Public lexical graph export boundary
+
+`lkt export-knowledge` creates a standalone derivative dataset from a
+point-in-time SQLite snapshot. It never publishes the live runtime database.
+The public artifact contains only accepted lexical entities, their accepted
+typed relationships, and the minimum provenance needed to distinguish
+retrieval-supported knowledge from local-Qwen model knowledge. Word Card, Word
+Origin, Root, and Affix remain projections of this shared graph rather than
+separate exported datasets.
+
+The export boundary excludes evidence excerpts and source-book text, filesystem
+paths, secrets, model prompts and raw responses, rejected or draft candidates,
+preparation queues and checkpoints, service state, cards and rendered output,
+inquiry conversations, and private audit material. Citation rows are reduced to
+metadata such as stable source identity, title, version or hash, safe locator,
+and declared license status. Entity-to-evidence links and revision metadata stay
+available so a consumer can audit why an accepted node or edge exists without
+receiving the underlying private corpus.
+
+Sanitization is structural, not a truth guarantee. Accepted model-derived facts
+remain labelled as model knowledge and may be imperfect. The exporter does not
+promote uncited output to book evidence, infer a source license, or apply one
+license to records from different sources. Until the applicable source rights
+are independently verified, the dataset release and each uncertain source use
+`other/unverified`. A manifest, per-table counts, and SHA-256 checksums make the
+standalone SQLite and JSONL representations one auditable release.
 
 ## Divide-and-conquer preparation
 
@@ -255,8 +283,8 @@ English, Japanese, and Chinese text as three idempotent `content_items`. All
 three atoms link to the retrieval-owned card-book evidence, while typed
 `reviewed-translation` edges preserve their relationship. Model reflection is
 not copied into book evidence. `sync-card-knowledge` safely backfills cards that
-predate this acquisition path and the LadybugDB projection remains rebuildable
-from the resulting SQLite atoms.
+predate this acquisition path; all live graph projections read the resulting
+SQLite atoms directly.
 
 Content enrichment follows the same rule: sentence grammar and investigation
 candidates are separate tasks. `prepare-grammar-parts` makes one bounded Qwen

@@ -72,14 +72,26 @@ else
   systemctl start lkt-web.service
 fi
 
-for attempt in $(seq 1 60); do
+WEB_READY_ATTEMPTS="${LKT_WEB_READY_ATTEMPTS:-300}"
+case "$WEB_READY_ATTEMPTS" in
+  ''|*[!0-9]*)
+    echo "LKT_WEB_READY_ATTEMPTS must be a positive integer" >&2
+    exit 2
+    ;;
+esac
+if [ "$WEB_READY_ATTEMPTS" -lt 1 ]; then
+  echo "LKT_WEB_READY_ATTEMPTS must be a positive integer" >&2
+  exit 2
+fi
+
+for attempt in $(seq 1 "$WEB_READY_ATTEMPTS"); do
   health="$(curl --silent --fail http://127.0.0.1:8090/api/health || true)"
   if printf '%s' "$health" | python3 -c \
     'import json,sys; raise SystemExit(json.load(sys.stdin).get("status") != "ready")' \
     2>/dev/null; then
     break
   fi
-  if [ "$attempt" -eq 60 ]; then
+  if [ "$attempt" -eq "$WEB_READY_ATTEMPTS" ]; then
     echo "LKT web service did not report ready" >&2
     journalctl -u lkt-web.service -n 80 --no-pager >&2
     exit 1

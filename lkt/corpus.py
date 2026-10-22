@@ -272,6 +272,18 @@ class CorpusIndex:
     ) -> Evidence | None:
         """Choose one stable unseen lexical entry without repeating a headword."""
 
+        batch = self.draw_unseen_words(seed, excluded_headwords, 1)
+        return batch[0] if batch else None
+
+    def draw_unseen_words(
+        self,
+        seed: str,
+        excluded_headwords: Iterable[str],
+        limit: int,
+    ) -> list[Evidence]:
+        """Choose a bounded lexical batch after one deduplicating source scan."""
+
+        limit = max(1, min(int(limit), 128))
         excluded = {
             str(item).strip().casefold()
             for item in excluded_headwords
@@ -292,29 +304,55 @@ class CorpusIndex:
             seen.add(key)
             candidates.append(row)
         if not candidates:
-            return None
+            return []
         metadata = self.metadata()
-        material = metadata.get("source_sha256", "") + "\0" + seed.strip().casefold()
-        start = (
-            int.from_bytes(hashlib.sha256(material.encode("utf-8")).digest()[:8], "big")
-            % len(candidates)
-        )
-        for step in range(len(candidates)):
-            candidate = candidates[(start + step) % len(candidates)]
-            headword = _lexical_form(
-                candidate["display_headword"], candidate["headword"]
+        selected: list[tuple[sqlite3.Row, str]] = []
+        for attempt in range(limit):
+            attempt_seed = seed if limit == 1 else f"{seed}:{attempt}"
+            material = (
+                metadata.get("source_sha256", "")
+                + "\0"
+                + attempt_seed.strip().casefold()
             )
-            if headword.casefold() not in excluded:
-                with closing(self._connect()) as connection:
-                    row = connection.execute(
-                        "SELECT * FROM entries WHERE row_id = ?",
-                        (candidate["row_id"],),
-                    ).fetchone()
-                if row is None:
-                    return None
-                entry = _entry_from_row(row)
-                return entry.evidence(_excerpt(entry.plain_text, headword))
-        return None
+            start = (
+                int.from_bytes(
+                    hashlib.sha256(material.encode("utf-8")).digest()[:8], "big"
+                )
+                % len(candidates)
+            )
+            chosen: tuple[sqlite3.Row, str] | None = None
+            for step in range(len(candidates)):
+                candidate = candidates[(start + step) % len(candidates)]
+                headword = _lexical_form(
+                    candidate["display_headword"], candidate["headword"]
+                )
+                if headword.casefold() not in excluded:
+                    chosen = (candidate, headword)
+                    break
+            if chosen is None:
+                break
+            selected.append(chosen)
+            excluded.add(chosen[1].casefold())
+        if not selected:
+            return []
+        row_ids = tuple(int(candidate["row_id"]) for candidate, _ in selected)
+        placeholders = ",".join("?" for _ in row_ids)
+        with closing(self._connect()) as connection:
+            rows_by_id = {
+                int(row["row_id"]): row
+                for row in connection.execute(
+                    f"SELECT * FROM entries WHERE row_id IN ({placeholders})",
+                    row_ids,
+                )
+            }
+        result: list[Evidence] = []
+        for candidate, headword in selected:
+            row = rows_by_id.get(int(candidate["row_id"]))
+            if row is None:
+                continue
+            entry = _entry_from_row(row)
+            result.append(entry.evidence(_excerpt(entry.plain_text, headword)))
+        return result
 
     def search(self, query: str, limit: int = 4) -> list[Evidence]:
         query = query.strip()

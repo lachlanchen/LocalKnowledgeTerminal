@@ -83,6 +83,24 @@ class MorphologyTests(unittest.TestCase):
     def test_draw_unseen_reaches_each_real_record_without_repeating(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             index = make_morphology_index(Path(temp))
+            batch = index.draw_unseen_batch("daily-cycle", set(), 8)
+            self.assertEqual(len(batch), 2)
+            self.assertEqual(len({item.entry_id for item in batch}), 2)
+            blocked: set[str] = set()
+            expected = []
+            for attempt in range(8):
+                item = index.draw_unseen(f"daily-cycle:{attempt}", blocked)
+                if item is None:
+                    break
+                expected.append(item.entry_id)
+                blocked.add(item.entry_id)
+            self.assertEqual([item.entry_id for item in batch], expected)
+            self.assertEqual(
+                index.draw_unseen_batch(
+                    "daily-cycle", {item.entry_id for item in batch}, 8
+                ),
+                [],
+            )
             first = index.draw_unseen("daily-cycle", set())
             self.assertIsNotNone(first)
             second = index.draw_unseen("daily-cycle", {first.entry_id})

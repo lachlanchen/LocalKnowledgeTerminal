@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import tempfile
 import unittest
 from contextlib import redirect_stdout
 from io import StringIO
@@ -9,7 +10,13 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from lkt.atomic import MODEL_FREE_ATOMIC_JOBS
-from lkt.cli import command_generate, run_atomic_watch
+from lkt.cli import (
+    _plan_bounded_background_growth,
+    command_generate,
+    parser,
+    run_atomic_watch,
+)
+from lkt.knowledge import KnowledgeStore
 
 
 class _StopAfterWaits:
@@ -107,6 +114,127 @@ class GenerateCommandTests(unittest.TestCase):
 
 
 class AtomicWatchTests(unittest.TestCase):
+    def test_semantic_admission_does_not_skip_generic_growth(self) -> None:
+        semantic = Mock()
+        semantic.run_once.return_value = {
+            "selected": True,
+            "action": "semantic-enrichment",
+        }
+        lexical = Mock()
+        lexical.run_once.return_value = {
+            "selected": True,
+            "action": "lexical-growth",
+        }
+        morphology = Mock()
+        morphology.run_once.return_value = {
+            "selected": True,
+            "action": "morphology-growth",
+        }
+        required = Mock()
+        required.run_once.return_value = {
+            "selected": True,
+            "action": "morphology-v3-enrichment",
+        }
+
+        with patch("lkt.cli.background_preparation_blocker", return_value=""):
+            result = _plan_bounded_background_growth(
+                semantic,
+                (lexical, morphology),
+                rotation_claim=lambda: 0,
+                always_seeders=(required,),
+            )
+
+        semantic.run_once.assert_called_once_with()
+        required.run_once.assert_called_once_with()
+        lexical.run_once.assert_called_once_with()
+        morphology.run_once.assert_not_called()
+        self.assertTrue(result["semantic"]["selected"])
+        self.assertEqual(
+            result["always"][0]["action"], "morphology-v3-enrichment"
+        )
+        self.assertEqual(result["growth"]["action"], "lexical-growth")
+
+    def test_required_growth_is_not_skipped_across_rotation_turns(self) -> None:
+        semantic = Mock()
+        semantic.run_once.return_value = {"selected": False}
+        required = Mock()
+        required.run_once.return_value = {
+            "selected": True,
+            "action": "morphology-v3-enrichment",
+        }
+        generic = tuple(Mock() for _ in range(3))
+        for index, seeder in enumerate(generic):
+            seeder.run_once.return_value = {
+                "selected": True,
+                "action": f"growth-{index}",
+            }
+
+        with patch("lkt.cli.background_preparation_blocker", return_value=""):
+            first = _plan_bounded_background_growth(
+                semantic,
+                generic,
+                rotation_claim=lambda: 0,
+                always_seeders=(required,),
+            )
+            later = _plan_bounded_background_growth(
+                semantic,
+                generic,
+                rotation_claim=lambda: 1,
+                always_seeders=(required,),
+            )
+
+        self.assertEqual(required.run_once.call_count, 2)
+        self.assertEqual(first["always"][0]["action"], "morphology-v3-enrichment")
+        self.assertEqual(later["always"][0]["action"], "morphology-v3-enrichment")
+
+    def test_generic_rotation_is_deterministic_across_restart(self) -> None:
+        def seeders() -> tuple[Mock, Mock, Mock]:
+            values = tuple(Mock() for _ in range(3))
+            for index, seeder in enumerate(values):
+                seeder.run_once.return_value = {
+                    "selected": True,
+                    "action": f"growth-{index}",
+                }
+            return values
+
+        with tempfile.TemporaryDirectory() as temp:
+            database = Path(temp) / "knowledge.sqlite3"
+            store = KnowledgeStore(database)
+            semantic_a = Mock()
+            semantic_a.run_once.return_value = {"selected": False}
+            semantic_b = Mock()
+            semantic_b.run_once.return_value = {"selected": False}
+            first = seeders()
+            restarted = seeders()
+            with patch("lkt.cli.background_preparation_blocker", return_value=""):
+                first_result = _plan_bounded_background_growth(
+                    semantic_a,
+                    first,
+                    rotation_claim=store.claim_background_growth_decision,
+                )
+                reopened = KnowledgeStore(database)
+                restarted_result = _plan_bounded_background_growth(
+                    semantic_b,
+                    restarted,
+                    rotation_claim=reopened.claim_background_growth_decision,
+                )
+
+        self.assertEqual(first_result["growth_index"], 0)
+        self.assertEqual(restarted_result["growth_index"], 1)
+        first[0].run_once.assert_called_once_with()
+        restarted[1].run_once.assert_called_once_with()
+        for seeder in (*first[1:], restarted[0], restarted[2]):
+            seeder.run_once.assert_not_called()
+
+    def test_morphology_admission_budget_is_small_and_configurable(self) -> None:
+        default = parser().parse_args(["work-atomic"])
+        configured = parser().parse_args(
+            ["work-atomic", "--morphology-max-in-flight-subjects", "4"]
+        )
+
+        self.assertEqual(default.morphology_max_in_flight_subjects, 2)
+        self.assertEqual(configured.morphology_max_in_flight_subjects, 4)
+
     def test_watch_emits_completed_work_and_waits_when_idle(self) -> None:
         emitted: list[str] = []
         worker = _Worker(
@@ -226,7 +354,7 @@ class AtomicWatchTests(unittest.TestCase):
         self.assertEqual(status, 0)
         self.assertEqual(emitted, ["deck-card-1"])
 
-    def test_watch_drains_atomic_queue_before_periodic_balancer(self) -> None:
+    def test_watch_runs_due_periodic_work_between_atomic_jobs(self) -> None:
         emitted: list[str] = []
         worker = _Worker(
             [
@@ -247,9 +375,102 @@ class AtomicWatchTests(unittest.TestCase):
         )
         self.assertEqual(status, 0)
         self.assertEqual(
-            emitted, ["atomic-job-1", "atomic-job-2", "balanced-seed"]
+            emitted, ["atomic-job-1", "balanced-seed", "atomic-job-2"]
         )
         self.assertEqual(worker.calls, 3)
+
+    def test_continuously_busy_queue_cannot_starve_book_slot(self) -> None:
+        worker = _Worker(["graph-1", "graph-2", "graph-3"])
+        emitted: list[str] = []
+        book = Mock(return_value="book-1")
+        run_atomic_watch(
+            worker, _StopAfterWaits(3), idle_seconds=2, job_delay=1,
+            emit=emitted.append, periodic_action=book,
+            periodic_action_interval=1800, preparation_blocker=lambda: "",
+        )
+        self.assertEqual(emitted, ["graph-1", "book-1", "graph-2", "graph-3"])
+        book.assert_called_once_with()
+
+    def test_periodic_book_work_respects_memory_guard_when_idle(self) -> None:
+        book = Mock()
+        run_atomic_watch(
+            _Worker([None]), _StopAfterWaits(1), idle_seconds=2, job_delay=1,
+            emit=lambda _result: None, periodic_action=book,
+            preparation_blocker=lambda: "low memory",
+            model_free_blocker=lambda: "low memory",
+        )
+        book.assert_not_called()
+
+    def test_shutdown_after_atomic_job_does_not_start_a_book(self) -> None:
+        stop = _StopAfterWaits(1)
+        worker = _Worker([])
+        def finish_job(_job_types=None):
+            stop.remaining = 0
+            return "finished"
+        worker.run_once = finish_job
+        book = Mock()
+        run_atomic_watch(
+            worker, stop, idle_seconds=2, job_delay=1,
+            emit=lambda _result: None, periodic_action=book,
+            preparation_blocker=lambda: "",
+        )
+        book.assert_not_called()
+
+    def test_book_cooldown_is_separate_from_graph_planning_interval(self) -> None:
+        args = parser().parse_args(["work-atomic"])
+        self.assertEqual(args.book_interval_seconds, 1800)
+        self.assertEqual(args.autoprepare_interval_seconds, 120)
+        args = parser().parse_args(["work-atomic", "--book-interval-seconds", "900"])
+        self.assertEqual(args.book_interval_seconds, 900)
+
+    def test_watch_admits_projection_repair_on_each_available_worker_slot(self) -> None:
+        emitted: list[str] = []
+        repair_calls = 0
+
+        def admit_repair() -> SimpleNamespace | None:
+            nonlocal repair_calls
+            repair_calls += 1
+            if repair_calls == 1:
+                return SimpleNamespace(job_id="repair-admitted-1")
+            return None
+
+        status = run_atomic_watch(
+            _Worker(
+                [
+                    SimpleNamespace(job_id="repair-compose-1", status="complete"),
+                    SimpleNamespace(job_id="ordinary-job-1", status="complete"),
+                ]
+            ),
+            _StopAfterWaits(2),
+            idle_seconds=2,
+            job_delay=1,
+            emit=lambda result: emitted.append(result.job_id),
+            projection_repair_action=admit_repair,
+            preparation_blocker=lambda: "",
+        )
+
+        self.assertEqual(status, 0)
+        self.assertEqual(repair_calls, 2)
+        self.assertEqual(
+            emitted,
+            ["repair-admitted-1", "repair-compose-1", "ordinary-job-1"],
+        )
+
+    def test_watch_does_not_admit_repair_below_model_free_floor(self) -> None:
+        repair_action = Mock()
+        status = run_atomic_watch(
+            _Worker([None]),
+            _StopAfterWaits(1),
+            idle_seconds=2,
+            job_delay=1,
+            emit=lambda _result: self.fail("blocked work must not be emitted"),
+            projection_repair_action=repair_action,
+            preparation_blocker=lambda: "only 80 MiB memory is available",
+            model_free_blocker=lambda: "only 80 MiB memory is available",
+        )
+
+        self.assertEqual(status, 0)
+        repair_action.assert_not_called()
 
     def test_watch_does_not_drain_queue_during_memory_pressure(self) -> None:
         worker = _Worker([SimpleNamespace(job_id="job-1", status="complete")])

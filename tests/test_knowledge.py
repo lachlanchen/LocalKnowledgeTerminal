@@ -9,7 +9,6 @@ from contextlib import closing
 from pathlib import Path
 from unittest.mock import patch
 
-from lkt.graph import rebuild_ladybug
 from lkt.knowledge import KnowledgeStore
 from lkt.lexicon import WordnetRag
 
@@ -493,9 +492,13 @@ class KnowledgeStoreTests(unittest.TestCase):
                 "retrieve-evidence", "term:fragile", max_attempts=1
             )
             second = store.enqueue_job("prepare-meaning", "term:fragile")
-            third = store.enqueue_job("compose-word-card", "term:fragile")
+            third = store.enqueue_job(
+                "prepare-pronunciation", "term:fragile", language="en"
+            )
+            compose = store.enqueue_job("compose-word-card", "term:fragile")
             store.add_job_dependency(second, first)
             store.add_job_dependency(third, second)
+            store.add_job_dependency(compose, third)
 
             self.assertEqual(store.claim_next_job()["job_id"], first)
             store.finish_job(first, error="source unavailable")
@@ -503,8 +506,11 @@ class KnowledgeStoreTests(unittest.TestCase):
             jobs = {job["job_id"]: job for job in store.jobs_for_subject("term:fragile")}
             self.assertEqual([jobs[job]["status"] for job in (first, second, third)], ["failed"] * 3)
             self.assertEqual(jobs[second]["attempts"], 0)
+            self.assertEqual(jobs[third]["attempts"], 0)
             self.assertIn("blocked by failed prerequisite", jobs[second]["error"])
             self.assertIn("blocked by failed prerequisite", jobs[third]["error"])
+            self.assertEqual(jobs[compose]["status"], "queued")
+            self.assertEqual(store.claim_next_job()["job_id"], compose)
 
     def test_explicit_retry_requeues_only_failed_jobs_in_the_named_dag(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -584,6 +590,66 @@ class KnowledgeStoreTests(unittest.TestCase):
             recovered = store.claim_next_job()
             self.assertEqual(recovered["job_id"], job_id)
             self.assertEqual(recovered["attempts"], 1)
+
+    def test_interrupted_morphology_enrichment_requeues_durable_epoch(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")
+            job_id = store.enqueue_job(
+                "enrich-morphology-v3", "morphology-v3:recovery-cluster"
+            )
+            claimed = store.claim_next_job()
+            self.assertEqual(claimed["job_id"], job_id)
+            with closing(store._connect()) as connection:
+                store._ensure_morphology_enrichment_schema(connection)
+                connection.execute(
+                    """INSERT INTO morphology_enrichment_clusters_v3(
+                           cluster_id,parser_version,cluster_key,cluster_kind,
+                           priority_class,canonical_subject_key,evidence_fingerprint,
+                           input_fingerprint,payload_json,status,lease_token,
+                           lease_expires_at,attempt_count,last_job_id,created_at,updated_at)
+                       VALUES ('recovery-cluster','v7-test','recovery-cluster','component',
+                               1,'morpheme:recovery','evidence-fp','input-fp','{}',
+                               'running','lease-token','2099-01-01T00:00:00+00:00',1,
+                               ?, '2026-01-01T00:00:00+00:00',
+                               '2026-01-01T00:00:00+00:00')""",
+                    (job_id,),
+                )
+                connection.execute(
+                    """INSERT INTO morphology_enrichment_epochs_v3(
+                           epoch_id,cluster_id,epoch_number,input_fingerprint,
+                           lease_token,job_id,status,created_at,updated_at)
+                       VALUES ('recovery-epoch','recovery-cluster',1,'input-fp',
+                               'lease-token',?,'running',
+                               '2026-01-01T00:00:00+00:00',
+                               '2026-01-01T00:00:00+00:00')""",
+                    (job_id,),
+                )
+                connection.commit()
+
+            self.assertEqual(store.recover_running_jobs(), 1)
+            with closing(store._connect()) as connection:
+                cluster = connection.execute(
+                    """SELECT status,lease_token,lease_expires_at,attempt_count
+                       FROM morphology_enrichment_clusters_v3
+                       WHERE cluster_id='recovery-cluster'"""
+                ).fetchone()
+                epoch = connection.execute(
+                    """SELECT status,lease_token,epoch_number
+                       FROM morphology_enrichment_epochs_v3
+                       WHERE epoch_id='recovery-epoch'"""
+                ).fetchone()
+                job = connection.execute(
+                    """SELECT status,attempts,locked_at,error
+                       FROM preparation_jobs WHERE job_id=?""", (job_id,)
+                ).fetchone()
+            self.assertEqual(tuple(cluster), (
+                "queued", "lease-token", "2099-01-01T00:00:00+00:00", 1,
+            ))
+            self.assertEqual(tuple(epoch), ("queued", "lease-token", 1))
+            self.assertEqual(tuple(job), (
+                "queued", 0, "", "worker interrupted; safely requeued",
+            ))
+            self.assertEqual(store.recover_running_jobs(), 0)
 
     def test_bad_language_atoms_are_quarantined_without_touching_other_languages(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -732,7 +798,7 @@ class KnowledgeStoreTests(unittest.TestCase):
                 [artifact["validation_state"] for artifact in retrievals],
                 ["superseded", "candidate"],
             )
-            self.assertEqual(store.status()["schema_version"], "4")
+            self.assertEqual(store.status()["schema_version"], "13")
 
     def test_inquiry_history_keeps_parent_child_lineage(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -773,41 +839,6 @@ class KnowledgeStoreTests(unittest.TestCase):
             ).fetchone()
             connection.close()
             self.assertEqual(row, (parent, result))
-
-    def test_ladybug_projection_is_a_rebuildable_copy_of_accepted_graph(self) -> None:
-        with tempfile.TemporaryDirectory() as temp:
-            directory = Path(temp)
-            store = KnowledgeStore(directory / "knowledge.sqlite3")
-            child = store.upsert_term("en", "inspection")
-            parent = store.add_historical_form("la", "inspectio")
-            store.add_edge(child, parent, "derived-from", basis="book")
-            calls: list[tuple[str, dict | None]] = []
-
-            class FakeDatabase:
-                def __init__(self, path: str, **_kwargs: object):
-                    Path(path).mkdir(parents=True)
-
-            class FakeConnection:
-                def __init__(self, _database: object):
-                    pass
-
-                def execute(self, query: str, parameters: dict | None = None) -> None:
-                    calls.append((query, parameters))
-
-                def close(self) -> None:
-                    pass
-
-            fake_ladybug = types.SimpleNamespace(
-                Database=FakeDatabase, Connection=FakeConnection
-            )
-            destination = directory / "graph.lbdb"
-            with patch.dict(sys.modules, {"ladybug": fake_ladybug}):
-                result = rebuild_ladybug(store, destination)
-            self.assertTrue(destination.is_dir())
-            self.assertEqual(result["nodes"], 2)
-            self.assertEqual(result["edges"], 1)
-            self.assertEqual(sum("CREATE (n:Entity" in query for query, _ in calls), 2)
-            self.assertEqual(sum("KnowledgeEdge" in query for query, _ in calls), 2)
 
     def test_wordnet_rag_keeps_senses_and_languages_separate(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -1038,6 +1069,56 @@ class KnowledgeStoreTests(unittest.TestCase):
                 revision,
             )
 
+    def test_lexical_entity_search_prefers_the_requested_view_kind(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")
+            term = store.upsert_term("en", "spec", quality_score=1.0)
+            root = store.upsert_morpheme(
+                "en", "spec", "root", quality_score=1.0
+            )
+            affix = store.upsert_morpheme(
+                "en", "spec", "suffix", quality_score=0.9
+            )
+            store.upsert_morpheme("en", "spec", "free", quality_score=0.8)
+
+            expected = {
+                "word": term,
+                "knowledge": term,
+                "origin": term,
+                "root": root,
+                "affix": affix,
+            }
+            for mode, entity_id in expected.items():
+                with self.subTest(mode=mode):
+                    matches = store.search_lexical_entities("spec", mode=mode)
+                    self.assertEqual(matches[0]["entity_id"], entity_id)
+
+            sparse_root = store.upsert_morpheme("en", "dic", "root")
+            rich_root = store.upsert_morpheme("la", "DIC", "root")
+            dic_term = store.upsert_term("en", "dic")
+            store.link_morpheme(dic_term, rich_root, 0, "dic")
+            history = store.add_historical_form("la", "dictio")
+            store.accept_relation_assertion(
+                rich_root, history, rich_root, "developed-into", basis="model"
+            )
+            root_matches = store.search_lexical_entities("dic", mode="root")
+            self.assertEqual(root_matches[0]["entity_id"], rich_root)
+            self.assertGreater(
+                root_matches[0]["structural_degree"],
+                next(
+                    item["structural_degree"]
+                    for item in root_matches
+                    if item["entity_id"] == sparse_root
+                ),
+            )
+            affix_graph = store.lexical_subgraph(
+                dic_term, "affix", {"nodes": 16, "edges": 24, "depth": 4}
+            )
+            self.assertEqual(affix_graph["branch_focus_id"], "")
+
+            with self.assertRaisesRegex(ValueError, "invalid lexical search mode"):
+                store.search_lexical_entities("spec", mode="sentence")
+
     def test_lexical_subgraph_is_connected_bounded_and_deterministic(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")
@@ -1070,6 +1151,299 @@ class KnowledgeStoreTests(unittest.TestCase):
                 self.assertIn(edge["source"], node_ids)
                 self.assertIn(edge["target"], node_ids)
 
+    def test_morphology_slides_keep_derivatives_and_connected_secondary_parts(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")
+            focus = store.upsert_morpheme("la", "dic", "root", "say")
+            prior = focus
+            for ordinal in range(6):
+                history = store.add_historical_form(
+                    "la", f"dic-history-{ordinal}", period_label=f"stage {ordinal}"
+                )
+                store.accept_relation_assertion(
+                    focus, history, prior, "developed-into", basis="book"
+                )
+                prior = history
+
+            derivatives = []
+            for ordinal, word in enumerate(("edict", "dictum", "dictionary")):
+                derivative = store.upsert_term("en", word)
+                derivatives.append(derivative)
+                store.accept_relation_assertion(
+                    focus,
+                    derivative,
+                    focus,
+                    "shares-component",
+                    basis="model",
+                )
+                secondary = store.upsert_morpheme(
+                    "en", f"secondary-{ordinal}", "prefix", "secondary"
+                )
+                store.link_morpheme(
+                    derivative, secondary, 0, f"secondary-{ordinal}"
+                )
+
+            graph = store.lexical_subgraph(
+                focus, "root", {"nodes": 32, "edges": 48, "depth": 4}
+            )
+            self.assertTrue(graph["include_shared_words"])
+            self.assertTrue(graph["branch_slides"])
+            node_types = {node["id"]: node["type"] for node in graph["nodes"]}
+            graph_edges = {edge["id"]: edge for edge in graph["edges"]}
+            for slide in graph["branch_slides"]:
+                with self.subTest(slide=slide["id"]):
+                    self.assertLessEqual(len(slide["node_ids"]), 9)
+                    slide_nodes = set(slide["node_ids"])
+                    slide_edges = [
+                        graph_edges[edge_id] for edge_id in slide["edge_ids"]
+                    ]
+                    degree = {node_id: 0 for node_id in slide_nodes}
+                    for edge in slide_edges:
+                        if edge["source"] in degree and edge["target"] in degree:
+                            degree[edge["source"]] += 1
+                            degree[edge["target"]] += 1
+                    self.assertTrue(
+                        any(
+                            node_types.get(node_id) == "term"
+                            and node_id in derivatives
+                            for node_id in slide_nodes
+                        )
+                    )
+                    self.assertTrue(
+                        all(
+                            value > 0 or node_id == slide["focus_node_id"]
+                            for node_id, value in degree.items()
+                        )
+                    )
+
+    def test_reverse_component_is_visible_and_structural_aliases_do_not_duplicate(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")
+            affix = store.upsert_morpheme("en", "-ite", "suffix")
+            derivative = store.upsert_term("en", "infinite")
+            store.link_morpheme(derivative, affix, 0, "-ite")
+            affix_graph = store.lexical_subgraph(
+                affix, "affix", {"nodes": 16, "edges": 24, "depth": 4}
+            )
+            self.assertIn(derivative, {node["id"] for node in affix_graph["nodes"]})
+            self.assertTrue(
+                any(
+                    edge["source"] == derivative
+                    and edge["target"] == affix
+                    and "has-component"
+                    in {edge["relation"], *edge.get("relations", [])}
+                    for edge in affix_graph["edges"]
+                )
+            )
+
+            root = store.upsert_morpheme("la", "fin", "root")
+            free_wrapper = store.upsert_morpheme("la", "fin", "free")
+            focus_wrapper = store.upsert_term("en", "fin")
+            term = store.upsert_term("en", "finite")
+            store.link_morpheme(focus_wrapper, free_wrapper, 0, "fin")
+            store.accept_relation_assertion(
+                root, free_wrapper, root, "has-history", basis="model"
+            )
+            store.link_morpheme(term, root, 0, "fin")
+            historical = store.add_historical_form(
+                "la", "finite", period_label="classical"
+            )
+            store.accept_relation_assertion(
+                root, historical, root, "developed-into", basis="model"
+            )
+            root_graph = store.lexical_subgraph(
+                root, "root", {"nodes": 16, "edges": 24, "depth": 4}
+            )
+            finite_nodes = [
+                node
+                for node in root_graph["nodes"]
+                if node["label"].casefold() == "finite"
+            ]
+            self.assertEqual(
+                sum(
+                    node["label"].casefold() == "fin"
+                    for node in root_graph["nodes"]
+                ),
+                1,
+            )
+            self.assertEqual(len(finite_nodes), 1)
+            self.assertEqual(finite_nodes[0]["type"], "term")
+            self.assertIn(
+                historical,
+                {
+                    item["canonical_entity_id"]
+                    for item in finite_nodes[0]["payload"].get(
+                        "projection_display_aliases", []
+                    )
+                },
+            )
+
+    def test_root_projection_collapses_parallel_cross_language_morpheme_records(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")
+            focus = store.upsert_morpheme(
+                "en", "cess", "root", "to go", quality_score=1.0
+            )
+            latin_record = store.upsert_morpheme(
+                "la", "cess", "root", "go", quality_score=0.9
+            )
+            history = store.add_historical_form(
+                "la", "decessor", period_label="Classical Latin"
+            )
+            store.accept_relation_assertion(
+                focus, history, focus, "developed-into", basis="model"
+            )
+            store.accept_relation_assertion(
+                focus, history, latin_record, "developed-into", basis="model"
+            )
+
+            graph = store.lexical_subgraph(
+                focus, "root", {"nodes": 16, "edges": 24, "depth": 4}
+            )
+            cess_nodes = [
+                node
+                for node in graph["nodes"]
+                if node["label"].casefold() == "cess"
+            ]
+
+            self.assertEqual(len(cess_nodes), 1)
+            self.assertEqual(cess_nodes[0]["id"], focus)
+            aliases = cess_nodes[0]["payload"]["projection_display_aliases"]
+            self.assertIn(
+                latin_record,
+                {item["canonical_entity_id"] for item in aliases},
+            )
+            self.assertIn("la", {item.get("language") for item in aliases})
+            self.assertNotIn(
+                latin_record,
+                {
+                    endpoint
+                    for edge in graph["edges"]
+                    for endpoint in (edge["source"], edge["target"])
+                },
+            )
+
+    def test_root_projection_collapses_parallel_history_but_keeps_sequential_stage(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")
+            focus = store.upsert_morpheme("en", "und", "root", "wave")
+            prior = store.add_historical_form(
+                "indo-european", "*ndhero-", period_label="prehistoric"
+            )
+            parallel_prior = store.add_historical_form(
+                "indo-european", "*ndhero-copy-", period_label="prehistoric"
+            )
+            ancient = store.add_historical_form(
+                "germanic",
+                "*unther-",
+                meaning="under or beneath",
+                period_label="ancient",
+            )
+            parallel_duplicate = store.add_historical_form(
+                "germanic",
+                "*unther-",
+                meaning="temporary legacy duplicate",
+                period_label="parallel-copy",
+            )
+            later = store.add_historical_form(
+                "germanic",
+                "*unther-",
+                meaning="underneath",
+                period_label="later",
+            )
+            evidence = store.add_evidence("roots", "unther-parallel-stage")
+            for entity_id in (ancient, parallel_duplicate):
+                store.link_evidence(
+                    entity_id,
+                    evidence,
+                    claim="same attested historical stage",
+                    confidence=0.95,
+                )
+            with closing(store._connect()) as connection:
+                connection.execute(
+                    """UPDATE historical_forms
+                       SET meaning='under or beneath',period_label='ANCIENT'
+                       WHERE entity_id=?""",
+                    (parallel_duplicate,),
+                )
+                connection.execute(
+                    """UPDATE entities SET payload=? WHERE entity_id=?""",
+                    (
+                        '{"language":"germanic","meaning":"under or beneath",'
+                        '"period":"ANCIENT","period_label":"ANCIENT"}',
+                        parallel_duplicate,
+                    ),
+                )
+                connection.commit()
+            trajectory = {"component_id": focus, "source_term_id": focus}
+            store.accept_relation_assertion(
+                focus,
+                prior,
+                ancient,
+                "developed-into",
+                basis="book",
+                evidence_ids=(evidence,),
+                properties=trajectory,
+            )
+            store.accept_relation_assertion(
+                focus,
+                parallel_prior,
+                parallel_duplicate,
+                "developed-into",
+                basis="book",
+                evidence_ids=(evidence,),
+                properties=trajectory,
+            )
+            store.accept_relation_assertion(
+                focus,
+                ancient,
+                later,
+                "developed-into",
+                basis="book",
+                evidence_ids=(evidence,),
+                properties=trajectory,
+            )
+            store.accept_relation_assertion(
+                focus,
+                parallel_duplicate,
+                later,
+                "developed-into",
+                basis="book",
+                evidence_ids=(evidence,),
+                properties=trajectory,
+            )
+            store.accept_relation_assertion(
+                focus,
+                later,
+                focus,
+                "developed-into",
+                basis="book",
+                evidence_ids=(evidence,),
+                properties=trajectory,
+            )
+            graph = store.lexical_subgraph(
+                focus, "root", {"nodes": 20, "edges": 32, "depth": 5}
+            )
+            unther_nodes = [
+                node
+                for node in graph["nodes"]
+                if node["label"].casefold() == "*unther-"
+            ]
+
+            self.assertEqual(len(unther_nodes), 2)
+            retained_ids = {node["id"] for node in unther_nodes}
+            self.assertIn(later, retained_ids)
+            parallel = next(node for node in unther_nodes if node["id"] != later)
+            variants = parallel["payload"]["historical_variants"]
+            self.assertEqual(
+                {item["canonical_entity_id"] for item in variants},
+                {ancient, parallel_duplicate},
+            )
+            self.assertEqual(
+                {item.get("period_label") for item in variants},
+                {"ancient", "ANCIENT"},
+            )
+
     def test_relation_assertion_failure_rolls_back_all_rows(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")
@@ -1095,7 +1469,7 @@ class KnowledgeStoreTests(unittest.TestCase):
                     0,
                 )
 
-    def test_v3_relation_edge_backfill_is_idempotent_and_uncited(self) -> None:
+    def test_v3_relation_edge_fallback_is_idempotent_and_uncited(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             database = Path(temp) / "knowledge.sqlite3"
             store = KnowledgeStore(database)
@@ -1144,10 +1518,59 @@ class KnowledgeStoreTests(unittest.TestCase):
                     """SELECT value FROM schema_meta
                        WHERE key = 'relation_graph_revision'"""
                 ).fetchone()[0]
-            self.assertEqual((first_count, second_count), (1, 1))
+            self.assertEqual((first_count, second_count), (0, 0))
             self.assertEqual(evidence_count, 0)
-            self.assertEqual((first_revision, second_revision), ("1", "1"))
-            self.assertEqual(reopened.status()["schema_version"], "4")
+            self.assertEqual((first_revision, second_revision), ("0", "0"))
+            self.assertEqual(reopened.status()["schema_version"], "13")
+
+
+class LexicalGrowthDurabilityTests(unittest.TestCase):
+    def test_background_growth_decision_counter_survives_restart(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            database = Path(temp) / "knowledge.sqlite3"
+            first = KnowledgeStore(database)
+            self.assertEqual(
+                [first.claim_background_growth_decision() for _ in range(3)],
+                [0, 1, 2],
+            )
+            reopened = KnowledgeStore(database)
+            self.assertEqual(reopened.claim_background_growth_decision(), 3)
+
+    def test_growth_decision_counter_is_one_per_claim_across_restart(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            database = Path(temp) / "knowledge.sqlite3"
+            first = KnowledgeStore(database)
+            self.assertEqual(
+                [first.claim_lexical_growth_decision() for _ in range(3)],
+                [0, 1, 2],
+            )
+            reopened = KnowledgeStore(database)
+            self.assertEqual(reopened.claim_lexical_growth_decision(), 3)
+
+    def test_morphology_terminal_outcome_persists_with_bounded_cooldown(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            database = Path(temp) / "knowledge.sqlite3"
+            store = KnowledgeStore(database)
+            store.record_morphology_source_outcome(
+                "root",
+                "roots-book",
+                "entry-7",
+                "sha-1",
+                status="terminal",
+                next_eligible_epoch=1234,
+            )
+            reopened = KnowledgeStore(database)
+            outcome = reopened.morphology_source_outcomes(
+                "root", "roots-book", "sha-1"
+            )["entry-7"]
+            self.assertEqual(outcome["status"], "terminal")
+            self.assertEqual(outcome["next_eligible_epoch"], 1234)
+            self.assertEqual(
+                reopened.morphology_source_outcomes(
+                    "root", "roots-book", "sha-2"
+                ),
+                {},
+            )
 
 
 if __name__ == "__main__":

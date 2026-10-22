@@ -10,7 +10,7 @@ FREEDICT_REV="5bdceeac8d0dba3298c1bebe734f60d54dad30f7"
 FREEDICT_SHA256="7572d3685c501975cd0d47b0dfb581b053b28fb18932d06f09d64d0479b06746"
 FREEDICT_URL="https://raw.githubusercontent.com/freedict/fd-dictionaries/${FREEDICT_REV}/eng-ara/eng-ara.tei"
 
-[ -f "${SOURCE_DIR}/lkt/graph.py" ] || {
+[ -f "${SOURCE_DIR}/lkt/knowledge.py" ] || {
   printf 'Missing LKT checkout at %s\n' "$SOURCE_DIR" >&2
   exit 1
 }
@@ -23,7 +23,6 @@ python3 -m venv "$VENV_DIR"
 "${VENV_DIR}/bin/python" -m pip install \
   --disable-pip-version-check \
   --only-binary=:all: \
-  "ladybug==0.19.1" \
   "pypinyin==0.55.0" \
   "wn==1.1.1"
 

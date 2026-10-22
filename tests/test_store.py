@@ -4,13 +4,21 @@ import tempfile
 import unittest
 import sqlite3
 import json
+import os
 from contextlib import closing
 from pathlib import Path
+from unittest.mock import patch
 
-from lkt.store import CardStore, card_validation_errors
+from lkt.store import CardStore, _process_identity, card_validation_errors
 
 
 class StoreTests(unittest.TestCase):
+    @unittest.skipUnless(os.name == "nt", "Windows process API regression")
+    def test_windows_process_identity_never_sends_console_signal(self) -> None:
+        with patch("lkt.store.os.kill", side_effect=AssertionError("must not signal")):
+            identity = _process_identity(os.getpid())
+        self.assertTrue(identity.startswith(f"{os.getpid()}:"))
+
     def test_mixed_script_arabic_blocks_card_publication(self) -> None:
         errors = card_validation_errors(
             {
@@ -407,6 +415,102 @@ class StoreTests(unittest.TestCase):
             self.assertEqual(revised["extensions"]["revision_of"], "card-1")
             self.assertEqual([card["card_id"] for card in store.recent()], [revised["card_id"]])
 
+    def test_sparse_graph_card_is_hidden_from_rotation_but_remains_retrievable(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            database = Path(temp) / "cards.sqlite3"
+            store = CardStore(database)
+            healthy = {
+                "card_id": "healthy",
+                "mode": "word",
+                "query": "inspect",
+                "title": "inspect",
+                "extensions": {
+                    "lexical_view": {
+                        "projection_contract_version": 2,
+                        "nodes": [{"id": "word"}, {"id": "root"}],
+                        "edges": [
+                            {
+                                "source": "word",
+                                "target": "root",
+                                "relation": "has-component",
+                            }
+                        ],
+                    }
+                },
+            }
+            sparse = {
+                "card_id": "sparse",
+                "mode": "word",
+                "query": "unknown",
+                "title": "unknown",
+                "extensions": {
+                    "lexical_view": {
+                        "projection_contract_version": 2,
+                        "nodes": [{"id": "word"}],
+                        "edges": [],
+                    }
+                },
+            }
+            with closing(sqlite3.connect(database)) as connection:
+                for payload in (healthy, sparse):
+                    connection.execute(
+                        """INSERT INTO cards(
+                               card_id, mode, query, title, created_at, payload,
+                               status, revision_of, updated_at, validation_state,
+                               validation_errors
+                           ) VALUES (?, 'word', ?, ?, ?, ?, 'active', '', ?,
+                                     'accepted', '[]')""",
+                        (
+                            payload["card_id"],
+                            payload["query"],
+                            payload["title"],
+                            payload["card_id"],
+                            json.dumps(payload),
+                            payload["card_id"],
+                        ),
+                    )
+                connection.commit()
+
+            self.assertEqual(
+                {card["card_id"] for card in store.recent(10, "word")},
+                {"healthy", "sparse"},
+            )
+            self.assertEqual(
+                [card["card_id"] for card in store.recent_summaries(10, "word")],
+                ["healthy"],
+            )
+            self.assertEqual(store.accepted_deck_info("word")["total"], 1)
+            self.assertEqual(store.random_accepted("word")["card_id"], "healthy")
+            self.assertEqual(store.get_accepted("sparse")["card_id"], "sparse")
+
+    def test_malformed_legacy_payload_does_not_block_rotation_index_startup(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            database = Path(temp) / "cards.sqlite3"
+            CardStore(database)
+            with closing(sqlite3.connect(database)) as connection:
+                connection.execute("DROP INDEX idx_cards_rotation")
+                connection.execute(
+                    """INSERT INTO cards(
+                           card_id, mode, query, title, created_at, payload,
+                           status, revision_of, updated_at, validation_state,
+                           validation_errors
+                       ) VALUES ('legacy-malformed', 'word', 'broken', 'Broken',
+                                 'now', '{malformed', 'active', '', 'now',
+                                 'accepted', '[]')"""
+                )
+                connection.commit()
+
+            reopened = CardStore(database)
+
+            with closing(sqlite3.connect(database)) as connection:
+                indexes = {
+                    row[1] for row in connection.execute("PRAGMA index_list(cards)")
+                }
+            self.assertIn("idx_cards_rotation", indexes)
+            self.assertEqual(reopened.recent_summaries(10, "word"), [])
+            self.assertEqual(reopened.accepted_deck_info("word")["total"], 0)
+            self.assertIsNone(reopened.random_accepted("word"))
+
     def test_legacy_and_rejected_cards_never_enter_visible_carousels(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             database = Path(temp) / "knowledge.sqlite3"
@@ -499,6 +603,199 @@ class StoreTests(unittest.TestCase):
             }
             connection.close()
             self.assertIn("context_card_id", columns)
+
+
+class ObsoleteMorphologyBranchTests(unittest.TestCase):
+    @staticmethod
+    def _insert(
+        database: Path,
+        card_id: str,
+        mode: str,
+        query: str,
+        *,
+        branch_key: str | None,
+        status: str = "active",
+        validation_state: str = "accepted",
+        malformed: bool = False,
+    ) -> None:
+        payload = (
+            "{malformed"
+            if malformed
+            else json.dumps(
+                {
+                    "card_id": card_id,
+                    "mode": mode,
+                    "query": query,
+                    "extensions": (
+                        {"branch_focus_id": branch_key}
+                        if branch_key is not None
+                        else {}
+                    ),
+                }
+            )
+        )
+        with closing(sqlite3.connect(database)) as connection:
+            connection.execute(
+                """INSERT INTO cards(
+                       card_id, mode, query, title, created_at, payload,
+                       status, revision_of, updated_at, validation_state,
+                       validation_errors
+                   ) VALUES (?, ?, ?, ?, 'now', ?, ?, '', 'now', ?, '[]')""",
+                (
+                    card_id,
+                    mode,
+                    query,
+                    card_id,
+                    payload,
+                    status,
+                    validation_state,
+                ),
+            )
+            connection.commit()
+
+    @staticmethod
+    def _statuses(database: Path) -> dict[str, str]:
+        with closing(sqlite3.connect(database)) as connection:
+            return dict(
+                connection.execute(
+                    "SELECT card_id, status FROM cards ORDER BY card_id"
+                )
+            )
+
+    def test_archives_only_obsolete_authoritative_subject_branches(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            database = Path(temp) / "cards.sqlite3"
+            store = CardStore(database)
+            for card_id, mode, query, branch in (
+                ("keep-root-a", "root", "Inspection", "root-a"),
+                ("keep-root-b", "root", " inspection ", "ROOT-B"),
+                ("obsolete-root", "root", "INSPECTION", "root-old"),
+                ("other-subject", "root", "respect", "root-old"),
+                ("other-mode", "affix", "inspection", "root-old"),
+                ("legacy-branchless", "root", "inspection", None),
+            ):
+                self._insert(
+                    database,
+                    card_id,
+                    mode,
+                    query,
+                    branch_key=branch,
+                )
+            self._insert(
+                database,
+                "legacy-malformed",
+                "root",
+                "inspection",
+                branch_key="root-old",
+                malformed=True,
+            )
+            self._insert(
+                database,
+                "candidate-old",
+                "root",
+                "inspection",
+                branch_key="root-old",
+                status="candidate",
+                validation_state="candidate",
+            )
+
+            result = store.archive_obsolete_morphology_branches(
+                "root",
+                "  INSPECTION ",
+                ("ROOT-A", "root-b"),
+                authoritative=True,
+            )
+
+            self.assertEqual(result["archived_count"], 1)
+            self.assertEqual(result["archived_ids"], ["obsolete-root"])
+            statuses = self._statuses(database)
+            self.assertEqual(statuses["obsolete-root"], "archived")
+            for card_id in (
+                "keep-root-a",
+                "keep-root-b",
+                "other-subject",
+                "other-mode",
+                "legacy-branchless",
+                "legacy-malformed",
+            ):
+                self.assertEqual(statuses[card_id], "active")
+            self.assertEqual(statuses["candidate-old"], "candidate")
+
+    def test_refuses_incomplete_or_invalid_authoritative_sets(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            database = Path(temp) / "cards.sqlite3"
+            store = CardStore(database)
+            self._insert(
+                database,
+                "old-root",
+                "root",
+                "inspection",
+                branch_key="root-old",
+            )
+
+            calls = (
+                ("root", "inspection", ("root-new",), False),
+                ("root", "inspection", (), True),
+                ("root", "inspection", ("root-new", ""), True),
+                ("knowledge", "inspection", ("root-new",), True),
+                ("root", "", ("root-new",), True),
+                ("root", "inspection", "root-new", True),
+            )
+            for mode, query, keys, authoritative in calls:
+                with self.subTest(
+                    mode=mode,
+                    query=query,
+                    keys=keys,
+                    authoritative=authoritative,
+                ):
+                    result = store.archive_obsolete_morphology_branches(
+                        mode,
+                        query,
+                        keys,
+                        authoritative=authoritative,
+                    )
+                    self.assertEqual(result["archived_count"], 0)
+                    self.assertEqual(result["archived_ids"], [])
+                    self.assertEqual(
+                        self._statuses(database)["old-root"], "active"
+                    )
+
+    def test_obsolete_branch_archive_is_idempotent(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            database = Path(temp) / "cards.sqlite3"
+            store = CardStore(database)
+            self._insert(
+                database,
+                "keep-affix",
+                "affix",
+                "inspection",
+                branch_key="prefix-in",
+            )
+            self._insert(
+                database,
+                "old-affix",
+                "affix",
+                "inspection",
+                branch_key="suffix-old",
+            )
+
+            first = store.archive_obsolete_morphology_branches(
+                "affix",
+                "inspection",
+                ("prefix-in",),
+                authoritative=True,
+            )
+            second = store.archive_obsolete_morphology_branches(
+                "affix",
+                "inspection",
+                ("prefix-in",),
+                authoritative=True,
+            )
+
+            self.assertEqual(first["archived_ids"], ["old-affix"])
+            self.assertEqual(first["archived_count"], 1)
+            self.assertEqual(second["archived_ids"], [])
+            self.assertEqual(second["archived_count"], 0)
 
 
 if __name__ == "__main__":

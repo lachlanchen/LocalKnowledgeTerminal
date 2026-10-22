@@ -5,7 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="light" />
     <title>Local Knowledge Terminal</title>
-    <link rel="stylesheet" href="/assets/app.css" />
+    <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg" />
+    <link id="__________cytoscape_stylesheet" rel="stylesheet" href="/assets/app.css" />
   </head>
   <body>
     <div class="product-frame">
@@ -98,7 +99,7 @@
 
             <header class="card-header">
               <div class="card-meta"><span id="card-mode">WORD ORIGIN</span><span id="card-model"></span></div>
-              <h1 id="card-title"></h1>
+              <h1 id="card-title" data-overflow-role="term"></h1>
               <p class="subtitle" id="card-subtitle"></p>
             </header>
 
@@ -107,7 +108,7 @@
             <section class="origin-graph hidden" id="origin-graph" aria-label="Etymology path">
               <header><span id="graph-kind">ETYMOLOGY GRAPH</span><p><b></b>Book anchor <i></i>Model context</p></header>
               <div class="graph-focus-copy" id="graph-focus-copy">
-                <strong id="graph-focus-headline"></strong>
+                <strong id="graph-focus-headline" data-overflow-role="term"></strong>
                 <span id="graph-focus-explanation"></span>
               </div>
               <div class="graph-layout" id="graph-layout">
@@ -213,13 +214,7 @@
             <strong>Visible languages</strong>
             <small id="settings-language-scope">QUESTION + ANSWER</small>
           </div>
-          <div class="settings-language-options" id="settings-language-options">
-            <label><input type="checkbox" value="en" data-setting-language /><span>EN</span><small>English</small></label>
-            <label><input type="checkbox" value="ja" data-setting-language /><span>JA</span><small>Japanese</small></label>
-            <label><input type="checkbox" value="zh" data-setting-language /><span>ZH</span><small>Chinese</small></label>
-            <label><input type="checkbox" value="fr" data-setting-language /><span>FR</span><small>French</small></label>
-            <label><input type="checkbox" value="ar" data-setting-language /><span>AR</span><small>Arabic</small></label>
-          </div>
+          <div class="settings-language-options" id="settings-language-options" aria-live="polite"></div>
         </section>
         <section class="settings-section settings-loop-section">
           <div class="settings-section-copy">

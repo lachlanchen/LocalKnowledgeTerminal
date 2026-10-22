@@ -105,9 +105,11 @@ button { cursor: pointer; }
 
 .evidence-panel { display: flex; min-width: 0; flex-direction: column; padding: clamp(27px, 3vw, 48px) clamp(22px, 2.5vw, 38px); overflow: auto; border-left: 1px solid var(--line); background: #eee8dc; }
 .evidence-head { display: flex; align-items: center; gap: 12px; padding-bottom: 18px; border-bottom: 1px solid var(--line); }
+.evidence-head > div { min-width: 0; flex: 1 1 auto; }
 .book-icon { display: grid; place-items: center; width: 37px; height: 43px; background: var(--ink); color: #eef3e9; font: 700 10px var(--serif); }
 .evidence-head p { margin: 0 0 4px; color: var(--mode-accent); font-size: 9px; font-weight: 800; letter-spacing: .14em; }
 .evidence-head strong { font: 500 clamp(17px, 1.4vw, 21px) var(--serif); }
+#evidence-title { display: block; min-width: 0; max-width: 100%; overflow-wrap: anywhere; white-space: normal; }
 #evidence-list { display: flex; min-height: 0; flex: 1 1 auto; flex-direction: column; overflow: hidden; }
 .evidence { padding: 18px 0; border-bottom: 1px solid var(--line); }
 .evidence h4 { margin: 0; color: var(--ink); font: 500 19px/1.3 var(--serif); }
@@ -180,7 +182,7 @@ body.display-mode .card-view, body.display-mode .empty-state { border: 0; box-sh
 }
 
 @media (max-width: 850px) {
-  .product-frame { grid-template-rows: 104px minmax(0, 1fr) 132px; }
+  .product-frame { grid-template-rows: 124px minmax(0, 1fr) 132px; }
   .topbar { grid-template-columns: 1fr auto; grid-template-rows: 52px 52px; }
   .brand { grid-column: 1; }
   .header-tools { grid-column: 2; }
@@ -644,7 +646,7 @@ body.display-mode .card-view { border-radius: 0; }
 }
 
 @media (max-width: 850px) {
-  .product-frame { grid-template-rows: 108px minmax(0, 1fr) 136px; }
+  .product-frame { grid-template-rows: 124px minmax(0, 1fr) 136px; }
   .stage { padding: 8px; }
   .card-view, .chat-view, .empty-state, .loading-state, .error-state { border-radius: 18px; }
   .language-grid { grid-template-columns: 1fr; }
@@ -718,6 +720,12 @@ body.display-mode .card-view { border-radius: 0; }
 }
 .mode-word .card-header { padding-bottom: 10px; }
 .mode-word .card-header h1 { margin-top: 7px; font-size: clamp(40px, 4.7vw, 72px); }
+.card-view:is(.mode-word, .mode-root, .mode-affix) .card-header h1,
+.card-view:is(.mode-word, .mode-root, .mode-affix) .graph-focus-copy strong {
+  width: 100%;
+  max-width: none;
+  white-space: nowrap;
+}
 .mode-word .subtitle { display: none; }
 .mode-word .summary { margin: 0; font-size: clamp(18px, 1.45vw, 23px); line-height: 1.35; }
 .mode-word .language-grid,
@@ -752,6 +760,22 @@ body.display-mode .card-view { border-radius: 0; }
 .mode-knowledge .card-notes,
 .mode-knowledge .related-section { display: none; }
 .mode-knowledge .word-card-hero { display: block; min-height: 0; }
+.card-view.mode-knowledge.knowledge-compact-fit {
+  width: 100%;
+  height: 100%;
+  scale: none;
+  transform: none;
+}
+.card-view.mode-knowledge.knowledge-compact-fit .card-main,
+.card-view.mode-knowledge.knowledge-compact-fit .word-card-hero,
+.card-view.mode-knowledge.knowledge-compact-fit .language-grid,
+.card-view.mode-knowledge.knowledge-compact-fit .language-block {
+  overflow: hidden;
+}
+.card-view.mode-knowledge.knowledge-compact-fit .word-card-hero > p {
+  width: 100%;
+  max-width: none;
+}
 .word-card-label { color: #1769ff; font-size: 11px; font-weight: 900; letter-spacing: .16em; }
 .word-card-hero h1 {
   margin: 7px 0 0;
@@ -1070,15 +1094,15 @@ body.display-mode .card-view { border-radius: 0; }
 }
 .graph-layout.has-left-derivatives.has-right-derivatives {
   grid-template-areas: "left viewport right";
-  grid-template-columns: minmax(118px, 170px) minmax(0, 1fr) minmax(118px, 170px);
+  grid-template-columns: minmax(178px, 230px) minmax(0, 1fr) minmax(178px, 230px);
 }
 .graph-layout.has-left-derivatives:not(.has-right-derivatives) {
   grid-template-areas: "left viewport";
-  grid-template-columns: minmax(118px, 170px) minmax(0, 1fr);
+  grid-template-columns: minmax(180px, 230px) minmax(0, 1fr);
 }
 .graph-layout.has-right-derivatives:not(.has-left-derivatives) {
   grid-template-areas: "viewport right";
-  grid-template-columns: minmax(0, 1fr) minmax(118px, 170px);
+  grid-template-columns: minmax(0, 1fr) minmax(178px, 230px);
 }
 .graph-viewport {
   position: relative;
@@ -1087,6 +1111,7 @@ body.display-mode .card-view { border-radius: 0; }
   overflow: hidden;
   grid-area: viewport;
 }
+.__________cytoscape_container { position: relative; }
 .graph-viewport .origin-canvas { width: 100%; height: 100%; min-height: 0; }
 .graph-derivative-rails { display: contents; }
 .graph-derivative-rails[hidden],
@@ -1098,25 +1123,46 @@ body.display-mode .card-view { border-radius: 0; }
   min-width: 0;
   min-height: 0;
   align-content: center;
-  gap: clamp(7px, .8vh, 11px);
+  gap: 6px;
   overflow-x: hidden;
-  overflow-y: auto;
+  overflow-y: hidden;
   padding-block: 4px;
   scrollbar-width: none;
 }
 .graph-derivative-rail::-webkit-scrollbar { display: none; }
-.graph-derivative-card {
+.graph-derivative-page {
+  display: grid;
+  width: 100%;
   min-width: 0;
+  align-content: start;
+  gap: 8px;
+  opacity: 1;
+  transition: opacity 160ms ease;
+  will-change: opacity;
+}
+.graph-derivative-page.is-entering,
+.graph-derivative-page.is-leaving { opacity: 0; }
+.graph-derivative-card {
+  display: flex;
+  width: 100%;
+  max-width: 100%;
+  height: clamp(96px, 10.5vh, 116px);
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  justify-content: center;
   overflow: hidden;
+  box-sizing: border-box;
   border: 1px solid color-mix(in srgb, var(--mode-accent) 26%, #dce5f6);
   border-top: 4px solid var(--mode-accent);
   border-radius: 14px;
-  padding: 10px 11px 11px;
+  padding: 7px 10px 8px;
   background: color-mix(in srgb, var(--mode-soft) 72%, #ffffff);
   box-shadow: 0 6px 16px rgba(23, 33, 61, .08);
 }
 .graph-derivative-label {
   display: block;
+  min-width: 0;
   overflow: hidden;
   color: var(--mode-accent);
   font-size: 8px;
@@ -1127,18 +1173,50 @@ body.display-mode .card-view { border-radius: 0; }
 }
 .graph-derivative-term {
   display: block;
-  margin-top: 5px;
-  overflow-wrap: anywhere;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  max-width: 100%;
+  max-height: 100%;
+  align-self: center;
+  margin-top: 0;
+  overflow: hidden;
   color: #17213d;
   font: 850 clamp(15px, 1.25vw, 21px)/1.12 var(--sans);
+  white-space: nowrap;
 }
 .graph-derivative-note {
-  display: block;
-  margin-top: 5px;
+  display: -webkit-box;
+  margin-top: 3px;
   max-width: 100%;
-  overflow-wrap: anywhere;
+  overflow: hidden;
   color: #52607d;
   font: 650 clamp(10px, .75vw, 12px)/1.3 var(--sans);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  white-space: normal;
+}
+.graph-derivative-card {
+  box-sizing: border-box;
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  height: clamp(96px, 10.5vh, 116px);
+  min-height: clamp(96px, 10.5vh, 116px);
+  flex: 0 0 clamp(96px, 10.5vh, 116px);
+  grid-template-rows: auto minmax(0, 1fr);
+  align-content: stretch;
+  align-items: stretch;
+  gap: 4px;
+  overflow: hidden;
+}
+.graph-derivative-card .graph-derivative-note { display: -webkit-box !important; }
+.graph-derivative-rail { gap: 8px; }
+.graph-derivative-rail > .knowledge-ticker-track > .knowledge-ticker-copy {
+  display: grid;
+  align-content: start;
+  gap: 8px;
 }
 .card-view.mode-root { --mode-accent: #8b3dff; --mode-soft: #f2eaff; }
 .card-view.mode-affix { --mode-accent: #00a98f; --mode-soft: #e5faf4; }
@@ -1197,6 +1275,10 @@ body.display-mode .card-view { border-radius: 0; }
 }
 .graph-focus-copy strong { color: #17213d; font: 700 clamp(16px, 1.25vw, 21px)/1.15 var(--serif); }
 .graph-focus-copy span { color: #596986; font-size: 11px; font-weight: 650; line-height: 1.3; }
+.mode-word .graph-focus-copy {
+  width: calc(100% - 205px);
+  max-width: none;
+}
 .graph-focus-annotations {
   position: relative;
   z-index: 3;
@@ -1287,6 +1369,8 @@ body.display-mode .card-view { border-radius: 0; }
 }
 .graph-node-type { left: var(--graph-badge-side, 6px); color: #31405d; background: #e4eaf6; }
 .graph-node-language { right: var(--graph-badge-side, 6px); color: #31405d; background: #eef1f7; }
+.mode-word .graph-node-type { max-width: calc(31% - var(--graph-badge-space, 9px)); }
+.mode-word .graph-node-language { max-width: calc(66% - var(--graph-badge-space, 9px)); }
 .graph-node-badge-box.type-prefix .graph-node-type { color: #006a58; background: #bff2e5; }
 .graph-node-badge-box.type-root .graph-node-type { color: #5d19b8; background: #e4d2ff; }
 .graph-node-badge-box.type-suffix .graph-node-type { color: #805600; background: #ffe5a0; }
@@ -1314,7 +1398,7 @@ body.display-mode .card-view { border-radius: 0; }
   text-align: center;
 }
 .graph-node-copy.has-meaning {
-  grid-template-rows: minmax(0, .85fr) minmax(0, 1.15fr);
+  grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
 }
 .graph-node-term {
   display: flex;
@@ -1343,6 +1427,295 @@ body.display-mode .card-view { border-radius: 0; }
   color: #263653;
   font: 650 var(--graph-meaning-size, 13.5px)/1.18 var(--sans);
   overflow-wrap: anywhere;
+}
+.graph-node-meaning-pending {
+  position: absolute;
+  z-index: 2;
+  right: var(--graph-badge-side, 6px);
+  bottom: var(--graph-badge-top, 6px);
+  overflow: hidden;
+  color: #75622b;
+  font: 850 max(6px, var(--graph-pending-size, 8px))/1 var(--sans);
+  letter-spacing: .055em;
+  opacity: .72;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.graph-node-badge-box.meaning-pending .graph-node-copy {
+  border-bottom: 1px dotted rgba(117, 98, 43, .34);
+}
+
+/* Compact graph workstation: evidence is an opt-in drawer, leaving three
+   stable landscape columns for derivatives and the lexical canvas. */
+@media (min-width: 621px) and (max-width: 1100px) and (max-height: 700px) {
+  .card-view.compact-graph-evidence {
+    box-sizing: border-box;
+    width: calc(100vw - 20px) !important;
+    max-width: calc(100vw - 20px) !important;
+    grid-template-columns: minmax(0, 1fr) 62px !important;
+    gap: 7px !important;
+  }
+
+  .card-view.compact-graph-evidence.evidence-expanded {
+    grid-template-columns: minmax(0, 1fr) minmax(210px, 238px) !important;
+  }
+
+  .card-view.compact-graph-evidence > .card-main {
+    min-width: 0;
+  }
+
+  .card-view.compact-graph-evidence:not(.evidence-expanded) .evidence-panel {
+    display: flex;
+    min-width: 0;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 8px 5px !important;
+    overflow: hidden;
+  }
+
+  .card-view.compact-graph-evidence:not(.evidence-expanded) .evidence-head {
+    display: flex;
+    width: 100%;
+    justify-content: center;
+  }
+
+  .card-view.compact-graph-evidence:not(.evidence-expanded) .evidence-head > :not(.evidence-toggle),
+  .card-view.compact-graph-evidence:not(.evidence-expanded) #evidence-list,
+  .card-view.compact-graph-evidence:not(.evidence-expanded) .evidence-actions {
+    display: none !important;
+  }
+
+  .card-view.compact-graph-evidence:not(.evidence-expanded) .evidence-toggle {
+    position: static !important;
+    display: grid !important;
+    width: 38px !important;
+    height: 38px !important;
+    min-width: 38px;
+    place-items: center;
+    margin: 0 auto !important;
+    overflow: hidden;
+  }
+
+  .card-view.compact-graph-evidence.evidence-expanded .evidence-panel {
+    min-width: 0;
+    padding: 10px !important;
+    overflow: hidden;
+  }
+
+  .card-view.compact-graph-evidence.evidence-expanded .evidence-head {
+    min-width: 0;
+    gap: 5px;
+  }
+
+  .card-view.compact-graph-evidence.evidence-expanded #evidence-title {
+    display: block;
+    min-width: 0;
+    max-width: calc(100% - 42px);
+    overflow: visible;
+    overflow-wrap: anywhere;
+    font-size: clamp(15px, 2vw, 20px) !important;
+    line-height: 1.08 !important;
+    white-space: normal;
+  }
+
+  .card-view.compact-graph-evidence.evidence-expanded #evidence-list {
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .card-view.compact-graph-evidence.evidence-expanded #evidence-list .evidence {
+    min-width: 0;
+    padding: 8px !important;
+  }
+
+  .card-view.compact-graph-evidence.evidence-expanded #evidence-list .evidence h4 {
+    overflow: hidden;
+    font-size: 13px !important;
+    line-height: 1.08 !important;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .card-view.compact-graph-evidence.evidence-expanded #evidence-list .evidence-meta {
+    overflow: hidden;
+    font-size: 9px !important;
+    line-height: 1.1 !important;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .card-view.compact-graph-evidence.evidence-expanded #evidence-list blockquote {
+    display: -webkit-box;
+    max-height: 6.25em;
+    overflow: hidden;
+    font-size: 11px !important;
+    line-height: 1.25 !important;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 5;
+  }
+
+.card-view.compact-graph-evidence .graph-layout.has-left-derivatives {
+  grid-template-areas: "left viewport" !important;
+  grid-template-columns: 180px minmax(0, 1fr) !important;
+    gap: 8px !important;
+  }
+
+  .card-view.compact-graph-evidence .graph-focus-copy {
+    width: min(calc(100% - 24px), 540px) !important;
+    max-width: min(calc(100% - 24px), 540px) !important;
+    min-height: 0 !important;
+    gap: 2px !important;
+    margin-bottom: 3px !important;
+    padding: 6px 10px !important;
+  }
+
+  .card-view.compact-graph-evidence .graph-focus-copy strong,
+  .card-view.compact-graph-evidence .graph-focus-copy span {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .card-view.compact-graph-evidence .graph-focus-copy strong {
+    font-size: clamp(18px, 2.3vw, 21px) !important;
+    line-height: 1.05 !important;
+  }
+
+  .card-view.compact-graph-evidence .graph-focus-copy span {
+    font-size: 10px !important;
+    line-height: 1.1 !important;
+  }
+
+  .card-view.compact-graph-evidence .graph-derivative-rail {
+    min-width: 0;
+    width: 100%;
+    align-content: start;
+    gap: 8px !important;
+    padding-block: 1px;
+  }
+
+  .card-view.compact-graph-evidence .graph-derivative-rail > .knowledge-ticker-track > .knowledge-ticker-copy {
+    display: grid;
+    align-content: start;
+    gap: 8px;
+  }
+
+  .card-view.compact-graph-evidence .graph-derivative-card {
+    box-sizing: border-box;
+    display: grid !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    height: clamp(80px, 13.5vh, 88px) !important;
+    min-height: clamp(80px, 13.5vh, 88px) !important;
+    flex: 0 0 clamp(80px, 13.5vh, 88px);
+    grid-template-rows: auto minmax(0, 1fr);
+    align-content: stretch;
+    align-items: stretch;
+    justify-content: stretch;
+    gap: 2px;
+    padding: 5px 9px !important;
+    border-top-width: 3px;
+    border-radius: 10px;
+  }
+
+  .card-view.compact-graph-evidence .graph-derivative-label {
+    font-size: 7px !important;
+    line-height: 1 !important;
+  }
+
+  .card-view.compact-graph-evidence .graph-derivative-term {
+    width: 100%;
+    min-width: 0;
+    min-height: 0;
+    max-width: 100%;
+    max-height: 100%;
+    align-self: center;
+    margin-top: 0;
+    overflow: hidden;
+    font-size: clamp(18px, 2.15vw, 21px) !important;
+    line-height: 1 !important;
+    overflow-wrap: normal;
+    text-overflow: clip;
+    white-space: nowrap;
+  }
+
+  .card-view.compact-graph-evidence .graph-derivative-note {
+    display: -webkit-box !important;
+    width: 100%;
+    margin-top: 0;
+    overflow: hidden;
+    font-size: 9px !important;
+    line-height: 1.15 !important;
+    overflow-wrap: anywhere;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    white-space: normal;
+  }
+
+  .card-view.compact-graph-evidence .graph-node-badge-box i {
+    padding: 2px 4px !important;
+    opacity: .66;
+    font-size: clamp(6px, .75vw, 8px) !important;
+    letter-spacing: .035em;
+    box-shadow: none;
+  }
+
+  .card-view.compact-graph-evidence .graph-node-term {
+    overflow-wrap: normal !important;
+    white-space: nowrap;
+  }
+}
+.graph-translations-disclosure {
+  flex: 0 1 auto;
+  min-width: 0;
+  min-height: 0;
+}
+.graph-translations-disclosure > summary { display: none; }
+@media (max-width: 620px) {
+  .card-view:is(.mode-word, .mode-root, .mode-affix) .origin-graph > header {
+    display: none;
+  }
+  .graph-translations-disclosure {
+    flex: 0 0 auto;
+    margin-top: 4px;
+  }
+  .graph-translations-disclosure > summary {
+    display: flex;
+    min-height: 28px;
+    align-items: center;
+    justify-content: space-between;
+    border: 1px solid #dce3f0;
+    border-radius: 8px;
+    padding: 4px 9px;
+    color: var(--mode-accent);
+    background: var(--mode-soft);
+    font: 700 12px/1.25 var(--sans);
+    cursor: pointer;
+    list-style: none;
+  }
+  .graph-translations-disclosure > summary::-webkit-details-marker { display: none; }
+  .graph-translations-disclosure > summary::after { content: "+"; font-size: 18px; }
+  .graph-translations-disclosure[open] > summary::after { content: "-"; }
+  .graph-translations-disclosure > summary:focus-visible {
+    outline: 2px solid var(--mode-accent);
+    outline-offset: 2px;
+  }
+  .graph-translations-disclosure .graph-focus-annotations {
+    grid-template-columns: minmax(0, 1fr);
+    max-height: min(104px, 16vh);
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+  }
+  .graph-translations-disclosure .graph-focus-annotation b { font-size: 18px; }
+  .graph-translations-disclosure .graph-focus-annotation em { font-size: 14px; }
+}
+.graph-overview.overlaps-graph {
+  visibility: hidden;
+  pointer-events: none;
 }
 .graph-overview {
   position: absolute;
@@ -1400,26 +1773,22 @@ body.display-mode .card-view { border-radius: 0; }
 .mode-affix .origin-canvas,
 .mode-word .origin-canvas { min-height: 0; flex: 1 1 auto; }
 
-@media (max-width: 900px) {
+@media (max-width: 620px) {
   .graph-focus-annotations { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .graph-layout.has-derivatives {
-    grid-template-areas: "viewport" "derivatives";
+    grid-template-areas: "viewport";
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: minmax(0, 1fr) auto;
+    grid-template-rows: minmax(180px, 1fr);
   }
   .graph-derivative-rails {
-    display: flex;
-    min-width: 0;
-    grid-area: derivatives;
-    gap: 8px;
-    overflow-x: auto;
-    overflow-y: hidden;
-    padding-top: 5px;
-    scrollbar-width: none;
+    display: none !important;
   }
-  .graph-derivative-rails::-webkit-scrollbar { display: none; }
-  .graph-derivative-rail { display: contents; }
-  .graph-derivative-card { width: min(210px, 72vw); flex: 0 0 min(210px, 72vw); }
+  .mode-word .graph-viewport { min-height: 180px; }
+}
+
+@media (max-width: 620px) {
+  .card-view:is(.mode-word, .mode-root, .mode-affix) .graph-focus-copy { width: 100%; }
+  .card-view:is(.mode-word, .mode-root, .mode-affix) .graph-overview { visibility: hidden; }
 }
 
 /* Ruby needs air above each base character on a small display. */
@@ -1466,6 +1835,7 @@ body.chrome-collapsed:not(.display-mode) .control-deck {
 body.chrome-collapsed:not(.display-mode) .stage { padding: 4px 7px; }
 
 @media (prefers-reduced-motion: reduce) {
+  .graph-derivative-page { transition: none; }
   .card-view.card-switch-enter,
   .sentence-stage.inner-slide-enter { animation: none; }
 }
@@ -1665,20 +2035,78 @@ body.chrome-collapsed:not(.display-mode) .stage { padding: 4px 7px; }
 @keyframes knowledge-bank-roll-vertical {
   to { transform: translateY(var(--ticker-shift-y)); }
 }
-.mode-knowledge [data-overflow-role="meaning"] { block-size: 3em; }
+.mode-knowledge .language-block h2.knowledge-title-fit {
+  min-height: 0;
+  max-width: 100%;
+  flex: 0 0 auto;
+  overflow: hidden;
+  overflow-wrap: normal;
+  white-space: nowrap;
+}
+.mode-knowledge .language-block small.knowledge-static-fit,
+.mode-knowledge .language-block p.knowledge-static-fit {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+.mode-knowledge .language-block small.knowledge-static-fit {
+  min-height: 0;
+  flex: 0 1 auto;
+}
+.mode-knowledge .language-block p.knowledge-static-fit {
+  min-height: 0;
+  block-size: auto;
+  flex: 1 1 auto;
+}
+.mode-knowledge #word-card-definition.knowledge-static-fit {
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.card-view:is(.mode-knowledge, .mode-word, .mode-root, .mode-affix) #evidence-list,
+.card-view #evidence-list.evidence-auto-scroll {
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  overscroll-behavior: contain;
+  scroll-behavior: auto;
+  scrollbar-color: color-mix(in srgb, var(--mode-accent) 45%, #cbd3e0) transparent;
+  scrollbar-width: thin;
+}
+.card-view #evidence-list.evidence-auto-scroll::-webkit-scrollbar { width: 7px; }
+.card-view #evidence-list.evidence-auto-scroll::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--mode-accent) 45%, #cbd3e0);
+}
 
 /* Morphology cards trade a compact evidence rail for a wider graph until expanded. */
 .evidence-toggle {
-  min-width: 58px;
+  display: grid;
+  width: 38px;
+  min-width: 38px;
+  height: 38px;
   margin-left: auto;
   border: 1px solid color-mix(in srgb, var(--mode-accent) 46%, #9ba8bd);
-  border-radius: 999px;
-  padding: 7px 9px;
+  border-radius: 50%;
+  place-items: center;
+  padding: 0;
   background: rgba(255, 255, 255, .54);
   color: var(--mode-accent);
-  font-size: 8px;
-  font-weight: 900;
-  letter-spacing: .08em;
+  font-size: 0;
+}
+.evidence-toggle::before {
+  width: 0;
+  height: 0;
+  border-top: 7px solid transparent;
+  border-right: 10px solid currentColor;
+  border-bottom: 7px solid transparent;
+  content: "";
+}
+.evidence-toggle[aria-expanded="true"]::before {
+  border-right: 0;
+  border-left: 10px solid currentColor;
 }
 .evidence-toggle[hidden] { display: none; }
 .card-view.mode-root,
@@ -1750,4 +2178,542 @@ body.chrome-collapsed:not(.display-mode) .stage { padding: 4px 7px; }
   }
   .mode-root .evidence-head,
   .mode-affix .evidence-head { padding-bottom: 7px; }
+}
+
+/* Large lexical reading edition. Measured overflow keeps enlarged copy moving instead of shrinking it. */
+.mode-knowledge .word-card-label { font-size: 22px; }
+.mode-knowledge .word-card-hero h1 {
+  padding-bottom: .1em;
+  font-size: clamp(110px, 13.2vw, 208px);
+  line-height: 1.08;
+}
+.mode-knowledge .word-card-phonetic { font-size: clamp(40px, 3.6vw, 60px); }
+.mode-knowledge .word-card-hero > p { font-size: clamp(36px, 2.9vw, 48px); }
+.mode-knowledge .language-block > span { font-size: 20px; }
+.mode-knowledge .language-block h2 { font-size: clamp(64px, 6.6vw, 114px); }
+.mode-knowledge .language-block small { font-size: clamp(34px, 2.6vw, 44px); }
+.mode-knowledge .language-block p { font-size: clamp(30px, 2.1vw, 36px); }
+
+.card-view:is(.mode-word, .mode-root, .mode-affix) .origin-graph > header > span,
+.card-view:is(.mode-word, .mode-root, .mode-affix) .origin-graph > header p { font-size: 22px; }
+.card-view:is(.mode-word, .mode-root, .mode-affix) .graph-focus-copy strong {
+  font-size: clamp(42px, 3.3vw, 56px);
+}
+.graph-focus-copy strong.morphology-slide-heading {
+  display: block;
+  flex: 0 0 auto;
+  min-width: 0;
+  max-width: 100%;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: nowrap;
+}
+.card-view.compact-graph-evidence .graph-focus-copy strong.morphology-slide-heading {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: nowrap;
+}
+.card-view:is(.mode-word, .mode-root, .mode-affix) .graph-focus-copy span { font-size: 22px; }
+.card-view:is(.mode-word, .mode-root, .mode-affix) .graph-derivative-label { font-size: 11px; }
+.card-view:is(.mode-word, .mode-root, .mode-affix) .graph-derivative-term {
+  font-size: clamp(22px, 1.8vw, 30px);
+}
+.card-view:is(.mode-word, .mode-root, .mode-affix) .graph-derivative-note {
+  font-size: clamp(13px, 1vw, 16px);
+}
+
+@media (min-width: 621px) and (max-width: 1100px) {
+  .card-view:is(.mode-word, .mode-root, .mode-affix) .graph-layout.has-left-derivatives.has-right-derivatives {
+    grid-template-columns: minmax(124px, 132px) minmax(0, 1fr) minmax(124px, 132px);
+  }
+  .card-view:is(.mode-word, .mode-root, .mode-affix) .graph-layout.has-left-derivatives:not(.has-right-derivatives) {
+    grid-template-columns: minmax(124px, 132px) minmax(0, 1fr);
+  }
+  .card-view:is(.mode-word, .mode-root, .mode-affix) .graph-layout.has-right-derivatives:not(.has-left-derivatives) {
+    grid-template-columns: minmax(0, 1fr) minmax(124px, 132px);
+  }
+  .card-view:is(.mode-word, .mode-root, .mode-affix) .graph-derivative-label { font-size: 9px; }
+  .card-view:is(.mode-word, .mode-root, .mode-affix) .graph-derivative-term { font-size: clamp(16px, 2vw, 22px); }
+  .card-view:is(.mode-word, .mode-root, .mode-affix) .graph-derivative-note { font-size: clamp(10px, 1.4vw, 14px); }
+}
+
+@media (max-height: 700px) and (min-width: 621px) {
+  .card-view:is(.mode-word, .mode-root, .mode-affix) .origin-graph > header,
+  .card-view:is(.mode-word, .mode-root, .mode-affix) .graph-focus-annotations { display: none; }
+  .card-view:is(.mode-word, .mode-root, .mode-affix) .graph-overview { visibility: hidden; }
+  .card-view:is(.mode-word, .mode-root, .mode-affix) .graph-layout,
+  .card-view:is(.mode-word, .mode-root, .mode-affix) .graph-viewport { min-height: 190px; }
+  .card-view:is(.mode-word, .mode-root, .mode-affix) .graph-focus-copy {
+    min-height: 46px;
+    flex: 0 0 auto;
+  }
+}
+
+.card-view:is(.mode-knowledge, .mode-word, .mode-root, .mode-affix) .book-icon { font-size: 20px; }
+.card-view:is(.mode-knowledge, .mode-word, .mode-root, .mode-affix) .evidence-head p { font-size: 20px; }
+.card-view:is(.mode-knowledge, .mode-word, .mode-root, .mode-affix) .evidence-head strong {
+  font-size: clamp(34px, 2.8vw, 42px);
+}
+.card-view:is(.mode-knowledge, .mode-word, .mode-root, .mode-affix) #evidence-list .evidence h4 {
+  font-size: 38px;
+  line-height: 1.3;
+}
+.card-view:is(.mode-knowledge, .mode-word, .mode-root, .mode-affix) #evidence-list .evidence-meta {
+  margin: 14px 0 22px;
+  font-size: 20px;
+}
+.card-view:is(.mode-knowledge, .mode-word, .mode-root, .mode-affix) #evidence-list .evidence blockquote {
+  display: block;
+  overflow: visible;
+  font-size: clamp(28px, 2vw, 32px);
+  line-height: 1.6;
+  -webkit-box-orient: initial;
+  -webkit-line-clamp: initial;
+}
+.card-view:is(.mode-knowledge, .mode-word, .mode-root, .mode-affix) .grounded-seal > span,
+.card-view:is(.mode-knowledge, .mode-word, .mode-root, .mode-affix) .grounded-seal strong,
+.card-view:is(.mode-knowledge, .mode-word, .mode-root, .mode-affix) .evidence-actions > button {
+  font-size: 24px;
+}
+.card-view:is(.mode-root, .mode-affix) .evidence-toggle { font-size: 0; }
+
+/* Keep the compact desktop shell inside the physical viewport. The Word Card
+   fitter already scales its internal canvas uniformly; these min-content
+   tracks previously made that canvas 40px wider than a 900px window. */
+@media (min-width: 621px) and (max-width: 1100px) {
+  .product-frame {
+    width: 100%;
+    max-width: 100vw;
+    min-width: 0;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .product-frame > .topbar,
+  .product-frame > .stage,
+  .product-frame > .control-deck {
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  .topbar {
+    grid-template-columns: 180px minmax(0, 1fr) auto;
+    column-gap: 8px;
+    padding-inline: 10px;
+  }
+
+  .topbar .brand,
+  .topbar .mode-switch,
+  .topbar .header-tools {
+    min-width: 0;
+  }
+
+  .topbar .mode-switch {
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .topbar .mode-switch::-webkit-scrollbar { display: none; }
+
+  .control-deck {
+    grid-template-columns: minmax(150px, 220px) minmax(140px, 184px) minmax(260px, 1fr);
+    padding-inline: 20px;
+  }
+
+  .control-deck > *,
+  .control-deck .composer,
+  .control-deck #card-form { min-width: 0; }
+}
+
+/* Graph-native morphology branches replace the detached derivative rail. */
+.graph-derivative-label { display: none !important; }
+.graph-derivative-card {
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 4px;
+}
+.mode-root .graph-layout,
+.mode-affix .graph-layout,
+.mode-root .graph-layout.has-derivatives,
+.mode-affix .graph-layout.has-derivatives {
+  grid-template-areas: "viewport" !important;
+  grid-template-columns: minmax(0, 1fr) !important;
+}
+.mode-root .graph-derivative-rails,
+.mode-affix .graph-derivative-rails { display: none !important; }
+.origin-graph.branch-slides-active #graph-focus-dots {
+  max-width: min(42vw, 310px);
+  overflow-x: auto;
+  padding: 3px 1px;
+  scrollbar-width: none;
+}
+.origin-graph.branch-slides-active #graph-focus-dots::-webkit-scrollbar { display: none; }
+.origin-graph.branch-slides-active #graph-focus-dots button { flex: 0 0 9px; }
+.origin-graph.branch-slides-active #graph-focus-position {
+  min-width: 76px;
+  color: var(--mode-accent);
+  letter-spacing: .08em;
+  text-align: center;
+}
+
+/* Compact word-origin pages already show every branch in the main viewport. */
+@media (max-width: 900px) {
+  .origin-graph.compact-origin-paged .graph-overview { display: none; }
+}
+
+/* A non-fullscreen Word Card spends compact space before it scales. The
+   fullscreen composition never receives these classes. */
+.card-view.mode-knowledge.knowledge-space-efficient .card-main {
+  grid-template-rows: minmax(0, 1.35fr) minmax(0, 1fr);
+  gap: clamp(7px, 1vh, 13px);
+  padding: clamp(10px, 1.55vh, 20px) clamp(18px, 2.2vw, 34px);
+}
+.card-view.mode-knowledge.knowledge-space-efficient .word-card-hero {
+  min-height: 0;
+  overflow: hidden;
+}
+.card-view.mode-knowledge.knowledge-space-efficient .word-card-label {
+  font-size: clamp(11px, 1.3vw, 16px);
+}
+.card-view.mode-knowledge.knowledge-space-efficient .word-card-hero h1 {
+  margin-top: 2px;
+  padding-bottom: 0;
+  font-size: clamp(52px, 8vw, 98px);
+  line-height: .98;
+}
+.card-view.mode-knowledge.knowledge-space-efficient .word-card-phonetic {
+  min-height: 0;
+  margin-top: 3px;
+  font-size: clamp(20px, 2.8vw, 30px);
+}
+.card-view.mode-knowledge.knowledge-space-efficient .word-card-hero > p {
+  margin-top: 3px;
+  font-size: clamp(17px, 2vw, 24px);
+  line-height: 1.25;
+}
+.card-view.mode-knowledge.knowledge-space-efficient .language-grid,
+.card-view.mode-knowledge.knowledge-space-efficient .language-grid.has-alternate {
+  min-height: 0;
+  height: 100%;
+  align-items: stretch;
+}
+.card-view.mode-knowledge.knowledge-space-efficient .language-block,
+.card-view.mode-knowledge.knowledge-space-efficient .language-block:first-child,
+.card-view.mode-knowledge.knowledge-space-efficient .language-block:last-child {
+  display: flex;
+  min-height: 0;
+  height: 100%;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  padding: clamp(8px, 1.2vh, 16px) clamp(11px, 1.35vw, 20px);
+  text-align: left;
+}
+.card-view.mode-knowledge.knowledge-space-efficient .language-block > span {
+  display: block;
+  width: max-content;
+  max-width: 100%;
+  flex: 0 0 auto;
+  align-self: flex-start;
+  direction: ltr;
+  font-size: clamp(10px, 1.2vw, 14px);
+  text-align: left;
+}
+.card-view.mode-knowledge .arabic-block > span,
+.card-view.mode-knowledge.knowledge-space-efficient .arabic-block > span {
+  align-self: flex-end;
+}
+.card-view.mode-knowledge.knowledge-space-efficient .language-block h2 {
+  margin: 6px 0 3px;
+  font-size: clamp(23px, 3vw, 34px);
+}
+.card-view.mode-knowledge.knowledge-space-efficient .language-block small {
+  min-height: 0;
+  font-size: clamp(13px, 1.55vw, 17px);
+}
+.card-view.mode-knowledge.knowledge-space-efficient .language-block p {
+  margin-top: 4px;
+  font-size: clamp(13px, 1.55vw, 17px);
+  line-height: 1.35;
+}
+
+/* A wide browser window still loses height to the product chrome. Preserve the
+   full desktop title scale, but spend that reclaimed height on the languages. */
+.card-view.mode-knowledge.knowledge-desktop-height-fit .card-main {
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 14px;
+  padding-block: 24px;
+}
+.card-view.mode-knowledge.knowledge-desktop-height-fit .word-card-hero h1 {
+  margin-top: 2px;
+  padding-bottom: 0;
+}
+.card-view.mode-knowledge.knowledge-desktop-height-fit .word-card-phonetic,
+.card-view.mode-knowledge.knowledge-desktop-height-fit .word-card-hero > p {
+  margin-top: 3px;
+}
+.card-view.mode-knowledge.knowledge-desktop-height-fit .word-card-hero > p {
+  width: 100%;
+  max-width: none;
+  min-block-size: 1.4em;
+  block-size: auto;
+}
+.card-view.mode-knowledge.knowledge-desktop-height-fit .language-grid,
+.card-view.mode-knowledge.knowledge-desktop-height-fit .language-grid.has-alternate {
+  min-height: 0;
+  height: 100%;
+  align-items: stretch;
+}
+.card-view.mode-knowledge.knowledge-desktop-height-fit .language-block,
+.card-view.mode-knowledge.knowledge-desktop-height-fit .language-block:first-child,
+.card-view.mode-knowledge.knowledge-desktop-height-fit .language-block:last-child {
+  min-height: 0;
+  height: 100%;
+  padding-block: 20px;
+}
+.card-view.mode-knowledge.knowledge-desktop-height-fit .language-block h2 {
+  margin-block: 8px 4px;
+}
+.card-view.mode-knowledge.knowledge-desktop-height-fit .language-block p {
+  margin-top: 4px;
+}
+
+/* Every adapter track is allowed to shrink inside the physical viewport. */
+.product-frame,
+.stage,
+.stage > *,
+.card-view,
+.card-view > *,
+.card-main,
+.card-main > *,
+.evidence-panel,
+.language-grid,
+.language-block,
+.origin-graph,
+.graph-layout,
+.graph-viewport,
+.origin-canvas,
+.control-deck,
+.control-deck > *,
+.composer,
+.query-box {
+  min-width: 0;
+  min-height: 0;
+}
+.stage,
+.card-view,
+.origin-graph,
+.graph-layout,
+.graph-viewport,
+.origin-canvas,
+.evidence-panel,
+.control-deck {
+  box-sizing: border-box;
+  max-width: 100%;
+  max-height: 100%;
+}
+.card-view,
+.graph-viewport,
+.origin-canvas,
+.control-deck { overflow: hidden; }
+
+/* A short browser window still needs the two-row narrow header and full composer. */
+@media (max-width: 850px) and (max-height: 850px) {
+  .product-frame { grid-template-rows: 124px minmax(0, 1fr) 120px; }
+  .topbar { min-height: 124px; }
+  .control-deck {
+    min-height: 120px;
+    grid-template-columns: minmax(120px, 1fr) auto minmax(280px, 2fr);
+    gap: 10px;
+  }
+  .composer,
+  .query-box { width: 100%; min-width: 0; max-width: none; }
+
+  .card-view:is(.mode-word, .mode-root, .mode-affix) .origin-graph > header {
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 4px 10px;
+  }
+  .card-view:is(.mode-word, .mode-root, .mode-affix) .origin-graph > header > span,
+  .card-view:is(.mode-word, .mode-root, .mode-affix) .origin-graph > header p {
+    font-size: clamp(12px, 1.8vw, 15px);
+    line-height: 1.25;
+  }
+
+  .card-view:is(.mode-knowledge, .mode-word, .mode-root, .mode-affix) .evidence-head {
+    min-width: 0;
+    gap: 7px;
+    padding-bottom: 8px;
+  }
+  .card-view:is(.mode-knowledge, .mode-word, .mode-root, .mode-affix) .evidence-head > div {
+    min-width: 0;
+  }
+  .card-view:is(.mode-knowledge, .mode-word, .mode-root, .mode-affix) .book-icon {
+    width: 32px;
+    height: 38px;
+    flex: 0 0 32px;
+    font-size: 14px;
+  }
+  .card-view:is(.mode-knowledge, .mode-word, .mode-root, .mode-affix) .evidence-head p {
+    font-size: 12px;
+    line-height: 1.15;
+  }
+  .card-view:is(.mode-knowledge, .mode-word, .mode-root, .mode-affix) .evidence-head strong {
+    display: block;
+    overflow-wrap: anywhere;
+    font-size: clamp(20px, 3.1vw, 26px);
+    line-height: 1.04;
+    text-overflow: clip;
+    white-space: normal;
+  }
+  .card-view:is(.mode-knowledge, .mode-word, .mode-root, .mode-affix) #evidence-list .evidence h4 {
+    font-size: clamp(18px, 2.6vw, 22px);
+    line-height: 1.2;
+  }
+  .card-view:is(.mode-knowledge, .mode-word, .mode-root, .mode-affix) #evidence-list .evidence-meta {
+    margin: 7px 0 10px;
+    font-size: 12px;
+    line-height: 1.25;
+  }
+  .card-view:is(.mode-knowledge, .mode-word, .mode-root, .mode-affix) #evidence-list .evidence blockquote {
+    font-size: 15px;
+    line-height: 1.45;
+  }
+}
+
+#evidence-list {
+  min-width: 0;
+  min-height: 0;
+  max-width: 100%;
+  max-height: 100%;
+}
+
+/* The shell's implicit min-content column must not outgrow a phone viewport. */
+.product-frame {
+  grid-template-columns: minmax(0, 1fr);
+  max-width: 100vw;
+}
+.topbar,
+.topbar > * { min-width: 0; }
+
+/* Spend the available width on the heading instead of wrapping it into a tall
+   narrow box. Keep fullscreen's established composition unchanged. */
+body:not(.display-mode) .card-view:is(.mode-word, .mode-root, .mode-affix) .graph-focus-copy {
+  width: 100%;
+  max-width: none;
+  min-height: 0;
+  flex: 0 0 auto;
+  pointer-events: auto;
+}
+body:not(.display-mode) .card-view:is(.mode-word, .mode-root, .mode-affix) .graph-focus-copy strong {
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+}
+body:not(.display-mode) .card-view:is(.mode-word, .mode-root, .mode-affix) .graph-focus-copy span {
+  max-height: 2.6em;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+.graph-node-term {
+  overflow-wrap: normal;
+  white-space: nowrap;
+}
+
+@media (max-width: 620px) {
+  .topbar {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: 52px 52px;
+    gap: 8px;
+    padding-inline: 10px;
+  }
+  .topbar .brand { grid-column: 1; grid-row: 1; }
+  .topbar .header-tools { grid-column: 2; grid-row: 1; gap: 8px; }
+  .topbar .mode-switch {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    width: 100%;
+    justify-content: flex-start;
+    overflow-x: auto;
+    scrollbar-width: thin;
+  }
+  .topbar .mode { min-width: 88px; flex: 0 0 88px; }
+  .control-deck {
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+    gap: 10px;
+    padding: 10px;
+  }
+  .control-deck .transport { grid-column: 1; grid-row: 1; gap: 3px; }
+  .control-deck .transport button { width: 28px; height: 36px; }
+  .control-deck .transport span { min-width: 0; margin-left: 3px; }
+  .control-deck .composer { grid-column: 2; grid-row: 1; }
+  .control-deck .query-box button { min-width: 64px; padding-inline: 8px; }
+  .control-deck .query-box input { font-size: 16px; padding-inline: 8px; }
+
+  .card-view:is(.mode-knowledge, .mode-word, .mode-root, .mode-affix),
+  .card-view:is(.mode-root, .mode-affix).evidence-expanded {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) 124px;
+  }
+  .card-view:is(.mode-root, .mode-affix):not(.evidence-expanded) {
+    grid-template-rows: minmax(0, 1fr) 88px;
+  }
+  .card-view:is(.mode-word, .mode-root, .mode-affix) .card-main { padding: 8px; }
+  .card-view:is(.mode-word, .mode-root, .mode-affix) .graph-focus-copy strong {
+    font-size: 25px;
+  }
+  .card-view:is(.mode-word, .mode-root, .mode-affix) .graph-focus-copy span {
+    font-size: 14px;
+  }
+  .card-view.mode-knowledge.knowledge-space-efficient .card-main {
+    grid-template-rows: minmax(0, .85fr) minmax(0, 1fr);
+    padding: 10px;
+  }
+  .card-view.mode-knowledge.knowledge-space-efficient .language-block {
+    padding-inline: 8px;
+  }
+  .card-view:is(.mode-knowledge, .mode-word, .mode-root, .mode-affix) .evidence-panel {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: auto minmax(0, 1fr);
+    gap: 4px 8px;
+    padding: 8px 10px;
+    border-top: 1px solid var(--line);
+    border-left: 0;
+  }
+  .card-view:is(.mode-knowledge, .mode-word, .mode-root, .mode-affix) .evidence-head {
+    grid-column: 1;
+    grid-row: 1;
+    padding: 0;
+    border: 0;
+  }
+  .card-view:is(.mode-knowledge, .mode-word, .mode-root, .mode-affix) .evidence-head p {
+    font-size: 9px;
+    margin-bottom: 2px;
+  }
+  .card-view:is(.mode-knowledge, .mode-word, .mode-root, .mode-affix) .evidence-head strong {
+    font-size: 16px;
+  }
+  .card-view:is(.mode-knowledge, .mode-word, .mode-root, .mode-affix) #evidence-list {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    margin: 0;
+  }
+  .card-view:is(.mode-knowledge, .mode-word, .mode-root, .mode-affix) .evidence-actions {
+    grid-column: 2;
+    grid-row: 1;
+    align-self: center;
+    margin: 0;
+    padding: 0;
+  }
+  .card-view:is(.mode-knowledge, .mode-word, .mode-root, .mode-affix) .grounded-seal {
+    display: none;
+  }
+  .card-view:is(.mode-knowledge, .mode-word, .mode-root, .mode-affix) .evidence-actions > button {
+    max-width: 108px;
+    margin: 0;
+    padding: 7px;
+    font-size: 11px;
+  }
 }

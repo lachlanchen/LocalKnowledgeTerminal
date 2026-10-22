@@ -64,6 +64,22 @@ class CorpusTests(unittest.TestCase):
     def test_unseen_word_draw_is_unique_and_stops_after_exclusion(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             index = make_index(Path(temp))
+            batch = index.draw_unseen_words("stable", (), 8)
+            self.assertEqual(len(batch), 2)
+            self.assertEqual(len({item.headword.casefold() for item in batch}), 2)
+            blocked: set[str] = set()
+            expected = []
+            for attempt in range(8):
+                item = index.draw_unseen_word(f"stable:{attempt}", blocked)
+                if item is None:
+                    break
+                expected.append(item.entry_id)
+                blocked.add(item.headword.casefold())
+            self.assertEqual([item.entry_id for item in batch], expected)
+            self.assertEqual(
+                index.draw_unseen_words("stable", ("abacus", "algorithm"), 8),
+                [],
+            )
             first = index.draw_unseen_word("stable", ())
             self.assertIsNotNone(first)
             second = index.draw_unseen_word("stable", (first.headword,))

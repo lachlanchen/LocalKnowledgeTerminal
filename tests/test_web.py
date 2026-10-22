@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import unittest
 import tempfile
+import re
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -35,7 +36,7 @@ class WebInputTests(unittest.TestCase):
             script,
         )
         self.assertIn(
-            'if (navigation.axis === "mode") navigateModes(navigation.step);',
+            'if (navigation.axis === "mode") void navigateModes(navigation.step);',
             script,
         )
         self.assertIn(
@@ -119,6 +120,80 @@ class WebInputTests(unittest.TestCase):
         self.assertEqual(rendered, ["newest word deck"])
         self.assertEqual(errors, [])
 
+    def test_accepted_deck_sync_drops_a_superseded_active_card(self) -> None:
+        script = (
+            Path(__file__).resolve().parents[1] / "lkt" / "static" / "app.js"
+        ).read_text(encoding="utf-8")
+        sync = script.split("async function syncAcceptedDeck()", 1)[1].split(
+            "function updateCarouselChrome()", 1
+        )[0]
+
+        self.assertRegex(
+            sync,
+            re.compile(
+                r"const\s+current\s*=.*?cards\.some\(\s*\(card\)\s*=>\s*"
+                r"card\.card_id\s*===\s*activeCard\.card_id\s*\).*?"
+                r"\?\s*activeCard\s*:\s*null",
+                re.DOTALL,
+            ),
+        )
+        self.assertNotIn(
+            "const current = activeCard?.mode === requestedMode ? activeCard : null;",
+            sync,
+        )
+        current = {"card_id": "superseded", "mode": "root"}
+        refreshed = [
+            {"card_id": "replacement", "mode": "root"},
+            {"card_id": "another", "mode": "root"},
+        ]
+        retained = current if any(
+            card["card_id"] == current["card_id"] for card in refreshed
+        ) else None
+        self.assertIsNone(retained)
+
+    def test_accepted_deck_sync_detects_changed_summary_fields(self) -> None:
+        script = (
+            Path(__file__).resolve().parents[1] / "lkt" / "static" / "app.js"
+        ).read_text(encoding="utf-8")
+        sync = script.split("async function syncAcceptedDeck()", 1)[1].split(
+            "function updateCarouselChrome()", 1
+        )[0]
+
+        self.assertRegex(
+            sync,
+            re.compile(
+                r"new Map\(allSavedCards\.map\(.*?JSON\.stringify\(card\)",
+                re.DOTALL,
+            ),
+        )
+        self.assertRegex(
+            sync,
+            re.compile(
+                r"cards\.some\(\s*\(card\)\s*=>\s*previousSummaries\.get\("
+                r"card\.card_id\)\s*!==\s*JSON\.stringify\(card\)\s*\)"
+            ),
+        )
+
+        previous = [
+            {
+                "card_id": "same-card",
+                "mode": "affix",
+                "title": "Earlier title",
+                "updated_at": "2026-09-04T12:00:00+00:00",
+            }
+        ]
+        refreshed = [
+            {
+                "card_id": "same-card",
+                "mode": "affix",
+                "title": "Improved title",
+                "updated_at": "2026-09-04T13:00:00+00:00",
+            }
+        ]
+        self.assertEqual(len(previous), len(refreshed))
+        self.assertEqual(previous[0]["card_id"], refreshed[0]["card_id"])
+        self.assertNotEqual(previous, refreshed)
+
     def test_health_marks_a_missing_correction_index_unready(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             database = Path(temp) / "missing-freedict.sqlite3"
@@ -161,15 +236,27 @@ class WebInputTests(unittest.TestCase):
         self.assertIn(': activeAmbientModeOrder()[0];', script)
         self.assertIn('class="mode active" data-mode="question"', page)
         self.assertIn("shuffledModeDeck(carouselCards)", script)
-        self.assertIn("limit=1000", script)
+        self.assertIn("const HISTORY_PAGE_LIMIT = 64;", script)
+        self.assertIn("limit: String(HISTORY_PAGE_LIMIT)", script)
         self.assertIn("await loadHistory();", script)
         self.assertIn("carouselCards.length > 1", script)
         self.assertIn("const INNER_SLIDE_DWELL_MS = 18000;", script)
         self.assertIn("const CARD_MIN_DWELL_MS = 30000;", script)
         self.assertIn("activeInnerSlideCount() * INNER_SLIDE_DWELL_MS", script)
+        self.assertIn(
+            "const dwell = ambientRouting\n"
+            "    ? CARD_MIN_DWELL_MS\n"
+            "    : Math.max(CARD_MIN_DWELL_MS, activeInnerSlideCount() * INNER_SLIDE_DWELL_MS);",
+            script,
+        )
         self.assertIn('const DISPLAY_SETTINGS_STORAGE_KEY = "lkt-display-settings-v1";', script)
-        self.assertIn('book: ["en", "ja", "zh"]', script)
-        self.assertIn('lexical: ["en", "ja", "zh", "fr", "ar"]', script)
+        self.assertIn('const BOOK_LANGUAGE_CODES = ["en", "ja", "zh"];', script)
+        self.assertIn(
+            'const DEFAULT_LEXICAL_LANGUAGE_CODES = ["en", "ja", "zh", "fr", "ar"];',
+            script,
+        )
+        self.assertIn("book: [...BOOK_LANGUAGE_CODES]", script)
+        self.assertIn("lexical: [...DEFAULT_LEXICAL_LANGUAGE_CODES]", script)
         self.assertIn('if (!displaySettings.randomCards) return deck;', script)
         self.assertIn('languageEnabled("en", card.mode)', script)
         self.assertIn('languageEnabled("ja", card.mode)', script)
@@ -192,8 +279,14 @@ class WebInputTests(unittest.TestCase):
         self.assertIn("button.dataset.carouselIndex = String(index)", script)
         self.assertIn("async function syncAcceptedDeck()", script)
         self.assertIn('["card", "empty"].includes(visibleView)', script)
-        self.assertIn("acceptedIds.has(visibleCurrent?.card_id)", script)
-        self.assertIn("[current, ...newlyAccepted, ...remaining]", script)
+        self.assertIn(
+            "const newlyAccepted = cards.filter((card) => !knownIds.has(card.card_id));",
+            script,
+        )
+        self.assertIn("const refreshedDeck = shuffledModeDeck(cards);", script)
+        self.assertIn(
+            "cards.some((card) => card.card_id === activeCard.card_id)", script
+        )
         self.assertIn("card-switch-enter", style)
         self.assertIn("inner-slide-enter", style)
         self.assertIn('fetch("/api/intent"', script)
@@ -288,10 +381,17 @@ class WebInputTests(unittest.TestCase):
         style = (root / "lkt" / "static" / "app.css").read_text(encoding="utf-8")
         page = (root / "lkt" / "static" / "index.html").read_text(encoding="utf-8")
         self.assertIn("const KNOWLEDGE_TICKER_SELECTORS", script)
-        self.assertIn('[data-overflow-role]:not(#evidence-list)', script)
+        self.assertIn(
+            '[data-overflow-role]:not(#evidence-list):not(#evidence-title)',
+            script,
+        )
         self.assertIn('lane.dataset.overflowRole === "term"', script)
         self.assertIn("copyWidth > lane.clientWidth + 1", script)
-        self.assertIn("copyHeight > lane.clientHeight + 1", script)
+        self.assertIn("const verticalTolerance = Math.max", script)
+        self.assertIn(
+            "copyHeight > lane.clientHeight + verticalTolerance",
+            script,
+        )
         self.assertIn('duplicate.setAttribute("aria-hidden", "true")', script)
         self.assertIn('lane.classList.add("is-overflowing")', script)
         self.assertIn('lane.dataset.motionAxis = axis', script)
@@ -299,7 +399,10 @@ class WebInputTests(unittest.TestCase):
         self.assertIn("(copyWidth + gap) / 34", script)
         self.assertIn("(travel + gap) / 24", script)
         self.assertIn("document.fonts.ready.then", script)
-        self.assertIn('window.addEventListener("resize", scheduleKnowledgeTickers)', script)
+        self.assertIn('window.addEventListener("resize", () => {', script)
+        self.assertIn("resetKnowledgeTickers();", script)
+        self.assertIn("scheduleKnowledgeTickers();", script)
+        self.assertIn("if (!overflowing) return;", script)
         self.assertIn("knowledge-bank-roll", style)
         self.assertIn("knowledge-bank-roll-vertical", style)
         vertical_copy = style.split(
@@ -317,6 +420,58 @@ class WebInputTests(unittest.TestCase):
         self.assertIn("scrollbar-width: none", style)
         self.assertNotIn("fitKnowledgeTickerFont", script)
 
+    def test_short_narrow_layout_and_word_definition_fit_are_bounded(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        script = (root / "lkt" / "static" / "app.js").read_text(encoding="utf-8")
+        style = (root / "lkt" / "static" / "app.css").read_text(encoding="utf-8")
+        narrow_short = style.split(
+            "@media (max-width: 850px) and (max-height: 850px)", 1
+        )[1].split("#evidence-list {", 1)[0]
+        self.assertIn(
+            "grid-template-rows: 124px minmax(0, 1fr) 120px",
+            narrow_short,
+        )
+        self.assertIn(".topbar { min-height: 124px; }", narrow_short)
+        self.assertIn("min-height: 120px", narrow_short)
+        self.assertIn("grid-template-columns: minmax(120px, 1fr)", narrow_short)
+        self.assertIn(".origin-graph > header", narrow_short)
+        self.assertIn("flex-wrap: wrap", narrow_short)
+        self.assertIn(".evidence-head > div", narrow_short)
+        self.assertIn("overflow-wrap: anywhere", narrow_short)
+        self.assertIn("function fitKnowledgeDefinitionHeight()", script)
+        self.assertIn(
+            "definition.scrollHeight <= definition.clientHeight + 1",
+            script,
+        )
+        self.assertIn(
+            "window.requestAnimationFrame(fitKnowledgeDefinitionHeight);",
+            script,
+        )
+
+    def test_responsive_lexical_regions_expand_without_ticker_duplication(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        script = (root / "lkt" / "static" / "app.js").read_text(encoding="utf-8")
+        style = (root / "lkt" / "static" / "app.css").read_text(encoding="utf-8")
+        definition = style.rsplit(
+            ".card-view.mode-knowledge.knowledge-desktop-height-fit "
+            ".word-card-hero > p {",
+            1,
+        )[1].split("}", 1)[0]
+        self.assertIn("min-block-size: 1.4em", definition)
+        self.assertIn("block-size: auto", definition)
+        self.assertNotIn("block-size: 1.4em;", definition.replace("min-block-size", ""))
+        self.assertIn(
+            '[data-overflow-role]:not(#evidence-list):not(#evidence-title)',
+            script,
+        )
+        self.assertIn(
+            ".evidence-head > div { min-width: 0; flex: 1 1 auto; }",
+            style,
+        )
+        evidence_title = style.split("#evidence-title {", 1)[1].split("}", 1)[0]
+        self.assertIn("overflow-wrap: anywhere", evidence_title)
+        self.assertIn("white-space: normal", evidence_title)
+
     def test_graph_copy_autofits_and_derivatives_stay_outside_canvas(self) -> None:
         root = Path(__file__).resolve().parents[1]
         script = (root / "lkt" / "static" / "app.js").read_text(encoding="utf-8")
@@ -330,24 +485,50 @@ class WebInputTests(unittest.TestCase):
         self.assertIn("part.scrollWidth <= part.clientWidth + 1", script)
         self.assertIn("part.scrollHeight <= part.clientHeight + 1", script)
         self.assertIn('fitPart(term, "--graph-term-size", 160)', script)
-        self.assertIn('fitPart(meaning, "--graph-meaning-size", 120)', script)
+        self.assertIn("const meaningLimit = meaning", script)
+        self.assertIn(
+            "Math.min(120, termSize / 1.4, termSize - minimumGap)",
+            script,
+        )
+        self.assertIn(
+            'fitPart(meaning, "--graph-meaning-size", meaningLimit)',
+            script,
+        )
         self.assertIn('graphNodes.length >= 7', script)
         self.assertIn("badges.forEach(fitGraphNodeCopy)", script)
         derivative_filter = script.index("const derivativeNodeIds = new Set()")
-        normalized_nodes = script.index("const nodes = view.nodes.map", derivative_filter)
+        normalized_nodes = script.index("const nodes = rawNodes.map", derivative_filter)
         normalized_edges = script.index("const edges = displayEdges.map", normalized_nodes)
         self.assertLess(derivative_filter, normalized_nodes)
         self.assertLess(normalized_nodes, normalized_edges)
         self.assertIn(
-            'if (relationship !== "shares-component") return true;', script
+            "const keepSharedWords = Boolean(view.include_shared_words)", script
         )
-        self.assertIn("if (source) derivativeNodeIds.add(source)", script)
-        self.assertIn("!derivativeNodeIds.has(node.id)", script)
+        self.assertIn('["root", "affix"].includes(card.mode);', script)
         self.assertIn(
-            'if (!["word", "root", "affix"].includes(card.mode)) return [];',
+            'if (relationship !== "shares-component" || keepSharedWords) return true;',
             script,
         )
-        self.assertIn("const GRAPH_DERIVATIVE_LIMIT = 6", script)
+        self.assertIn("const protectedNodeIds = new Set(", script)
+        self.assertIn('!protectedNodeIds.has(id) && ["word", "term"].includes(kind)', script)
+        self.assertIn("derivativeNodeIds.add(id)", script)
+        self.assertIn("!derivativeNodeIds.has(node.id)", script)
+        self.assertIn(
+            'if (card.mode !== "word") return [];',
+            script,
+        )
+        self.assertIn("const GRAPH_DERIVATIVE_LIMIT = 24", script)
+        self.assertIn("function graphDerivativePageCount()", script)
+        self.assertIn("function scheduleGraphDerivativePageAdvance()", script)
+        self.assertIn("function compactWordOriginFocusAreas", script)
+        self.assertIn("compact_origin_slide: true", script)
+        self.assertIn("function enforceCompactWordOriginReadability", script)
+        self.assertIn("const targetSize = 8.15", script)
+        self.assertIn("const minimumModelSize = targetSize", script)
+        self.assertIn(
+            ".origin-graph.compact-origin-paged .graph-overview { display: none; }",
+            style,
+        )
         self.assertIn("for (const item of card.related_terms || [])", script)
         self.assertIn("derivatives.length >= GRAPH_DERIVATIVE_LIMIT", script)
         self.assertIn('element("strong", "graph-derivative-term", item.term)', script)
@@ -363,12 +544,21 @@ class WebInputTests(unittest.TestCase):
         self.assertIn('grid-template-areas: "left viewport right"', style)
         self.assertIn('grid-template-areas: "left viewport"', style)
         self.assertIn('grid-template-areas: "viewport right"', style)
-        self.assertIn('grid-template-areas: "viewport" "derivatives"', style)
         self.assertIn('layout.classList.toggle("has-left-derivatives"', script)
-        self.assertIn('layout.classList.toggle("has-right-derivatives"', script)
+        self.assertIn('layout.classList.remove("has-right-derivatives")', script)
+        self.assertIn(
+            ".mode-root .graph-derivative-rails,\n.mode-affix .graph-derivative-rails",
+            style,
+        )
+        self.assertIn('grid-template-areas: "viewport" !important', style)
         self.assertIn('nodes.length === 3', script)
         self.assertIn('.graph-node-copy.has-meaning', style)
-        self.assertIn('grid-template-rows: minmax(0, .85fr) minmax(0, 1.15fr)', style)
+        self.assertIn(
+            'grid-template-rows: minmax(0, 1fr) minmax(0, 1fr)', style
+        )
+        self.assertIn(
+            ".graph-derivative-label { display: none !important; }", style
+        )
 
     def test_graph_prefers_canonical_lexical_view_with_legacy_fallback(self) -> None:
         script = (
@@ -392,6 +582,103 @@ class WebInputTests(unittest.TestCase):
         self.assertIn("view.focus_entity_ids", script)
         self.assertIn("evidence_ids: Array.isArray(edge?.evidence_ids)", script)
 
+    def test_root_affix_slide_heading_uses_graph_entity_and_position(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        script = (root / "lkt" / "static" / "app.js").read_text(encoding="utf-8")
+        style = (root / "lkt" / "static" / "app.css").read_text(encoding="utf-8")
+        self.assertIn("function morphologyGraphSlideLabel(focus)", script)
+        self.assertIn('originCy.nodes(".center").first()', script)
+        self.assertIn(
+            'new Set(["prefix", "suffix", "affix"])',
+            script,
+        )
+        self.assertIn(
+            "`${morphologyLabel} · ${graphFocusIndex + 1}/${graphFocusAreas.length}`",
+            script,
+        )
+        self.assertIn('headline.title = displayedHeadline;', script)
+        self.assertIn(
+            'headline.classList.toggle("morphology-slide-heading", morphologyMode);',
+            script,
+        )
+        heading = style.split(
+            ".graph-focus-copy strong.morphology-slide-heading {",
+            1,
+        )[1].split("}", 1)[0]
+        self.assertIn("max-width: 100%", heading)
+        self.assertIn("overflow: visible", heading)
+        self.assertIn("text-overflow: clip", heading)
+        self.assertIn("white-space: nowrap", heading)
+        self.assertIn(
+            "max-width: min(calc(100% - 24px), 540px) !important;",
+            style,
+        )
+        self.assertIn(
+            ".card-view.compact-graph-evidence .graph-focus-copy "
+            "strong.morphology-slide-heading {",
+            style,
+        )
+
+    def test_ambient_autoplay_uses_one_graph_branch_for_each_mode_dwell(self) -> None:
+        script = (
+            Path(__file__).resolve().parents[1] / "lkt" / "static" / "app.js"
+        ).read_text(encoding="utf-8")
+        self.assertIn("const ambientFocusIndexes = graphFocusAreas", script)
+        self.assertIn('filter(({ area }) => area.kind !== "overview")', script)
+        self.assertIn(
+            "const initialFocusIndex = ambientRouting && autoplayEnabled",
+            script,
+        )
+        self.assertIn("showGraphFocus(initialFocusIndex, false);", script)
+        self.assertIn(
+            "if (graphFocusAreas.length > 1 && autoplayEnabled && !ambientRouting)",
+            script,
+        )
+        self.assertIn(
+            "if (sentenceSlides.length > 1 && autoplayEnabled && !ambientRouting)",
+            script,
+        )
+        self.assertIn(
+            "const dwell = ambientRouting\n"
+            "    ? CARD_MIN_DWELL_MS\n"
+            "    : Math.max(CARD_MIN_DWELL_MS, activeInnerSlideCount() * INNER_SLIDE_DWELL_MS);",
+            script,
+        )
+        self.assertIn(
+            '$("#previous-graph-focus").addEventListener("click", () => {',
+            script,
+        )
+        self.assertIn(
+            '$("#next-graph-focus").addEventListener("click", () => {',
+            script,
+        )
+
+    def test_graph_optional_text_metrics_have_guarded_style_mappings(self) -> None:
+        script = (
+            Path(__file__).resolve().parents[1] / "lkt" / "static" / "app.js"
+        ).read_text(encoding="utf-8")
+        non_compact = script.split("function graphStyles(compact = false)", 1)[1]
+        non_compact = non_compact.split("\n  return [", 1)[1]
+        base_style = re.search(
+            r'selector: "node",\s*style: \{(?P<style>.*?)\n\s*\},\n\s*\},',
+            non_compact,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(base_style)
+        base = base_style.group("style")
+        self.assertIn('"font-size": 15', base)
+        self.assertIn('"text-max-width": 128', base)
+        self.assertNotIn('data(fontSize)', base)
+        self.assertNotIn('data(labelWidth)', base)
+        self.assertIn(
+            '{ selector: "node[fontSize]", style: { "font-size": "data(fontSize)" } }',
+            non_compact,
+        )
+        self.assertIn(
+            '{ selector: "node[labelWidth]", style: { "text-max-width": "data(labelWidth)" } }',
+            non_compact,
+        )
+
     def test_bare_ambient_tour_crosses_accepted_mode_decks(self) -> None:
         root = Path(__file__).resolve().parents[1]
         script = (root / "lkt" / "static" / "app.js").read_text(encoding="utf-8")
@@ -400,17 +687,42 @@ class WebInputTests(unittest.TestCase):
             script,
         )
         self.assertIn("const ambientModeDecks = new Map();", script)
-        self.assertIn("async function acceptedCardsForMode(cardMode)", script)
+        self.assertIn("async function randomAcceptedCard(cardMode)", script)
         self.assertIn("async function advanceAmbientMode(activityRevision)", script)
         self.assertIn("const enabledModes = activeAmbientModeOrder();", script)
-        self.assertIn("attempt < enabledModes.length", script)
-        self.assertIn("takeAmbientCard(nextMode, cards)", script)
+        self.assertIn("One mode gets one bounded attempt per dwell", script)
+        self.assertIn(
+            "fetchJsonWithTimeout(\n    `/api/cards/random?${parameters}`",
+            script,
+        )
+        self.assertIn('parameters.set("exclude", recentIds.join(","))', script)
+        self.assertIn("promise: fetchAmbientMode(nextMode)", script)
+        self.assertIn("randomAcceptedCard(cardMode)", script)
+        self.assertIn("fetchModeSummaries(cardMode)", script)
         self.assertIn("!previous.acceptedIds.has(card.card_id)", script)
         self.assertIn("shuffledAmbientPass(cards, previous?.lastCardId", script)
         self.assertIn("activityRevision !== userActivityRevision", script)
         self.assertIn("function noteActivity(userInitiated = false)", script)
-        self.assertIn("if (ambientRouting) {\n      advanceAmbientMode(userActivityRevision);", script)
+        self.assertIn("function runAmbientAdvance(activityRevision)", script)
+        self.assertIn('.catch((error) => console.warn("Ambient advance failed", error))', script)
+        self.assertIn("if (ambientRouting && autoplayEnabled) scheduleCarousel();", script)
+        self.assertIn("if (ambientRouting) {\n      runAmbientAdvance(userActivityRevision);", script)
         self.assertIn('document.addEventListener("pointerdown", () => noteActivity(true)', script)
+
+    def test_resuming_autoplay_restores_cross_mode_ambient_routing(self) -> None:
+        script = (
+            Path(__file__).resolve().parents[1] / "lkt" / "static" / "app.js"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            '''$("#toggle-autoplay").addEventListener("click", () => {
+  autoplayEnabled = !autoplayEnabled;
+  if (autoplayEnabled) {
+    cancelPageRestore();
+    ambientRouting = mode !== "chat";
+    ambientModeIndex = ambientIndexAfter(mode);
+  }''',
+            script,
+        )
 
     def test_browser_renders_all_bounded_evidence_with_recorded_metadata(self) -> None:
         root = Path(__file__).resolve().parents[1]
@@ -425,9 +737,15 @@ class WebInputTests(unittest.TestCase):
         self.assertNotIn("Source location recorded by corpus", script)
         self.assertIn("#evidence-list { display: flex; min-height: 0;", style)
         self.assertIn(".evidence-list-many .evidence", style)
-        self.assertIn("function setMorphologyEvidenceExpanded(expanded)", script)
+        self.assertIn(
+            "function setMorphologyEvidenceExpanded(expanded, userInitiated = false)",
+            script,
+        )
         self.assertIn("toggleMorphologyEvidencePanel", script)
         self.assertIn("scheduleGraphViewportFit(120)", script)
+        self.assertIn("lane.onwheel = pause;", script)
+        self.assertIn("lane.onkeydown = (event) => {", script)
+        self.assertIn("overflow-y: auto !important", style)
         self.assertIn('id="evidence-toggle"', page)
         self.assertIn('aria-controls="evidence-panel"', page)
         self.assertIn(".card-view.mode-root.evidence-expanded", style)

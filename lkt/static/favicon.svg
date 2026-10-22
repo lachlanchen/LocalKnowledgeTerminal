@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Local Knowledge Terminal">
+  <rect x="1" y="1" width="62" height="62" rx="14" fill="#172554" stroke="#ffd84a" stroke-width="2" />
+  <path fill="#ffd84a" d="M6 14h6v30h9v6H6V14Zm37 0h16v6h-5v30h-6V20h-5v-6Z" />
+  <path fill="#ff5d45" d="M22 14h6v13l9-13h8L33 31l12 19h-8l-9-14v14h-6V14Z" />
+</svg>

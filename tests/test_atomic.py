@@ -4,6 +4,7 @@ import json
 import re
 import tempfile
 import unittest
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +17,7 @@ from lkt.atomic import (
     _book_anchored_shape,
     _book_decomposition_shape,
     _book_origin_steps,
+    _card_evidence_record_relevant,
     _clean_usage_note,
     _collapse_repeated_arabic_alternative,
     _explicit_form_evidence_ids,
@@ -209,6 +211,45 @@ class FakePronouncer:
 
 
 class AtomicWorkerTests(unittest.TestCase):
+    def test_card_evidence_relevance_rejects_proper_name_false_positive(self) -> None:
+        loose = {
+            "corpus_id": "word-origins",
+            "excerpt": (
+                "Plagarius was used by the epigrammatist Martial for a literary thief."
+            ),
+            "payload": {"headword": "plagiarize", "kind": "entry"},
+        }
+        cross_reference = {
+            "corpus_id": "word-origins",
+            "excerpt": (
+                "Latin adversus 'hostile' is the source of English adverse."
+            ),
+            "payload": {"headword": "advertise", "kind": "entry"},
+        }
+        morphology = {
+            "corpus_id": "english-root-dictionary",
+            "excerpt": "SPECT means look.",
+            "payload": {"headword": "SPECT", "kind": "morphology-root"},
+        }
+        supported_history = {
+            "corpus_id": "word-origins",
+            "excerpt": "Latin vertex was derived from vertere 'turn'.",
+            "payload": {"headword": "vertical", "kind": "entry"},
+        }
+
+        self.assertFalse(
+            _card_evidence_record_relevant(
+                "martial", loose, support_forms=("mar", "-al")
+            )
+        )
+        self.assertTrue(_card_evidence_record_relevant("adverse", cross_reference))
+        self.assertTrue(_card_evidence_record_relevant("inspection", morphology))
+        self.assertTrue(
+            _card_evidence_record_relevant(
+                "revert", supported_history, support_forms=("vertere", "vert")
+            )
+        )
+
     @staticmethod
     def _question_card() -> dict[str, Any]:
         return {
@@ -569,7 +610,7 @@ class AtomicWorkerTests(unittest.TestCase):
                 "kind": "morphology-root",
                 "knowledge_evidence_id": "evidence-predecessor",
                 "excerpt": (
-                    "predecessor [pre(=before)＋de(=down)＋cess(=go)] "
+                    "predecessor [pre(=before)+de(=down)+cess(=go)+or(=person)] "
                     "former holder of an office"
                 ),
             },
@@ -599,11 +640,16 @@ class AtomicWorkerTests(unittest.TestCase):
                 },
                 {
                     "surface": "cess",
-                    "kind": "root",
+                    "kind": "",
                     "evidence_ids": ["evidence-predecessor"],
                     "meaning": "go",
                 },
-                {"surface": "or", "kind": "suffix", "evidence_ids": []},
+                {
+                    "surface": "or",
+                    "kind": "",
+                    "evidence_ids": ["evidence-predecessor"],
+                    "meaning": "person",
+                },
             ],
         )
 
@@ -624,13 +670,13 @@ class AtomicWorkerTests(unittest.TestCase):
             [
                 {
                     "surface": "abs",
-                    "kind": "prefix",
+                    "kind": "",
                     "evidence_ids": ["evidence-tain"],
                     "meaning": "away",
                 },
                 {
                     "surface": "tain",
-                    "kind": "root",
+                    "kind": "",
                     "evidence_ids": ["evidence-tain"],
                     "meaning": "hold",
                 },
@@ -638,7 +684,7 @@ class AtomicWorkerTests(unittest.TestCase):
         )
         self.assertEqual(_book_decomposition_shape("abstainer", records), [])
 
-    def test_late_exact_formula_augments_free_draft_and_keeps_derivatives(self) -> None:
+    def test_late_exact_formula_uses_model_roles_and_keeps_derivatives(self) -> None:
         derivative_terms = [
             "contain",
             "retain",
@@ -688,7 +734,35 @@ class AtomicWorkerTests(unittest.TestCase):
                 self, system: str, prompt: str, *, max_tokens: int = 256
             ) -> dict[str, Any]:
                 if "LINGUISTIC REVIEW OF A LEXICAL STRUCTURE DRAFT" in prompt:
-                    raise AssertionError("an exact formula should augment without rejection")
+                    # The formula supplies surfaces, not roles guessed from
+                    # lookup position. Qwen classifies those roles while the
+                    # initial draft and all useful derivative proposals survive.
+                    return {
+                        "value": {
+                            "parts": [
+                                {
+                                    "surface": "abs",
+                                    "canonical_form": "abs-",
+                                    "kind": "prefix",
+                                    "language": "en",
+                                    "meaning": "away",
+                                    "confidence": 0.8,
+                                    "evidence_ids": [],
+                                },
+                                {
+                                    "surface": "tain",
+                                    "canonical_form": "tain",
+                                    "kind": "root",
+                                    "language": "en",
+                                    "meaning": "hold",
+                                    "confidence": 0.8,
+                                    "evidence_ids": [],
+                                },
+                            ],
+                            "derivatives": [],
+                        },
+                        "model": self.model_name,
+                    }
                 if "MORPHEME SPLIT" in prompt:
                     return {
                         "value": {
@@ -874,7 +948,7 @@ class AtomicWorkerTests(unittest.TestCase):
                 ),
                 "superseded",
             )
-            with store._connect() as connection:
+            with closing(store._connect()) as connection:
                 stale_statuses = {
                     row["assertion_id"]: row["status"]
                     for row in connection.execute(
@@ -915,8 +989,7 @@ class AtomicWorkerTests(unittest.TestCase):
             evidence_sets = {
                 tuple(part["evidence_ids"]) for part in accepted["parts"]
             }
-            self.assertEqual(len(evidence_sets), 1)
-            self.assertTrue(next(iter(evidence_sets)))
+            self.assertEqual(evidence_sets, {()})
             self.assertEqual(
                 [item["term"] for item in accepted["related_terms"]],
                 derivative_terms,
@@ -936,7 +1009,10 @@ class AtomicWorkerTests(unittest.TestCase):
             ]
             self.assertEqual(len(component_edges), 2)
             self.assertTrue(
-                all(edge["basis"] == "book" and edge["evidence_ids"] for edge in component_edges)
+                all(
+                    edge["basis"] == "model" and edge["evidence_ids"] == []
+                    for edge in component_edges
+                )
             )
             self.assertEqual(len(derivative_edges), 8)
             self.assertTrue(
@@ -971,11 +1047,11 @@ class AtomicWorkerTests(unittest.TestCase):
 
         self.assertEqual(
             _retrieved_component_evidence_ids("jac", "root", records),
-            ["root-p0036-t001-r001"],
+            [],
         )
         self.assertEqual(
             _retrieved_component_evidence_ids("ad-", "prefix", records),
-            ["affix-p0034-t004-r005"],
+            [],
         )
         self.assertEqual(
             _retrieved_component_evidence_ids("-ent", "suffix", records), []
@@ -1018,7 +1094,7 @@ class AtomicWorkerTests(unittest.TestCase):
             ["book-entry"],
         )
 
-    def test_origin_rejects_modern_word_as_a_historical_step(self) -> None:
+    def test_origin_drops_modern_word_and_completes_a_bounded_partial_branch(self) -> None:
         class RepeatingOriginModel(FakeAtomicModel):
             def complete_json(
                 self, system: str, prompt: str, *, max_tokens: int = 256
@@ -1052,14 +1128,25 @@ class AtomicWorkerTests(unittest.TestCase):
                 store, FakeRetriever(), RepeatingOriginModel()
             ).run(4)
             self.assertEqual(results[-1].job_type, "expand-origin-branches")
-            self.assertEqual(results[-1].status, "retry")
-            self.assertEqual(
-                store.artifacts_for_subject(
-                    plan.subject_key,
-                    stage="accepted-origin-branches",
-                    validation_state="accepted",
-                ),
-                [],
+            self.assertEqual(results[-1].status, "complete")
+            accepted = store.artifacts_for_subject(
+                plan.subject_key,
+                stage="accepted-origin-branches",
+                validation_state="accepted",
+            )
+            self.assertEqual(len(accepted), 1)
+            accepted_steps = [
+                step
+                for branch in accepted[0]["payload"]["branches"]
+                for step in branch.get("steps", [])
+            ]
+            self.assertFalse(
+                any(
+                    str(step.get("form", "")).casefold() == "inspection"
+                    or str(step.get("language", "")).casefold() in {"en", "english"}
+                    or "modern english" in str(step.get("period", "")).casefold()
+                    for step in accepted_steps
+                )
             )
 
     def test_origin_restores_owned_component_id_and_drops_modern_endpoint(self) -> None:
@@ -1428,9 +1515,14 @@ class AtomicWorkerTests(unittest.TestCase):
         class ReviewingModel:
             model_name = "test-local-qwen"
 
+            def __init__(self) -> None:
+                self.origin_calls = 0
+
             def complete_json(
                 self, _system: str, prompt: str, *, max_tokens: int = 256
             ) -> dict[str, Any]:
+                if "ONE ORIGIN BRANCH" in prompt and "ORIGIN BRANCH REVIEW" not in prompt:
+                    self.origin_calls += 1
                 if "LINGUISTIC REVIEW" in prompt:
                     return {
                         "value": {
@@ -1451,7 +1543,9 @@ class AtomicWorkerTests(unittest.TestCase):
                         },
                         "model": self.model_name,
                     }
-                if "ORIGIN BRANCH REVIEW" in prompt:
+                if "ORIGIN BRANCH REVIEW" in prompt or (
+                    "ONE ORIGIN BRANCH" in prompt and self.origin_calls > 1
+                ):
                     component_id = re.findall(
                         r'"component_id": "([^"]+)"', prompt
                     )[0]
@@ -1558,9 +1652,11 @@ class AtomicWorkerTests(unittest.TestCase):
             plan = PreparationPlanner(store, model="test-local-qwen").plan_word(
                 "lecher", display_languages=("en",)
             )
-            results = PreparationWorker(
-                store, LecherRetriever(), ReviewingModel(), FakePronouncer()
-            ).run(4)
+            model = ReviewingModel()
+            worker = PreparationWorker(
+                store, LecherRetriever(), model, FakePronouncer()
+            )
+            results = worker.run(4)
 
             self.assertTrue(all(result.status == "complete" for result in results))
             split = store.artifacts_for_subject(
@@ -1591,7 +1687,7 @@ class AtomicWorkerTests(unittest.TestCase):
             self.assertEqual(branch["component_kind"], "free")
             self.assertEqual(
                 [step["form"] for step in branch["steps"]],
-                ["likkon", "lechier", "lecheor"],
+                ["lecheor"],
             )
             self.assertTrue(all(step["basis"] == "book" for step in branch["steps"]))
             self.assertEqual(
@@ -1602,8 +1698,29 @@ class AtomicWorkerTests(unittest.TestCase):
                         validation_state="candidate",
                     )
                 ),
-                1,
+                0,
             )
+            self.assertEqual(model.origin_calls, 1)
+            self.assertEqual(len(origin["payload"]["origin_review"]["inference_trace"]), 1)
+
+            # A useful short first result is publishable. An ordinary later
+            # visit can enrich it without making every first job pay for an
+            # unnecessary reviewer call after deterministic normalization.
+            revisit = store.enqueue_job(
+                "expand-origin-branches", plan.subject_key,
+                subject_entity_id=plan.subject_key.split(":", 1)[1],
+                prompt_version="test-normalized-history-revisit",
+                model=model.model_name,
+            )
+            result = worker.run_once(("expand-origin-branches",))
+            self.assertIsNotNone(result)
+            self.assertEqual(result.status, "complete", str(result))
+            enriched = store.artifacts_for_job(revisit, stage="accepted-origin-branches")[-1]
+            branch = enriched["payload"]["branches"][0]
+            self.assertEqual([step["form"] for step in branch["steps"]], ["likkon", "lechier", "lecheor"])
+            self.assertTrue(all(step["basis"] == "book" for step in branch["steps"]))
+            self.assertEqual(model.origin_calls, 2)
+            self.assertEqual(len(enriched["payload"]["origin_review"]["inference_trace"]), 1)
 
     def test_explicit_book_chain_is_extracted_without_model_inference(self) -> None:
         steps = _book_origin_steps(
@@ -1737,9 +1854,12 @@ class AtomicWorkerTests(unittest.TestCase):
             )[0]
             self.assertEqual(artifact["payload"]["term"], "معاينة")
             self.assertEqual(len(artifact["payload"]["dictionary_evidence_ids"]), 1)
-            self.assertEqual(len(artifact["payload"]["evidence_ids"]), 2)
+            self.assertEqual(
+                artifact["payload"]["evidence_ids"],
+                artifact["payload"]["dictionary_evidence_ids"],
+            )
 
-    def test_sole_arabic_candidate_is_selected_with_exact_dictionary_spelling(self) -> None:
+    def test_sole_arabic_candidate_does_not_overwrite_valid_model_spelling(self) -> None:
         class SerendipityRetriever(FakeRetriever):
             def retrieve(self, term: str) -> list[dict[str, Any]]:
                 return [
@@ -1802,20 +1922,26 @@ class AtomicWorkerTests(unittest.TestCase):
                 stage="accepted-translation",
                 validation_state="accepted",
             )[0]
-            self.assertEqual(artifact["payload"]["term"], "موهبة الإكتشاف")
+            self.assertEqual(artifact["payload"]["term"], "موهبة الاكتشاف")
             self.assertEqual(
                 artifact["payload"]["meaning"],
                 "قدرة على اكتشاف أشياء قيمة بالمصادفة",
             )
             self.assertEqual(
                 artifact["payload"]["normalizations"],
-                [
-                    "selected-sole-arabic-dictionary-candidate",
-                    "removed-source-headword-from-arabic-meaning",
-                ],
+                ["removed-source-headword-from-arabic-meaning"],
             )
-            self.assertEqual(len(artifact["payload"]["dictionary_evidence_ids"]), 1)
-            self.assertEqual(len(artifact["payload"]["evidence_ids"]), 2)
+            self.assertEqual(artifact["payload"]["dictionary_evidence_ids"], [])
+            self.assertEqual(artifact["payload"]["provenance"]["basis"], "model")
+            self.assertLessEqual(artifact["payload"]["confidence"], 0.7)
+            self.assertIn(
+                "model-translation-outside-dictionary-candidates",
+                [warning["code"] for warning in artifact["payload"]["warnings"]],
+            )
+            self.assertEqual(
+                artifact["payload"]["evidence_ids"],
+                artifact["payload"]["dictionary_evidence_ids"],
+            )
 
     def test_local_rag_repairs_cyrillic_meaning_for_sole_freedict_candidate(self) -> None:
         class SerendipityRetriever(FakeRetriever):
@@ -2392,7 +2518,7 @@ class AtomicWorkerTests(unittest.TestCase):
                 validation_state="accepted",
             )[0]["payload"]["parts"]
             self.assertEqual([part["surface"] for part in split], ["in", "spect", "ion"])
-            self.assertEqual([part["basis"] for part in split], ["model", "book", "model"])
+            self.assertEqual([part["basis"] for part in split], ["model", "model", "model"])
             draft = store.artifacts_for_subject(
                 plan.subject_key,
                 stage="model-morpheme-draft",
@@ -2416,8 +2542,10 @@ class AtomicWorkerTests(unittest.TestCase):
             )
             self.assertTrue(all(step["basis"] == "book" for step in root_branch["steps"]))
             self.assertTrue(
-                all(step["edge_evidence_ids"] for step in root_branch["steps"])
+                all(step["edge_context_evidence_ids"] for step in root_branch["steps"])
             )
+            self.assertTrue(all(step["edge_basis"] == "model" for step in root_branch["steps"]))
+            self.assertTrue(all(not step["edge_evidence_ids"] for step in root_branch["steps"]))
             self.assertEqual(store.status()["counts"]["historical_forms"], 2)
             queued_types = {
                 job["job_type"]
@@ -2899,6 +3027,48 @@ class AtomicWorkerTests(unittest.TestCase):
                     "evidence_ids": [],
                 },
             ]
+            # Composition projects current supported graph identities, not
+            # artifact-only placeholders that could resurrect withdrawn claims.
+            component_ids = {}
+            for ordinal, part in enumerate(split_parts):
+                legacy_id = part["morpheme_id"]
+                component_id = store.upsert_morpheme(
+                    part["language"], part["canonical_form"], part["kind"],
+                    part["meaning"], status="accepted",
+                )
+                component_ids[legacy_id] = component_id
+                part["morpheme_id"] = component_id
+                store.accept_relation_assertion(
+                    accepted_subject_id, accepted_subject_id, component_id,
+                    "has-component", basis=part["basis"],
+                    confidence=part["confidence"], evidence_ids=part["evidence_ids"],
+                    owner_type="atomic-fixture", owner_id=legacy_id,
+                    properties={"ordinal": ordinal, "surface": part["surface"]},
+                )
+            history_ids = {
+                "h-pie": store.add_historical_form(
+                    "ine-pro", "*spek-", period_label="Proto-Indo-European",
+                    meaning="look", status="accepted", quality_score=0.95,
+                ),
+                "h-latin": store.add_historical_form(
+                    "la", "specere", period_label="Latin",
+                    meaning="look", status="accepted", quality_score=0.95,
+                ),
+            }
+            for earlier, later in (
+                (history_ids["h-pie"], history_ids["h-latin"]),
+                (history_ids["h-latin"], component_ids["m-spect"]),
+            ):
+                store.accept_relation_assertion(
+                    accepted_subject_id, earlier, later, "developed-into",
+                    basis="book", confidence=0.95,
+                    evidence_ids=[origin_evidence_id],
+                    owner_type="atomic-fixture", owner_id=earlier,
+                    properties={
+                        "component_id": component_ids["m-spect"],
+                        "source_term_id": accepted_subject_id,
+                    },
+                )
             store.save_job_artifact(
                 plan.jobs["split-morphemes"],
                 "accepted-morpheme-split",
@@ -2950,18 +3120,18 @@ class AtomicWorkerTests(unittest.TestCase):
                     "term": "inspection",
                     "branches": [
                         {
-                            "component_id": "m-in",
+                            "component_id": component_ids["m-in"],
                             "component_form": "in-",
                             "component_kind": "prefix",
                             "steps": [],
                         },
                         {
-                            "component_id": "m-spect",
+                            "component_id": component_ids["m-spect"],
                             "component_form": "spect",
                             "component_kind": "root",
                             "steps": [
                                 {
-                                    "historical_form_id": "h-pie",
+                                    "historical_form_id": history_ids["h-pie"],
                                     "form": "*spek-",
                                     "language": "ine-pro",
                                     "period": "Proto-Indo-European",
@@ -2972,7 +3142,7 @@ class AtomicWorkerTests(unittest.TestCase):
                                     "edge_evidence_ids": [origin_evidence_id],
                                 },
                                 {
-                                    "historical_form_id": "h-latin",
+                                    "historical_form_id": history_ids["h-latin"],
                                     "form": "specere",
                                     "language": "la",
                                     "period": "Latin",
@@ -2985,7 +3155,7 @@ class AtomicWorkerTests(unittest.TestCase):
                             ],
                         },
                         {
-                            "component_id": "m-ion",
+                            "component_id": component_ids["m-ion"],
                             "component_form": "-ion",
                             "component_kind": "suffix",
                             "steps": [],
@@ -3026,7 +3196,27 @@ class AtomicWorkerTests(unittest.TestCase):
             self.assertNotIn("morphology_graph", card["extensions"])
             origin_result = worker.run_once()
             self.assertEqual(origin_result.job_type, "compose-origin-card")
-            cards_by_mode = {card["mode"]: card for card in cards.recent(10)}
+            recent_cards = cards.recent(10)
+            affix_cards = [card for card in recent_cards if card["mode"] == "affix"]
+            self.assertEqual(
+                {
+                    tuple(card["extensions"]["lexical_view"]["focus_entity_ids"])
+                    for card in affix_cards
+                },
+                {(component_ids["m-in"],), (component_ids["m-ion"],)},
+            )
+            prefix_card = next(
+                card
+                for card in affix_cards
+                if card["extensions"]["lexical_view"]["focus_entity_ids"] == [component_ids["m-in"]]
+            )
+            suffix_card = next(
+                card
+                for card in affix_cards
+                if card["extensions"]["lexical_view"]["focus_entity_ids"] == [component_ids["m-ion"]]
+            )
+            cards_by_mode = {card["mode"]: card for card in recent_cards}
+            cards_by_mode["affix"] = prefix_card
             self.assertEqual(
                 set(cards_by_mode), {"knowledge", "word", "root", "affix"}
             )
@@ -3054,10 +3244,10 @@ class AtomicWorkerTests(unittest.TestCase):
                 [plan.subject_entity_id],
             )
             self.assertEqual(
-                lexical_views["root"]["focus_entity_ids"], ["m-spect"]
+                lexical_views["root"]["focus_entity_ids"], [component_ids["m-spect"]]
             )
             self.assertEqual(
-                lexical_views["affix"]["focus_entity_ids"], ["m-in", "m-ion"]
+                lexical_views["affix"]["focus_entity_ids"], [component_ids["m-in"]]
             )
             for composed_card in cards_by_mode.values():
                 self.assertEqual(composed_card["japanese"]["reading"], "\u3057\u3093\u3055")
@@ -3090,16 +3280,16 @@ class AtomicWorkerTests(unittest.TestCase):
                         nodes_by_id[node_id]["evidence_ids"],
                         nodes_by_id[node_id]["confidence"],
                     )
-                    for node_id in ("m-in", "m-ion")
+                    for node_id in (component_ids["m-in"], component_ids["m-ion"])
                 },
                 {
-                    "m-in": ("in-", "model", [], "low"),
-                    "m-ion": ("-ion", "model", [], "low"),
+                    component_ids["m-in"]: ("in-", "model", [], "low"),
+                    component_ids["m-ion"]: ("-ion", "model", [], "low"),
                 },
             )
-            self.assertEqual(nodes_by_id["m-spect"]["basis"], "book")
+            self.assertEqual(nodes_by_id[component_ids["m-spect"]]["basis"], "book")
             self.assertEqual(
-                nodes_by_id["m-spect"]["evidence_ids"], [origin_evidence_id]
+                nodes_by_id[component_ids["m-spect"]]["evidence_ids"], [origin_evidence_id]
             )
             model_edges = [
                 edge for edge in graph["edges"] if edge["basis"] == "model"
@@ -3127,16 +3317,26 @@ class AtomicWorkerTests(unittest.TestCase):
             )
             root_graph = cards_by_mode["root"]["extensions"]["morphology_graph"]
             self.assertEqual(root_graph["focus_areas"][0]["kind"], "root")
-            self.assertEqual(root_graph["center_id"], "m-spect")
+            self.assertEqual(root_graph["center_id"], component_ids["m-spect"])
             affix_graph = cards_by_mode["affix"]["extensions"]["morphology_graph"]
             self.assertEqual(
                 [area["kind"] for area in affix_graph["focus_areas"][:2]],
-                ["prefix", "suffix"],
+                ["prefix", "overview"],
             )
-            self.assertEqual(affix_graph["center_id"], "m-in")
+            self.assertEqual(affix_graph["center_id"], component_ids["m-in"])
             self.assertEqual(
                 cards_by_mode["affix"]["origin_story"],
-                "Accepted affix analysis gives in- as “into”; -ion as “process”.",
+                "Accepted affix analysis gives in- as “into”.",
+            )
+            suffix_graph = suffix_card["extensions"]["morphology_graph"]
+            self.assertEqual(
+                [area["kind"] for area in suffix_graph["focus_areas"][:2]],
+                ["suffix", "overview"],
+            )
+            self.assertEqual(suffix_graph["center_id"], component_ids["m-ion"])
+            self.assertEqual(
+                suffix_card["origin_story"],
+                "Accepted affix analysis gives -ion as “process”.",
             )
             self.assertEqual(
                 cards_by_mode["root"]["origin_story"],
@@ -3148,10 +3348,11 @@ class AtomicWorkerTests(unittest.TestCase):
             )
             self.assertEqual(
                 cards_by_mode["affix"]["related_terms"],
-                [
-                    {"term": "inward", "note": "shares the in- prefix"},
-                    {"term": "decision", "note": "shares the -ion suffix"},
-                ],
+                [{"term": "inward", "note": "shares the in- prefix"}],
+            )
+            self.assertEqual(
+                suffix_card["related_terms"],
+                [{"term": "decision", "note": "shares the -ion suffix"}],
             )
             self.assertNotIn(
                 "placeholder",
@@ -3265,7 +3466,7 @@ class AtomicWorkerTests(unittest.TestCase):
                 if part["canonical_form"] == "spect"
             )
             root_id = root_part["morpheme_id"]
-            self.assertTrue(root_part["evidence_ids"])
+            self.assertEqual(root_part["evidence_ids"], [])
             self.assertEqual(
                 {
                     record["evidence_id"]
@@ -3304,9 +3505,8 @@ class AtomicWorkerTests(unittest.TestCase):
             self.assertTrue(
                 all(edge["subject_entity_id"] == subject_id for edge in historical)
             )
-            self.assertTrue(
-                any(edge["evidence_ids"] for edge in historical)
-            )
+            self.assertTrue(all(edge["basis"] == "model" for edge in historical))
+            self.assertTrue(all(not edge["evidence_ids"] for edge in historical))
 
     def test_book_origin_metadata_does_not_require_a_model_completion(self) -> None:
         from lkt.atomic import _origin_generation_metadata
@@ -3382,6 +3582,99 @@ class AtomicWorkerTests(unittest.TestCase):
         )
 
         self.assertNotIn("root", {spec[0] for spec in specs})
+
+    def test_ready_compositions_preempt_a_low_priority_inference_backlog(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")
+            inference_jobs = [
+                store.enqueue_job(
+                    "prepare-meaning", f"term:inference-{index}", priority=20
+                )
+                for index in range(20)
+            ]
+            word = store.enqueue_job(
+                "compose-word-card", "term:ready-word", priority=90
+            )
+            origin = store.enqueue_job(
+                "compose-origin-card", "term:ready-origin", priority=90
+            )
+            worker = PreparationWorker(
+                store, FakeRetriever(), FakeAtomicModel(), card_store=object()
+            )
+            worker._compose_word_card = lambda job: f"artifact:{job['job_id']}"
+            worker._compose_origin_card = lambda job: f"artifact:{job['job_id']}"
+            worker._prepare_meaning = lambda job: f"artifact:{job['job_id']}"
+
+            results = [worker.run_once(), worker.run_once(), worker.run_once()]
+
+            self.assertEqual(
+                [result.job_id for result in results if result is not None],
+                [word, origin, inference_jobs[0]],
+            )
+
+    def test_blocked_composition_falls_through_to_its_ready_inference(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")
+            prerequisite = store.enqueue_job(
+                "prepare-meaning", "term:blocked-compose", priority=20
+            )
+            compose = store.enqueue_job(
+                "compose-origin-card",
+                "term:blocked-compose",
+                priority=90,
+                depends_on=(prerequisite,),
+            )
+            worker = PreparationWorker(
+                store, FakeRetriever(), FakeAtomicModel(), card_store=object()
+            )
+            worker._prepare_meaning = lambda job: f"artifact:{job['job_id']}"
+            worker._compose_origin_card = lambda job: f"artifact:{job['job_id']}"
+
+            first = worker.run_once()
+            second = worker.run_once()
+
+            self.assertEqual(first.job_id, prerequisite)
+            self.assertEqual(second.job_id, compose)
+
+    def test_failed_composition_retry_bound_yields_to_normal_inference(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")
+            compose = store.enqueue_job(
+                "compose-word-card",
+                "term:failed-compose",
+                priority=90,
+                max_attempts=1,
+            )
+            inference = store.enqueue_job(
+                "prepare-meaning", "term:after-failed-compose", priority=20
+            )
+            worker = PreparationWorker(
+                store, FakeRetriever(), FakeAtomicModel(), card_store=object()
+            )
+
+            def fail_compose(_job: dict[str, Any]) -> str:
+                raise ValueError("invalid persisted card checkpoints")
+
+            worker._compose_word_card = fail_compose
+            worker._prepare_meaning = lambda job: f"artifact:{job['job_id']}"
+
+            failed = worker.run_once()
+            resumed = worker.run_once()
+
+            self.assertEqual((failed.job_id, failed.status), (compose, "retry"))
+            self.assertEqual((resumed.job_id, resumed.status), (inference, "complete"))
+
+    def test_accepted_graph_component_can_add_a_missing_root_view(self) -> None:
+        from lkt.atomic import _derived_origin_view_specs
+
+        specs = _derived_origin_view_specs(
+            [
+                {"canonical_form": "export", "kind": "free"},
+                {"canonical_form": "port", "kind": "root"},
+            ]
+        )
+
+        self.assertIn("root", {spec[0] for spec in specs})
 
     def test_origin_history_headline_deduplicates_only_adjacent_equal_forms(self) -> None:
         self.assertEqual(
@@ -3467,6 +3760,345 @@ class AtomicWorkerTests(unittest.TestCase):
             _origin_draft_review_reason(draft, **review_args),
             "a historical form is not visibly supported by the exact book entry",
         )
+
+
+class OriginBranchCleanupTests(unittest.TestCase):
+    class OutputCard:
+        def __init__(
+            self,
+            card_id: str,
+            mode: str,
+            query: str,
+            branch_focus_id: str = "",
+        ) -> None:
+            self.card_id = card_id
+            self.mode = mode
+            self.query = query
+            self.extensions = (
+                {"branch_focus_id": branch_focus_id}
+                if branch_focus_id
+                else {}
+            )
+
+    class RecordingStore:
+        def __init__(self, *, fail_publish: str = "") -> None:
+            self.fail_publish = fail_publish
+            self.events: list[tuple[Any, ...]] = []
+
+        def save(self, card: Any) -> None:
+            self.events.append(("save", card.card_id))
+
+        def publish(self, card_id: str, **kwargs: Any) -> None:
+            self.events.append(("publish", card_id))
+            if card_id == self.fail_publish:
+                raise RuntimeError("publication failed")
+
+        def supersede_others(
+            self, mode: str, query: str, card_id: str
+        ) -> None:
+            self.events.append(("supersede", card_id))
+
+        def archive_obsolete_morphology_branches(
+            self,
+            mode: str,
+            query: str,
+            kept_branch_keys: tuple[str, ...],
+            *,
+            authoritative: bool,
+            allow_empty_authoritative: bool = False,
+        ) -> dict[str, Any]:
+            if not isinstance(allow_empty_authoritative, bool):
+                raise AssertionError("empty-authoritative cleanup flag must be boolean")
+            self.events.append(
+                (
+                    "archive",
+                    mode,
+                    query,
+                    kept_branch_keys,
+                    authoritative,
+                )
+            )
+            return {
+                "archived_count": 0,
+                "archived_ids": [],
+                "mode": mode,
+            }
+
+    @staticmethod
+    def _worker(card_store: Any) -> PreparationWorker:
+        worker = object.__new__(PreparationWorker)
+        worker.card_store = card_store
+        return worker
+
+    def test_origin_branch_cleanup_runs_once_after_all_cards_persist(self) -> None:
+        store = self.RecordingStore()
+        cards = [
+            self.OutputCard("word", "knowledge", "Inspection"),
+            self.OutputCard("root-b", "root", "Inspection", "ROOT-B"),
+            self.OutputCard("affix-a", "affix", "Inspection", "affix-a"),
+            self.OutputCard("root-a", "root", "Inspection", "root-a"),
+        ]
+
+        result = self._worker(store)._persist_composed_origin_cards(
+            cards,
+            quality=0.9,
+        )
+
+        archive_events = [event for event in store.events if event[0] == "archive"]
+        self.assertEqual(
+            archive_events,
+            [
+                ("archive", "root", "Inspection", ("root-a", "root-b"), True),
+                ("archive", "affix", "Inspection", ("affix-a",), True),
+            ],
+        )
+        self.assertEqual(set(result), {"root", "affix"})
+        first_archive = store.events.index(archive_events[0])
+        self.assertTrue(
+            all(
+                ("supersede", card.card_id) in store.events[:first_archive]
+                for card in cards
+            )
+        )
+
+    def test_origin_branch_cleanup_never_runs_after_partial_failure(self) -> None:
+        store = self.RecordingStore(fail_publish="root-b")
+        cards = [
+            self.OutputCard("root-a", "root", "inspection", "root-a"),
+            self.OutputCard("root-b", "root", "inspection", "root-b"),
+        ]
+
+        with self.assertRaisesRegex(RuntimeError, "publication failed"):
+            self._worker(store)._persist_composed_origin_cards(
+                cards,
+                quality=0.9,
+            )
+
+        self.assertFalse(any(event[0] == "archive" for event in store.events))
+
+    def test_origin_branch_cleanup_skips_only_ambiguous_mode(self) -> None:
+        store = self.RecordingStore()
+        cards = [
+            self.OutputCard("root-a", "root", "inspection", "root-a"),
+            self.OutputCard("root-duplicate", "root", " inspection ", "ROOT-A"),
+            self.OutputCard("affix-a", "affix", "inspection", "affix-a"),
+        ]
+
+        self._worker(store)._persist_composed_origin_cards(cards, quality=0.9)
+
+        archive_events = [event for event in store.events if event[0] == "archive"]
+        self.assertEqual(
+            archive_events,
+            [("archive", "affix", "inspection", ("affix-a",), True)],
+        )
+
+
+    def test_split_morphemes_rejects_archived_subject_before_work(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")
+            term_id = store.upsert_term("en", "obsolete", status="accepted")
+            connection = store._connect()
+            try:
+                connection.execute(
+                    "UPDATE entities SET status='archived' WHERE entity_id=?",
+                    (term_id,),
+                )
+                connection.commit()
+            finally:
+                connection.close()
+            worker = object.__new__(PreparationWorker)
+            worker.store = store
+            with self.assertRaisesRegex(
+                ValueError, "morpheme split subject was archived before persistence"
+            ):
+                worker._split_morphemes({"subject_entity_id": term_id})
+
+    def test_split_morphemes_rechecks_subject_after_inference(self) -> None:
+        class EmptyRetriever:
+            def component_evidence(self, *_args):
+                return []
+
+        class ArchivingModel:
+            model_name = "test-archiver"
+
+            def __init__(self, store, term_id):
+                self.store = store
+                self.term_id = term_id
+
+            def complete_json(self, _system, _prompt, *, max_tokens):
+                connection = self.store._connect()
+                try:
+                    connection.execute(
+                        "UPDATE entities SET status='archived' WHERE entity_id=?",
+                        (self.term_id,),
+                    )
+                    connection.commit()
+                finally:
+                    connection.close()
+                return {
+                    "value": {
+                        "parts": [{
+                            "surface": "obsolete",
+                            "canonical_form": "obsolete",
+                            "kind": "free",
+                            "language": "en",
+                            "meaning": "no longer in use",
+                            "confidence": .8,
+                            "evidence_ids": [],
+                        }],
+                        "derivatives": [],
+                    },
+                    "model": self.model_name,
+                }
+
+        with tempfile.TemporaryDirectory() as temp:
+            store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")
+            plan = PreparationPlanner(
+                store, model="test-archiver", prompt_version="archive-race-v1"
+            ).plan_word("obsolete", display_languages=("en",))
+            connection = store._connect()
+            try:
+                connection.execute(
+                    "UPDATE entities SET status='accepted' WHERE entity_id=?",
+                    (plan.subject_entity_id,),
+                )
+                connection.commit()
+            finally:
+                connection.close()
+            store.save_job_artifact(
+                plan.jobs["retrieve-evidence"],
+                "retrieved-evidence",
+                {"records": []},
+                language="en",
+                validation_state="candidate",
+            )
+            worker = PreparationWorker(
+                store, EmptyRetriever(), ArchivingModel(store, plan.subject_entity_id)
+            )
+            with self.assertRaisesRegex(ValueError, "archived during inference"):
+                worker._split_morphemes({
+                    "job_id": plan.jobs["split-morphemes"],
+                    "subject_entity_id": plan.subject_entity_id,
+                    "subject_key": plan.subject_key,
+                    "prompt_version": "archive-race-v1",
+                })
+            connection = store._connect()
+            try:
+                self.assertEqual(connection.execute(
+                    """SELECT COUNT(*) FROM job_artifacts
+                       WHERE job_id=? AND stage='model-morpheme-draft'""",
+                    (plan.jobs["split-morphemes"],),
+                ).fetchone()[0], 0)
+                self.assertEqual(connection.execute(
+                    "SELECT COUNT(*) FROM term_morphemes WHERE term_id=?",
+                    (plan.subject_entity_id,),
+                ).fetchone()[0], 0)
+                self.assertEqual(connection.execute(
+                    """SELECT COUNT(*) FROM relation_assertions
+                       WHERE subject_entity_id=? AND relation='has-component'""",
+                    (plan.subject_entity_id,),
+                ).fetchone()[0], 0)
+            finally:
+                connection.close()
+
+    def test_split_morphemes_status_check_and_persistence_are_atomic(self) -> None:
+        class EmptyRetriever:
+            def component_evidence(self, *_args):
+                return []
+
+        class SplitModel:
+            model_name = "test-splitter"
+
+            def complete_json(self, _system, _prompt, *, max_tokens):
+                return {
+                    "value": {
+                        "parts": [{
+                            "surface": "obsolete",
+                            "canonical_form": "obsolete",
+                            "kind": "free",
+                            "language": "en",
+                            "meaning": "no longer in use",
+                            "confidence": .8,
+                            "evidence_ids": [],
+                        }],
+                        "derivatives": [],
+                    },
+                    "model": self.model_name,
+                }
+
+        with tempfile.TemporaryDirectory() as temp:
+            store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")
+            plan = PreparationPlanner(
+                store, model="test-splitter", prompt_version="archive-boundary-v1"
+            ).plan_word("obsolete", display_languages=("en",))
+            connection = store._open_connection()
+            try:
+                connection.execute(
+                    "UPDATE entities SET status='accepted' WHERE entity_id=?",
+                    (plan.subject_entity_id,),
+                )
+                connection.commit()
+            finally:
+                connection.close()
+            store.save_job_artifact(
+                plan.jobs["retrieve-evidence"],
+                "retrieved-evidence",
+                {"records": []},
+                language="en",
+                validation_state="candidate",
+            )
+            original_write = store.atomic_semantic_write
+
+            def archive_before_write(entity_id, persist):
+                connection = store._open_connection()
+                try:
+                    connection.execute(
+                        "UPDATE entities SET status='archived' WHERE entity_id=?",
+                        (entity_id,),
+                    )
+                    connection.commit()
+                finally:
+                    connection.close()
+                return original_write(entity_id, persist)
+
+            store.atomic_semantic_write = archive_before_write
+            worker = PreparationWorker(store, EmptyRetriever(), SplitModel())
+            with self.assertRaisesRegex(
+                ValueError, "morpheme split subject was archived before persistence"
+            ):
+                worker._split_morphemes({
+                    "job_id": plan.jobs["split-morphemes"],
+                    "subject_entity_id": plan.subject_entity_id,
+                    "subject_key": plan.subject_key,
+                    "prompt_version": "archive-boundary-v1",
+                })
+            connection = store._open_connection()
+            try:
+                self.assertEqual(connection.execute(
+                    "SELECT status FROM entities WHERE entity_id=?",
+                    (plan.subject_entity_id,),
+                ).fetchone()[0], "archived")
+                self.assertEqual(connection.execute(
+                    "SELECT COUNT(*) FROM term_morphemes WHERE term_id=?",
+                    (plan.subject_entity_id,),
+                ).fetchone()[0], 0)
+                self.assertEqual(connection.execute(
+                    """SELECT COUNT(*) FROM relation_assertions
+                       WHERE subject_entity_id=? AND relation='has-component'""",
+                    (plan.subject_entity_id,),
+                ).fetchone()[0], 0)
+                self.assertEqual(connection.execute(
+                    """SELECT COUNT(*) FROM job_artifacts
+                       WHERE job_id=? AND stage='accepted-morpheme-split'""",
+                    (plan.jobs["split-morphemes"],),
+                ).fetchone()[0], 0)
+                self.assertEqual(connection.execute(
+                    """SELECT COUNT(*) FROM entity_revisions
+                       WHERE entity_id=? AND reason='atomic morpheme split'""",
+                    (plan.subject_entity_id,),
+                ).fetchone()[0], 0)
+            finally:
+                connection.close()
 
 
 if __name__ == "__main__":

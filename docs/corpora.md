@@ -23,7 +23,7 @@ the Pi. The pre-editorial SQLite pair is retained as a rollback snapshot.
 | Source | Purpose | License / version policy |
 | --- | --- | --- |
 | Open Multilingual Wordnet | sense-aligned English/Japanese/Chinese/French/Arabic meaning correction | install exact OMW 2.0 lexicons through Wn 1.1.1; retain each included lexicon's metadata |
-| FreeDict English-Arabic | exact-headword Arabic candidates when OMW has no aligned Arabic lemma | `eng-ara` 0.6.3, GPL-2.0-or-later, source revision `5bdceeac8d0dba3298c1bebe734f60d54dad30f7`, SHA-256 `7572d3685c501975cd0d47b0dfb581b053b28fb18932d06f09d64d0479b06746` |
+| FreeDict English-Arabic | exact-headword Arabic candidates when OMW has no aligned Arabic lemma | `eng-ara` 0.6.3, conservatively `GPL-2.0-only`, source revision `5bdceeac8d0dba3298c1bebe734f60d54dad30f7`, SHA-256 `7572d3685c501975cd0d47b0dfb581b053b28fb18932d06f09d64d0479b06746` |
 | JMdict full English JSON | exact Japanese form, reading, gloss, and part-of-speech correction | `3.6.2+20260824122934`, dictionary date `2026-08-24`; archive SHA-256 `d9b74539bce7df82491a57ad96a0634a988129db6ca4a362f7221bc5e736871f`; extracted JSON SHA-256 `5f3c8fc399411e49b45702a99bf99ce44b160c3e42345fb5df72629d7d1aeb87`; EDRDG JMdict / CC BY-SA 4.0 distribution |
 | CC-CEDICT | Chinese form, pinyin, and gloss correction | CC BY-SA 4.0; record release hash when added |
 
@@ -34,6 +34,23 @@ directories during indexing; only their compact SQLite indexes remain on the
 Pi. The full rather than common-only JMdict set produces 327,737 exact
 form-reading rows, including uncommon lexical material, in a roughly 66 MB
 runtime database. Full Wiktionary dumps are intentionally excluded.
+
+## Public redistribution status
+
+This is a conservative operational record, not a legal conclusion. A
+metadata-only citation records provenance; it does not grant permission to
+redistribute a source's lexical text, excerpts, or derived records. Pin and
+review the actual deployed artifact before treating any row as release-ready.
+
+| Source | Official primary license/source | Conservative identifier and public condition | Artifact/version status |
+| --- | --- | --- | --- |
+| FreeDict English-Arabic (`eng-ara`) | [0.6.3 archive](https://sourceforge.net/projects/freedict/files/eng-ara/0.6.3/freedict-eng-ara-0.6.3.src.tar.xz/download), upstream [`COPYING`](https://raw.githubusercontent.com/freedict/fd-dictionaries/master/eng-ara/COPYING) | The package says its Arabic Wordlist is GPL version 2. Record `GPL-2.0-only`; preserve notices and GPL terms. Do not place lexical or normalized derived content in a non-GPL public graph without a separate review. | The 0.6.3 archive-to-current-upstream correspondence and the pinned revision relationship remain unverified. |
+| JMdict / EDRDG | [EDRDG licence statement](https://www.edrdg.org/edrdg/licence.html) | `CC-BY-SA-4.0` for the Japanese and English components. Attribute EDRDG, provide the required licence/documentation links, and apply the stated share-alike conditions to material based on significant extracts. | EDRDG states non-English translational equivalents, including French and German, are separately copyrighted. Those glosses are unverified unless a component-specific grant is recorded. |
+| OMW English / Princeton WordNet | [OMW 2.0 release](https://github.com/omwn/omw-data/releases/tag/v2.0), OMW [package index](https://raw.githubusercontent.com/omwn/omw-data/main/index.toml), [Princeton WordNet licence](https://wordnet.princeton.edu/license-and-commercial-use) | OMW's English WordNet 3.0 bundle uses the custom Princeton WordNet 3.0 terms; record `LicenseRef-Princeton-WordNet-3.0`, retain its copyright and disclaimer on all copies, and do not use Princeton's name in advertising. | OMW v2.0 also contains several pre-3.0 English WordNets, including 2.0, with version-specific terms. The exact English asset deployed must be pinned and checked. |
+| Open English WordNet, when used instead of the OMW Princeton bundle | [Open English WordNet licence](https://raw.githubusercontent.com/globalwordnet/english-wordnet/main/LICENSE.md) | `CC-BY-4.0` for OEWN additions, with underlying Princeton obligations. Attribute both Princeton WordNet and the Open English WordNet team. | Do not infer that an OMW English asset is OEWN without matching its release artifact. |
+| OMW French / WOLF | OMW [French package metadata](https://raw.githubusercontent.com/omwn/omw-data/main/index.toml) | OMW identifies French as WOLF and points to [CeCILL-C v1](http://www.cecill.info/licenses/Licence_CeCILL-C_V1-en.html). Record `CECILL-C` with version text `v1`; preserve supplied notices and do not assume a proprietary derived graph is permitted. | A current primary WOLF maintainer/distribution and the license file bundled with the deployed French artifact remain unverified. |
+| eSpeak NG data | [eSpeak NG README](https://raw.githubusercontent.com/espeak-ng/espeak-ng/master/README.md), [`COPYING`](https://raw.githubusercontent.com/espeak-ng/espeak-ng/master/COPYING) | The project states `GPL-3.0-or-later`. Treat included dictionary, voice, and phoneme data as GPL-covered unless an asset-level review proves otherwise; preserve notices, licence, and corresponding-source obligations when conveying covered material. | Never infer that a code licence also clears third-party data, or that it licenses source text submitted to synthesis. Asset-level third-party and generated-audio status remain unverified. |
+| Private or proprietary books | No public grant follows from possession or local ingestion. | Record `LicenseRef-Proprietary-No-Redistribution-Grant` only as an internal policy label, not an SPDX licence. Do not publicly release excerpts, OCR, protected expressive text, recoverable text-derived records, or publisher-created annotations without an explicit grant. | Bibliographic/provenance metadata may still require source-specific review; it is not a redistribution grant. |
 
 ## Authority rules
 

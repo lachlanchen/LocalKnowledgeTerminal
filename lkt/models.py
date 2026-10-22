@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
+from .evidence_display import card_evidence_values
+
 
 @dataclass(frozen=True)
 class CorpusEntry:
@@ -48,6 +50,11 @@ class Evidence:
         value["pages"] = list(self.pages)
         return value
 
+    def to_card_dict(self) -> dict[str, Any]:
+        value = self.to_dict()
+        value.update(card_evidence_values(self.excerpt))
+        return value
+
 
 @dataclass
 class Card:
@@ -72,8 +79,9 @@ class Card:
     extensions: dict[str, Any] = field(default_factory=dict)
     origin_graph: list[dict[str, str]] = field(default_factory=list)
     extra_languages: dict[str, dict[str, str]] = field(default_factory=dict)
+    languages: dict[str, dict[str, Any]] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         result = asdict(self)
-        result["evidence"] = [item.to_dict() for item in self.evidence]
+        result["evidence"] = [item.to_card_dict() for item in self.evidence]
         return result

@@ -5,6 +5,7 @@ from typing import Protocol
 
 from .card_books import CardBookIndex
 from .corpus import CorpusIndex
+from .languages import normalize_language_code, supports_english_morphology
 from .models import Evidence
 from .morphology import MorphologyIndex
 
@@ -14,7 +15,7 @@ class RagEngine(Protocol):
 
     corpus_id: str
 
-    def retrieve(self, query: str) -> list[Evidence]:
+    def retrieve(self, query: str, *, source_language: str = "en") -> list[Evidence]:
         ...
 
 
@@ -24,7 +25,9 @@ class WordOriginRag:
     morphology: tuple[MorphologyIndex, ...] = ()
     corpus_id: str = "word-origins"
 
-    def retrieve(self, query: str) -> list[Evidence]:
+    def retrieve(self, query: str, *, source_language: str = "en") -> list[Evidence]:
+        if not supports_english_morphology(source_language):
+            return []
         evidence = self.corpus.search(query, 1)
         for index in self.morphology:
             evidence.extend(index.exact(query, 1))
@@ -38,7 +41,9 @@ class WordCardRag:
     morphology: tuple[MorphologyIndex, ...] = ()
     corpus_id: str = "word-origins"
 
-    def retrieve(self, query: str) -> list[Evidence]:
+    def retrieve(self, query: str, *, source_language: str = "en") -> list[Evidence]:
+        if not supports_english_morphology(source_language):
+            return []
         morphology_limit = min(len(self.morphology), max(0, self.limit - 1))
         word_limit = max(1, self.limit - morphology_limit)
         evidence = self.corpus.search(query, word_limit)
@@ -52,7 +57,8 @@ class AnswerRag:
     corpus: CardBookIndex
     corpus_id: str = "book-of-answers"
 
-    def retrieve(self, query: str) -> list[Evidence]:
+    def retrieve(self, query: str, *, source_language: str = "en") -> list[Evidence]:
+        normalize_language_code(source_language)
         return [self.corpus.draw(query)]
 
 
@@ -61,7 +67,8 @@ class QuestionRag:
     corpus: CardBookIndex
     corpus_id: str = "book-of-questions"
 
-    def retrieve(self, query: str) -> list[Evidence]:
+    def retrieve(self, query: str, *, source_language: str = "en") -> list[Evidence]:
+        normalize_language_code(source_language)
         return self.corpus.search(query, 1) or [self.corpus.draw(query)]
 
 
@@ -77,7 +84,9 @@ class MorphologyRag:
     secondary_limit: int = 2
     origin_limit: int = 2
 
-    def retrieve(self, query: str) -> list[Evidence]:
+    def retrieve(self, query: str, *, source_language: str = "en") -> list[Evidence]:
+        if not supports_english_morphology(source_language):
+            return []
         evidence = self.primary.search(query, self.primary_limit)
         evidence.extend(self.secondary.exact(query, self.secondary_limit))
         lexical_key = "".join(character for character in query if character.isalpha())

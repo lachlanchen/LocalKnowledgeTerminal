@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import time
 import unicodedata
 from dataclasses import asdict, dataclass
@@ -7,10 +8,59 @@ from typing import Any, Iterable
 
 from .corpus import CorpusIndex
 from .knowledge import KnowledgeStore
+from .languages import normalize_language_code, supports_english_morphology
 from .morphology import MorphologyIndex
-from .preparation import PreparationPlanner
+from .preparation import PreparationPlan, PreparationPlanner
 from .service import CardService
 from .store import CardStore
+
+
+_LEXICAL_PROVENANCE_LANGUAGE_LABELS = {
+    "ancient greek": "grc",
+    "classical greek": "grc",
+    "classical latin": "la",
+    "english": "en",
+    "french": "fr",
+    "late latin": "la",
+    "latin": "la",
+    "medieval latin": "la",
+    "middle english": "enm",
+    "middle french": "frm",
+    "old english": "ang",
+    "old french": "fro",
+    "proto-germanic": "gem-pro",
+    "proto-indo-european": "ine-pro",
+}
+
+
+def _schedulable_lexical_language(value: Any) -> str:
+    """Return a language code, never a descriptive provenance label."""
+
+    raw = re.sub(r"\s+", " ", str(value)).strip().casefold().replace("_", "-")
+    if (
+        raw in _LEXICAL_PROVENANCE_LANGUAGE_LABELS
+        or raw.replace("-", " ") in _LEXICAL_PROVENANCE_LANGUAGE_LABELS
+    ):
+        return ""
+    try:
+        return normalize_language_code(raw)
+    except ValueError:
+        return ""
+
+
+def _plan_lexical_term(
+    planner: PreparationPlanner,
+    term: str,
+    language: str,
+) -> PreparationPlan:
+    """Route semantics for every language and morphology only for English."""
+
+    language = _schedulable_lexical_language(language)
+    if not language:
+        raise ValueError("lexical language is not schedulable")
+    if supports_english_morphology(language):
+        return planner.plan_word(term, language=language)
+    return planner.plan_word_card(term, language=language)
 
 
 @dataclass(frozen=True)
@@ -29,6 +79,26 @@ class DeckSeedResult:
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+
+_LEXICAL_PUBLICATION_JOB_TYPES = (
+    "retrieve-evidence", "prepare-meaning", "split-morphemes",
+    "expand-origin-branches", "compose-origin-card",
+)
+
+
+def _active_lexical_publication_job(job: dict[str, Any], prompt_prefix: str = "") -> bool:
+    """Optional language work and another producer's revisits own separate slots."""
+    version = str(job.get("prompt_version", ""))
+    return (
+        str(job.get("status", "")) in {"queued", "running"}
+        and str(job.get("job_type", "compose-origin-card")) in _LEXICAL_PUBLICATION_JOB_TYPES
+        and (
+            not prompt_prefix
+            or not version.startswith("continuous-origin-")
+            or version.startswith(prompt_prefix)
+        )
+    )
 
 
 class AutonomousDeckSeeder:
@@ -182,6 +252,9 @@ class AutonomousLexicalSeeder:
     """Claim one bounded lexical batch for all four lexical product modes."""
 
     MODES = ("knowledge", "word", "root", "affix")
+    DISCOVERY_BATCH_LIMIT = 5
+    MAX_ACTIVE_DISCOVERY_SUBJECTS = 6
+    GROWTH_CADENCE = ("graph", "correction", "source", "source")
 
     def __init__(
         self,
@@ -197,6 +270,7 @@ class AutonomousLexicalSeeder:
         self.knowledge = knowledge
         self.model = model
         self.prompt_version = prompt_version
+        self._active_discovery_subject_keys: set[str] = set()
 
     def _planned_keys(self) -> set[str]:
         durable_lookup = getattr(
@@ -224,6 +298,412 @@ class AutonomousLexicalSeeder:
         if not callable(lookup):
             return []
         return list(lookup(excluded, language="en"))
+
+    def _graph_neighbor_terms(self, excluded: set[str]) -> list[dict[str, Any]]:
+        """Return persisted graph/card neighbors that can receive a full plan."""
+
+        candidates: dict[tuple[str, str], dict[str, Any]] = {}
+        for card in self.store.accepted_for_modes(("word", "root", "affix")):
+            extensions = card.get("extensions")
+            extensions = extensions if isinstance(extensions, dict) else {}
+            source_key = str(extensions.get("knowledge_subject", "")).strip()
+            source_entity_id = (
+                source_key.split(":", 1)[1]
+                if source_key.startswith("term:")
+                else ""
+            )
+            for raw in card.get("related_terms", ()):
+                item = raw if isinstance(raw, dict) else {"term": raw}
+                term = str(item.get("term", "")).strip()
+                key = self._key(term)
+                if not key or key in excluded:
+                    continue
+                candidate = candidates.setdefault(
+                    ("en", key),
+                    {
+                        "term": term,
+                        "language": "en",
+                        "note": str(item.get("note", "")).strip(),
+                        "sources": set(),
+                        "source_kind": "card-derivative",
+                        "priority": 3,
+                        "retry_count": 0,
+                        "novel_connections": True,
+                        "connection_count": 1,
+                        "coverage_priority": 0,
+                    },
+                )
+                if source_entity_id:
+                    candidate["sources"].add(source_entity_id)
+
+        frontier_lookup = getattr(
+            self.knowledge, "lexical_frontier_candidates", None
+        )
+        frontier = frontier_lookup(limit=96) if callable(frontier_lookup) else []
+        for raw in frontier:
+            raw_language = str(raw.get("language", "")).strip()
+            language = _schedulable_lexical_language(raw_language)
+            term = str(raw.get("text", raw.get("term", ""))).strip()
+            key = self._key(term)
+            if (
+                not language
+                or not key
+                or language == "en" and key in excluded
+            ):
+                if not language and key:
+                    quarantine = getattr(
+                        self.knowledge, "quarantine_lexical_discovery", None
+                    )
+                    if callable(quarantine):
+                        quarantine(
+                            {
+                                **raw,
+                                "term": term,
+                                "language": raw_language,
+                                "source_kind": str(
+                                    raw.get("source_kind", "graph-frontier")
+                                ),
+                            },
+                            reason=(
+                                "historical language label is provenance metadata, "
+                                "not a schedulable lexical language code"
+                            ),
+                            context_key="graph-frontier-language-filter-v1",
+                        )
+                continue
+            candidate_key = (language, key)
+            priority = int(raw.get("evidence_rank", 2))
+            candidate = candidates.get(candidate_key)
+            if candidate is None or priority < int(candidate.get("priority", 3)):
+                sources = set(candidate.get("sources", ())) if candidate else set()
+                candidates[candidate_key] = {
+                    "term": term,
+                    "language": language,
+                    "note": str(raw.get("note", "")).strip(),
+                    "sources": sources,
+                    "source_kind": str(raw.get("source_kind", "graph-frontier")),
+                    "priority": priority,
+                    "retry_count": int(raw.get("retry_count", 0)),
+                    "novel_connections": bool(raw.get("novel_connections", True)),
+                    "connection_count": int(raw.get("connection_count", 1)),
+                    "coverage_priority": int(raw.get("coverage_priority", 0)),
+                }
+                candidate = candidates[candidate_key]
+            source_entity_id = str(raw.get("source_entity_id", "")).strip()
+            if source_entity_id:
+                candidate["sources"].add(source_entity_id)
+        ordered = sorted(
+            candidates.values(),
+            key=lambda item: (
+                -int(item.get("coverage_priority", 0)),
+                not bool(item["novel_connections"]),
+                int(item["retry_count"]) > 0,
+                int(item["priority"]),
+                -len(item["sources"]),
+                -int(item["connection_count"]),
+                str(item["language"]),
+                self._key(item["term"]),
+            ),
+        )
+        return [
+            {
+                **{key: value for key, value in item.items() if key != "sources"},
+                "source_entity_id": next(iter(sorted(item["sources"])), ""),
+            }
+            for item in ordered
+        ]
+
+    def _frontier_prompt_version(self, candidate: dict[str, Any]) -> str:
+        retries = int(candidate.get("retry_count", 0))
+        if not retries:
+            return self.prompt_version
+        return (
+            f"{self.prompt_version}-frontier-"
+            f"{str(candidate.get('source_kind', 'graph')).replace('_', '-')}-"
+            f"retry-{retries + 1}"
+        )
+
+    @staticmethod
+    def _select_graph_neighbor(
+        candidates: list[dict[str, Any]], growth_epoch: int
+    ) -> dict[str, Any]:
+        """Prefer incomplete coverage before alternating graph branches."""
+
+        families = (
+            frozenset(("derivative", "card-derivative", "shared-morpheme")),
+            frozenset(("historical-form",)),
+        )
+        preferred = families[(growth_epoch // 4) % len(families)]
+        coverage_priority = max(
+            int(candidate.get("coverage_priority", 0))
+            for candidate in candidates
+        )
+        coverage_candidates = [
+            candidate
+            for candidate in candidates
+            if int(candidate.get("coverage_priority", 0)) == coverage_priority
+        ]
+        return next(
+            (
+                candidate
+                for candidate in coverage_candidates
+                if str(candidate.get("source_kind", "")) in preferred
+            ),
+            coverage_candidates[0],
+        )
+
+    def _sparse_projection_candidate(
+        self, growth_epoch: int
+    ) -> dict[str, Any] | None:
+        """Inspect one rotating, bounded window of visible lexical subjects."""
+
+        by_subject: dict[str, list[dict[str, Any]]] = {}
+        for card in self.store.accepted_for_modes(("word", "root", "affix")):
+            extensions = card.get("extensions")
+            extensions = extensions if isinstance(extensions, dict) else {}
+            subject_key = str(extensions.get("knowledge_subject", "")).strip()
+            if not subject_key.startswith("term:"):
+                continue
+            subject_id = subject_key.split(":", 1)[1]
+            mode = str(card.get("mode", "")).strip()
+            if mode not in {"word", "root", "affix"}:
+                continue
+            by_subject.setdefault(subject_id, []).append(
+                {
+                    "subject_entity_id": subject_id,
+                    "mode": mode,
+                    "branch_focus_id": str(
+                        extensions.get("branch_focus_id", "")
+                    ).strip(),
+                }
+            )
+        subject_ids = sorted(by_subject)
+        if not subject_ids:
+            return None
+        window_size = min(64, len(subject_ids))
+        start = (growth_epoch * 17) % len(subject_ids)
+        selected_ids = {
+            subject_ids[(start + offset) % len(subject_ids)]
+            for offset in range(window_size)
+        }
+        visible_views = [
+            view
+            for subject_id in subject_ids
+            if subject_id in selected_ids
+            for view in by_subject[subject_id]
+        ]
+        lookup = getattr(self.knowledge, "lexical_sparse_candidate", None)
+        if not callable(lookup):
+            return None
+        return lookup(
+            visible_views,
+            prompt_prefix=self.prompt_version,
+            limit=window_size,
+        )
+
+    def _plan_recursive_word(
+        self,
+        term: str,
+        *,
+        prompt_version: str,
+        status: str,
+        message: str,
+        progress: dict[str, Any],
+        language: str = "en",
+    ) -> DeckSeedResult:
+        planner = PreparationPlanner(
+            self.knowledge,
+            model=self.model,
+            prompt_version=prompt_version,
+            source_fingerprint=self.corpus.metadata().get("source_sha256", ""),
+        )
+        plan = _plan_lexical_term(planner, term, language)
+        if not self._plan_has_pending_work(plan):
+            return DeckSeedResult(
+                status="deferred",
+                mode="lexical",
+                prepared=int(progress["planned"]),
+                total=int(progress["total"]),
+                message=f"recursive plan for {term} already reached a terminal state",
+            )
+        return DeckSeedResult(
+            status=status,
+            mode="lexical",
+            prepared=int(progress["planned"]),
+            total=int(progress["total"]),
+            message=message,
+        )
+
+    def _reconcile_revisit_epochs(self) -> None:
+        reconcile = getattr(self.knowledge, "reconcile_lexical_revisit_epochs", None)
+        if callable(reconcile):
+            reconcile()
+
+    def _plan_due_projection_repair(self) -> DeckSeedResult | None:
+        """Claim and bind one model-free projection independently of discovery."""
+
+        claim = getattr(self.knowledge, "claim_lexical_projection_repair", None)
+        if not callable(claim):
+            return None
+        try:
+            # Claiming already performs transactional recovery and bounded
+            # historical auditing. A second reconciliation here made each
+            # model-free repair pay for the same graph-maintenance pass twice.
+            repair = claim()
+        except Exception:
+            # Projection maintenance must not halt normal bounded discovery.
+            return None
+        if repair is None:
+            return None
+
+        term_entity_id = str(repair.get("term_entity_id", "")).strip()
+        fingerprint = str(repair.get("desired_fingerprint", "")).strip()
+        lease_token = str(repair.get("lease_token", "")).strip()
+        planner = PreparationPlanner(
+            self.knowledge,
+            model=self.model,
+            prompt_version=self.prompt_version,
+        )
+        try:
+            plan = planner.plan_projection_repair(
+                term_entity_id,
+                fingerprint,
+                failure_count=int(repair.get("failure_count", 0)),
+            )
+            compose_job_id = str(plan.jobs["compose-origin-card"])
+        except Exception as exc:
+            fail = getattr(self.knowledge, "fail_lexical_projection_repair", None)
+            if callable(fail):
+                fail(
+                    term_entity_id,
+                    fingerprint,
+                    str(exc),
+                    lease_token=lease_token,
+                )
+            else:
+                release = getattr(
+                    self.knowledge, "release_lexical_projection_repair", None
+                )
+                if callable(release):
+                    release(term_entity_id, fingerprint, lease_token)
+            return None
+
+        bind = getattr(self.knowledge, "bind_lexical_projection_repair", None)
+        release = getattr(self.knowledge, "release_lexical_projection_repair", None)
+        try:
+            bound = bool(
+                callable(bind)
+                and bind(
+                    term_entity_id,
+                    fingerprint,
+                    lease_token,
+                    compose_job_id,
+                )
+            )
+        except Exception:
+            bound = False
+        if not bound:
+            if callable(release):
+                release(term_entity_id, fingerprint, lease_token)
+            return None
+
+        job = next(
+            (
+                item
+                for item in self.knowledge.jobs_for_subject(plan.subject_key)
+                if str(item.get("job_id", "")) == compose_job_id
+            ),
+            {},
+        )
+        if str(job.get("status", "")) in {"complete", "failed"}:
+            reconcile = getattr(
+                self.knowledge, "reconcile_lexical_projection_repairs", None
+            )
+            if callable(reconcile):
+                reconcile()
+            return None
+        desired_modes = ", ".join(
+            str(item) for item in repair.get("desired_modes", ())
+        )
+        return DeckSeedResult(
+            status="projection-repair-queued",
+            mode="lexical",
+            message=(
+                f"recomposing {desired_modes or 'morphology'} projection for "
+                f"{repair.get('term', term_entity_id)} from accepted checkpoints"
+            ),
+        )
+
+    def _claim_and_plan_revisit(
+        self, progress: dict[str, Any]
+    ) -> DeckSeedResult | None:
+        claim = getattr(self.knowledge, "claim_lexical_revisit_candidate", None)
+        if not callable(claim):
+            return None
+        revisit = claim(prompt_prefix=self.prompt_version, language=None)
+        if revisit is None:
+            return None
+        epoch_id = str(revisit["epoch_id"])
+        complete = getattr(self.knowledge, "complete_lexical_revisit_epoch")
+        try:
+            planner = PreparationPlanner(
+                self.knowledge,
+                model=self.model,
+                prompt_version=str(revisit["prompt_version"]),
+                source_fingerprint=self.corpus.metadata().get("source_sha256", ""),
+            )
+            plan = _plan_lexical_term(
+                planner,
+                str(revisit["term"]),
+                str(revisit.get("language", "en")),
+            )
+            if not self._plan_has_pending_work(plan):
+                complete(
+                    epoch_id,
+                    outcome="no-work",
+                    result_summary="deterministic revisit plan had no pending work",
+                )
+                return DeckSeedResult(
+                    status="deferred",
+                    mode="lexical",
+                    prepared=int(progress["planned"]),
+                    total=int(progress["total"]),
+                    message=(
+                        f"revisit for {revisit['term']} was unchanged; its bounded "
+                        "cooldown increased without banning the word"
+                    ),
+                )
+            bind = getattr(self.knowledge, "bind_lexical_revisit_epoch")
+            if not bind(epoch_id, job_subject_key=plan.subject_key):
+                raise RuntimeError("lexical revisit lease could not bind its plan")
+            self._active_discovery_subject_keys.add(plan.subject_key)
+        except Exception as exc:
+            complete(epoch_id, outcome="failed", result_summary=str(exc)[:500])
+            return DeckSeedResult(
+                status="deferred",
+                mode="lexical",
+                prepared=int(progress["planned"]),
+                total=int(progress["total"]),
+                message=(
+                    f"revisit claim for {revisit['term']} remains recoverable: "
+                    f"{str(exc)[:220]}"
+                ),
+            )
+        novelty = (
+            "new local graph/evidence fingerprint"
+            if revisit.get("novelty_kind") == "graph-changed"
+            else "expired bounded cooldown"
+        )
+        return DeckSeedResult(
+            status="revisit-queued",
+            mode="lexical",
+            prepared=int(progress["planned"]),
+            total=int(progress["total"]),
+            message=(
+                f"revisiting {revisit['term']} after {novelty}; epoch "
+                f"{revisit['epoch_number']} is durable and loop-safe"
+            ),
+        )
 
     def _select_discovery_batch(
         self, seed: str, excluded: set[str]
@@ -253,6 +733,30 @@ class AutonomousLexicalSeeder:
                 blocked.add(key)
 
         base_seed = seed.strip() or f"{time.time_ns()}:lexical:{len(blocked)}"
+        draw_batch = getattr(self.corpus, "draw_unseen_words", None)
+        if callable(draw_batch):
+            for evidence in draw_batch(
+                f"{base_seed}:word-origins", blocked, 25
+            ):
+                key = self._key(evidence.headword)
+                if not key or key in blocked:
+                    continue
+                selections.append(
+                    {
+                        "language": "en",
+                        "term": str(evidence.headword).strip(),
+                        "source_kind": "word-origins",
+                        "source_entity_id": "",
+                        "source_artifact_id": "",
+                        "source_entry_id": str(evidence.entry_id),
+                    }
+                )
+                blocked.add(key)
+                if len(selections) >= 5:
+                    break
+            return selections
+
+        # Compatibility path for test doubles and third-party corpus adapters.
         attempts = 0
         while len(selections) < 5 and attempts < 25:
             evidence = self.corpus.draw_unseen_word(
@@ -283,22 +787,62 @@ class AutonomousLexicalSeeder:
         *,
         progress: dict[str, Any],
         source_fingerprint: str,
+        prompt_version: str = "",
     ) -> DeckSeedResult:
         round_id = str(discoveries[0].get("round_id", "")) if discoveries else ""
         planner = PreparationPlanner(
             self.knowledge,
             model=self.model,
-            prompt_version=self.prompt_version,
+            prompt_version=prompt_version or self.prompt_version,
             source_fingerprint=source_fingerprint,
         )
         queued_jobs = 0
+        quarantined: list[dict[str, Any]] = []
+        planned_discoveries: list[dict[str, Any]] = []
         for discovery in discoveries:
+            language = _schedulable_lexical_language(
+                discovery.get("language", "en")
+            )
+            if not language:
+                quarantine = getattr(
+                    self.knowledge, "quarantine_lexical_discovery", None
+                )
+                if callable(quarantine):
+                    quarantine(
+                        discovery,
+                        reason=(
+                            "historical language label is provenance metadata, "
+                            "not a schedulable lexical language code"
+                        ),
+                        context_key="claimed-discovery-language-filter-v1",
+                    )
+                quarantined.append(discovery)
+                continue
             try:
-                plan = planner.plan_word(str(discovery["term"]))
+                plan = _plan_lexical_term(
+                    planner,
+                    str(discovery["term"]),
+                    language,
+                )
                 queued_jobs += len(plan.jobs)
+                if self._plan_has_pending_work(plan):
+                    self._active_discovery_subject_keys.add(plan.subject_key)
                 self.knowledge.mark_lexical_discovery_planned(
                     str(discovery["discovery_id"])
                 )
+                planned_discoveries.append(discovery)
+            except ValueError as exc:
+                quarantine = getattr(
+                    self.knowledge, "quarantine_lexical_discovery", None
+                )
+                if callable(quarantine):
+                    quarantine(
+                        discovery,
+                        reason=f"deterministic lexical planning error: {exc}",
+                        context_key="claimed-discovery-planner-filter-v1",
+                    )
+                quarantined.append(discovery)
+                continue
             except Exception as exc:
                 return DeckSeedResult(
                     status="deferred",
@@ -318,6 +862,25 @@ class AutonomousLexicalSeeder:
                         for item in discoveries
                     ),
                 )
+        if not planned_discoveries and quarantined:
+            return DeckSeedResult(
+                status="quarantined",
+                mode="lexical",
+                prepared=int(progress["planned"]),
+                total=int(progress["total"]),
+                message=(
+                    f"quarantined {len(quarantined)} malformed lexical "
+                    "candidate(s); the next frontier remains eligible"
+                ),
+                round_id=round_id,
+                discoveries=tuple(
+                    {
+                        "term": str(item.get("term", "")),
+                        "source_kind": str(item.get("source_kind", "")),
+                    }
+                    for item in quarantined
+                ),
+            )
         origin_entry = next(
             (
                 str(item.get("source_entry_id", ""))
@@ -339,8 +902,10 @@ class AutonomousLexicalSeeder:
             ),
             total=int(progress["total"]),
             message=(
-                f"claimed {len(discoveries)} unseen words and queued {queued_jobs} "
-                "missing-only jobs; every term feeds Word, Origin, Root, and Affix"
+                f"planned {len(planned_discoveries)} unseen words, quarantined "
+                f"{len(quarantined)}, and queued {queued_jobs} missing-only jobs; "
+                "English terms feed Word, Origin, Root, and Affix while other "
+                "languages feed the shared semantic Word graph"
             ),
             round_id=round_id,
             discoveries=tuple(
@@ -351,6 +916,231 @@ class AutonomousLexicalSeeder:
                 for item in discoveries
             ),
         )
+
+    @staticmethod
+    def _graph_discovery_selection(candidate: dict[str, Any]) -> dict[str, str]:
+        return {
+            "language": str(candidate.get("language", "en")),
+            "term": str(candidate.get("term", "")).strip(),
+            "source_kind": str(
+                candidate.get("source_kind", "graph-frontier")
+            ).strip(),
+            "source_entity_id": str(
+                candidate.get("source_entity_id", "")
+            ).strip(),
+            "source_artifact_id": "",
+            "source_entry_id": "",
+        }
+
+    def _claim_and_plan_round(
+        self,
+        selections: list[dict[str, str]],
+        *,
+        progress: dict[str, Any],
+        source_fingerprint: str,
+        prompt_version: str = "",
+    ) -> DeckSeedResult:
+        schedulable: list[dict[str, str]] = []
+        skipped: list[dict[str, str]] = []
+        quarantine = getattr(
+            self.knowledge, "quarantine_lexical_discovery", None
+        )
+        for selection in selections:
+            language = _schedulable_lexical_language(selection.get("language", "en"))
+            if language:
+                schedulable.append({**selection, "language": language})
+                continue
+            skipped.append(selection)
+            if callable(quarantine):
+                quarantine(
+                    selection,
+                    reason=(
+                        "historical language label is provenance metadata, "
+                        "not a schedulable lexical language code"
+                    ),
+                    context_key="discovery-language-filter-v1",
+                )
+        if not schedulable:
+            return DeckSeedResult(
+                status="quarantined",
+                mode="lexical",
+                prepared=int(progress["planned"]),
+                total=int(progress["total"]),
+                message=(
+                    f"quarantined {len(skipped)} unschedulable lexical "
+                    "candidate(s) while retaining their graph provenance"
+                ),
+                discoveries=tuple(
+                    {
+                        "term": str(item.get("term", "")),
+                        "source_kind": str(item.get("source_kind", "")),
+                    }
+                    for item in skipped
+                ),
+            )
+        observe = getattr(
+            self.knowledge, "record_lexical_discovery_observations", None
+        )
+        if callable(observe):
+            observe(schedulable, context_key=f"discovery:{source_fingerprint}")
+        claim = self.knowledge.claim_lexical_discovery_round(schedulable)
+        if claim is None:
+            active_claim = getattr(
+                self.knowledge, "has_active_lexical_discovery_claim", None
+            )
+            if callable(active_claim) and not active_claim():
+                return DeckSeedResult(
+                    status="exhausted",
+                    mode="lexical",
+                    prepared=int(progress["planned"]),
+                    total=int(progress["total"]),
+                    message=(
+                        "every offered lexical discovery is already durable or "
+                        "planned; continuing to the graph frontier"
+                    ),
+                )
+            return DeckSeedResult(
+                status="deferred",
+                mode="lexical",
+                prepared=int(progress["planned"]),
+                total=int(progress["total"]),
+                message="another durable discovery claim changed the unseen set",
+            )
+        return self._plan_claimed_round(
+            list(claim["discoveries"]),
+            progress=progress,
+            source_fingerprint=source_fingerprint,
+            prompt_version=prompt_version,
+        )
+
+    def _claim_graph_neighbor_round(
+        self,
+        candidate: dict[str, Any],
+        *,
+        progress: dict[str, Any],
+        source_fingerprint: str,
+    ) -> DeckSeedResult:
+        return self._claim_and_plan_round(
+            [self._graph_discovery_selection(candidate)],
+            progress=progress,
+            source_fingerprint=source_fingerprint,
+            prompt_version=self._frontier_prompt_version(candidate),
+        )
+
+    def _run_scheduled_growth(
+        self,
+        seed: str,
+        planned: set[str],
+        *,
+        progress: dict[str, Any],
+        source_fingerprint: str,
+    ) -> DeckSeedResult | None:
+        """Run one durable four-slot growth decision without starving books."""
+
+        decision_claim = getattr(
+            self.knowledge, "claim_lexical_growth_decision", None
+        )
+        if callable(decision_claim):
+            growth_epoch = int(decision_claim())
+        else:
+            epoch_lookup = getattr(self.knowledge, "lexical_plan_epoch_count", None)
+            growth_epoch = (
+                int(epoch_lookup()) if callable(epoch_lookup) else len(planned)
+            )
+        growth_mode = self.GROWTH_CADENCE[
+            growth_epoch % len(self.GROWTH_CADENCE)
+        ]
+        graph_neighbors_cache: list[dict[str, Any]] | None = None
+        correction_attempt: DeckSeedResult | None = None
+        graph_attempted = False
+        revisit_attempted = False
+
+        def graph_neighbors() -> list[dict[str, Any]]:
+            nonlocal graph_neighbors_cache
+            if graph_neighbors_cache is None:
+                graph_neighbors_cache = self._graph_neighbor_terms(planned)
+            return graph_neighbors_cache
+
+        # One quarter of durable plans grow an already observed graph frontier.
+        # An exhausted candidate is unavailable work, so it must not consume the
+        # source-discovery opportunity for this worker boundary.
+        if growth_mode == "graph" and graph_neighbors():
+            graph_attempted = True
+            graph_result = self._claim_graph_neighbor_round(
+                self._select_graph_neighbor(graph_neighbors(), growth_epoch),
+                progress=progress,
+                source_fingerprint=source_fingerprint,
+            )
+            if graph_result.status != "exhausted":
+                return graph_result
+
+        # One quarter is reserved for bounded correction or revisit work. Keep
+        # the established sparse/revisit alternation, but fall through when the
+        # correction has no runnable work so new source terms keep arriving.
+        if growth_mode == "correction":
+            sparse_turn = (growth_epoch // 4) % 2 == 0
+            sparse = (
+                self._sparse_projection_candidate(growth_epoch)
+                if sparse_turn
+                else None
+            )
+            if sparse:
+                sparse_modes = ", ".join(
+                    str(item.get("mode", ""))
+                    for item in sparse.get("sparse_views", ())
+                )
+                correction_attempt = self._plan_recursive_word(
+                    str(sparse["term"]),
+                    prompt_version=str(sparse["prompt_version"]),
+                    status="sparse-repair-queued",
+                    message=(
+                        f"enriching sparse {sparse_modes} projection for "
+                        f"{sparse['term']} with local RAG; branch focuses remain durable"
+                    ),
+                    progress=progress,
+                    language=str(sparse.get("language", "en")),
+                )
+                if correction_attempt.status != "deferred":
+                    return correction_attempt
+            revisit_attempted = True
+            revisit_result = self._claim_and_plan_revisit(progress)
+            if revisit_result is not None:
+                correction_attempt = revisit_result
+                if revisit_result.status != "deferred":
+                    return revisit_result
+
+        # Two quarters retain the complete mixed-source batch: up to two Q&A
+        # suggestions followed by Word Origins entries, capped at five terms.
+        selections = self._select_discovery_batch(seed, planned)
+        if selections:
+            discovery_result = self._claim_and_plan_round(
+                selections,
+                progress=progress,
+                source_fingerprint=source_fingerprint,
+            )
+            if discovery_result.status != "exhausted":
+                return discovery_result
+
+        # Once source discovery is exhausted, continuous graph work remains
+        # eligible regardless of the scheduled slot. Each path still claims at
+        # most one runnable plan at this zero-active worker boundary.
+        remaining_graph_neighbors = [] if graph_attempted else graph_neighbors()
+        if remaining_graph_neighbors:
+            graph_attempted = True
+            graph_result = self._claim_graph_neighbor_round(
+                self._select_graph_neighbor(remaining_graph_neighbors, growth_epoch),
+                progress=progress,
+                source_fingerprint=source_fingerprint,
+            )
+            if graph_result.status != "exhausted":
+                return graph_result
+        if correction_attempt is not None:
+            return correction_attempt
+        if not revisit_attempted:
+            revisit_result = self._claim_and_plan_revisit(progress)
+            if revisit_result is not None:
+                return revisit_result
+        return None
 
     def progress(self) -> dict[str, Any]:
         candidates = {self._key(item) for item in self.corpus.lexical_headwords()}
@@ -364,22 +1154,27 @@ class AutonomousLexicalSeeder:
         }
         accepted_count = len(candidates.intersection(accepted))
         total = len(candidates)
+        unplanned = max(0, total - planned)
+        repair_total = word_repair_remaining + repair_remaining
         return {
             "ready": True,
             "planned": planned,
             "accepted": accepted_count,
             "total": total,
-            "remaining": (
-                max(0, total - planned)
-                + word_repair_remaining
-                + repair_remaining
-            ),
+            "remaining": unplanned,
+            "repairs": {
+                "word": word_repair_remaining,
+                "origin": repair_remaining,
+                "total": repair_total,
+            },
+            "work_remaining": unplanned + repair_total,
             "complete": (
                 planned >= total
                 and word_repair_remaining == 0
                 and repair_remaining == 0
             ),
             "modes": list(self.MODES),
+            "continuous": True,
         }
 
     def _missing_origin_queries(self) -> tuple[str, ...]:
@@ -443,6 +1238,7 @@ class AutonomousLexicalSeeder:
         )
 
     def run_once(self, seed: str = "") -> DeckSeedResult:
+        self._reconcile_revisit_epochs()
         planned = self._planned_keys()
         progress = self.progress()
         total = int(progress["total"])
@@ -512,8 +1308,15 @@ class AutonomousLexicalSeeder:
                         f"{repair_query}; accepted language atoms were reused"
                     ),
                 )
-        selections = self._select_discovery_batch(seed, planned)
-        if not selections:
+        growth_result = self._run_scheduled_growth(
+            seed,
+            planned,
+            progress=progress,
+            source_fingerprint=source_fingerprint,
+        )
+        if growth_result is not None:
+            return growth_result
+        if True:
             # Do not let an exhausted repair monopolize discovery. Once every
             # unseen headword is planned, create a fresh bounded job revision so
             # Knowledge-without-Word cannot become a permanent false completion.
@@ -563,20 +1366,96 @@ class AutonomousLexicalSeeder:
                 total=total,
                 message="every eligible Word Origins headword is already planned",
             )
-        claim = self.knowledge.claim_lexical_discovery_round(selections)
-        if claim is None:
+
+    def run_discovery_once(self, seed: str = "") -> DeckSeedResult:
+        """Durably claim one new graph or book frontier without running Qwen."""
+
+        self._reconcile_revisit_epochs()
+        progress = self.progress()
+        source_fingerprint = self.corpus.metadata().get("source_sha256", "")
+        for _attempt in range(self.DISCOVERY_BATCH_LIMIT):
+            pending = self.knowledge.unplanned_lexical_discoveries()
+            if not pending:
+                break
+            result = self._plan_claimed_round(
+                pending,
+                progress=progress,
+                source_fingerprint=source_fingerprint,
+            )
+            if result.status != "quarantined":
+                return result
+        else:
             return DeckSeedResult(
                 status="deferred",
                 mode="lexical",
                 prepared=int(progress["planned"]),
-                total=total,
-                message="another durable discovery claim changed the unseen set",
+                total=int(progress["total"]),
+                message=(
+                    "quarantine drain reached its bounded limit; remaining "
+                    "frontiers continue on the next planning interval"
+                ),
             )
-        return self._plan_claimed_round(
-            list(claim["discoveries"]),
+        planned = self._planned_keys()
+        growth_result = self._run_scheduled_growth(
+            seed,
+            planned,
             progress=progress,
             source_fingerprint=source_fingerprint,
         )
+        if growth_result is not None:
+            return growth_result
+        return DeckSeedResult(
+            status="complete",
+            mode="lexical",
+            prepared=int(progress["planned"]),
+            total=int(progress["total"]),
+            message="no unseen lexical or graph frontier is currently eligible",
+        )
+
+    def run_bounded_discovery_once(self, seed: str = "") -> DeckSeedResult:
+        """Keep discovery live while bounding all active term subjects."""
+
+        self._reconcile_revisit_epochs()
+        projection = self._plan_due_projection_repair()
+        if projection is not None:
+            return projection
+        if self.knowledge.unplanned_lexical_discoveries():
+            return self.run_discovery_once(seed)
+        durable_active_lookup = getattr(
+            self.knowledge, "active_lexical_discovery_subject_keys", None
+        )
+        if callable(durable_active_lookup):
+            self._active_discovery_subject_keys.update(durable_active_lookup())
+        revisit_active_lookup = getattr(
+            self.knowledge, "active_lexical_revisit_subject_keys", None
+        )
+        revisit_active_subject_keys: set[str] = set()
+        if callable(revisit_active_lookup):
+            revisit_active_subject_keys.update(revisit_active_lookup())
+            self._active_discovery_subject_keys.update(
+                revisit_active_subject_keys
+            )
+        self._active_discovery_subject_keys = {
+            subject_key
+            for subject_key in self._active_discovery_subject_keys
+            if any(
+                _active_lexical_publication_job(
+                    job, getattr(self, "prompt_version", "")
+                )
+                for job in self.knowledge.jobs_for_subject(subject_key)
+            )
+        }
+        if self._active_discovery_subject_keys:
+            return DeckSeedResult(
+                status="busy",
+                mode="lexical",
+                message=(
+                    f"waiting for {len(self._active_discovery_subject_keys)} "
+                    "active discovery subjects before "
+                    "claiming another bounded discovery round"
+                ),
+            )
+        return self.run_discovery_once(seed)
 
     def run_bounded_once(self, seed: str = "") -> DeckSeedResult:
         """Keep autonomous discovery to one unfinished lexical batch at a time."""
@@ -595,6 +1474,22 @@ class AutonomousMorphologySeeder:
     """Queue polished Root and Affix records through atomic lexical preparation."""
 
     MODES = ("root", "affix")
+    BATCH_SIZE = 5
+    DEFAULT_MAX_IN_FLIGHT_SUBJECTS = 2
+    MAX_ELIGIBILITY_SCAN = 64
+    REVISIT_INTERVAL_SECONDS = 6 * 60 * 60
+    _DECLARATION_PATTERNS = {
+        "root": re.compile(r"(?:词根|字根|\b(?:word\s+)?root\b)", re.IGNORECASE),
+        "affix": re.compile(
+            r"(?:词缀|前缀|后缀|\b(?:prefix|suffix|affix)\b)",
+            re.IGNORECASE,
+        ),
+    }
+    _MORPHOLOGY_FORMULA = re.compile(
+        r"(?:\+|(?:^|[\s,;:、*])[-]?[a-z][a-z'\-’]{1,24}-?\s*"
+        r"(?:<|=|\(\s*=))",
+        re.IGNORECASE,
+    )
 
     def __init__(
         self,
@@ -605,12 +1500,16 @@ class AutonomousMorphologySeeder:
         model: str,
         modes: Iterable[str] = MODES,
         prompt_version: str = "autonomous-morphology-v1",
+        max_in_flight_subjects: int = DEFAULT_MAX_IN_FLIGHT_SUBJECTS,
     ):
         self.morphology = dict(morphology)
         self.store = store
         self.knowledge = knowledge
         self.model = model
         self.prompt_version = prompt_version
+        self.max_in_flight_subjects = max(
+            1, min(int(max_in_flight_subjects), self.MAX_ELIGIBILITY_SCAN)
+        )
         self.modes = tuple(
             dict.fromkeys(
                 mode.strip()
@@ -621,6 +1520,86 @@ class AutonomousMorphologySeeder:
         )
         if not self.modes:
             raise ValueError("autonomous morphology needs a root or affix index")
+        # A reviewed page can still contain OCR continuation, pronunciation,
+        # example, or index fragments. Remember rejected source rows for this
+        # process so an idle cycle advances instead of repeatedly selecting one.
+        self._ineligible_record_ids = {mode: set() for mode in self.modes}
+
+    def _in_flight_preparations(self) -> dict[str, dict[str, set[str]]]:
+        """Return active direct-source subjects and records for each mode.
+
+        Origin publication owns this budget, not optional pronunciation,
+        translation, grammar, or Word Card jobs. Those continue independently
+        after publication ends, without preventing admission of another source.
+        """
+
+        active = {
+            mode: {"subjects": set(), "entry_ids": set()} for mode in self.modes
+        }
+        connection = self.knowledge._connect()
+        try:
+            rows = connection.execute(
+                """SELECT DISTINCT subject_key, source_fingerprint
+                   FROM preparation_jobs
+                   WHERE status IN ('queued', 'running')
+                     AND prompt_version LIKE ?
+                     AND job_type IN (?, ?, ?, ?, ?)""",
+                (f"{self.prompt_version}%", *_LEXICAL_PUBLICATION_JOB_TYPES),
+            ).fetchall()
+        finally:
+            connection.close()
+        prefixes = {
+            mode: (
+                f"{str(self.morphology[mode].metadata().get('source_sha256', '')).strip()}"
+                f":{mode}:"
+            )
+            for mode in self.modes
+        }
+        for row in rows:
+            subject_key = str(row[0] or "").strip()
+            source_fingerprint = str(row[1] or "").strip()
+            if not subject_key or not source_fingerprint:
+                continue
+            for mode, prefix in prefixes.items():
+                if not source_fingerprint.startswith(prefix):
+                    continue
+                active[mode]["subjects"].add(subject_key)
+                source_tail = source_fingerprint[len(prefix) :]
+                entry_id = source_tail.split(":", 1)[0].strip()
+                if entry_id:
+                    active[mode]["entry_ids"].add(entry_id)
+                break
+        return active
+
+    @staticmethod
+    def _in_flight_count(
+        active: dict[str, dict[str, set[str]]],
+    ) -> int:
+        return sum(len(item["subjects"]) for item in active.values())
+
+    @classmethod
+    def _eligible_evidence(cls, mode: str, evidence: Any) -> bool:
+        """Require source-owned morphology, not merely a dictionary-shaped row."""
+
+        headword = unicodedata.normalize(
+            "NFKC", str(getattr(evidence, "headword", ""))
+        ).strip().casefold()
+        excerpt = unicodedata.normalize(
+            "NFKC", str(getattr(evidence, "excerpt", ""))
+        ).strip().casefold()
+        if not headword or not excerpt or mode not in cls._DECLARATION_PATTERNS:
+            return False
+        headword_token = re.compile(
+            rf"(?<![\w]){re.escape(headword)}(?![\w])", re.IGNORECASE
+        )
+        if cls._DECLARATION_PATTERNS[mode].search(excerpt):
+            return bool(headword_token.search(excerpt))
+        headword_entry = re.match(
+            rf"^[^\w]*{re.escape(headword)}(?=$|[\s*#\[\](){{}}:;,.])",
+            excerpt,
+            re.IGNORECASE,
+        )
+        return bool(headword_entry and cls._MORPHOLOGY_FORMULA.search(excerpt))
 
     def _prepared_record_ids(self) -> dict[str, set[str]]:
         prepared = {mode: set() for mode in self.modes}
@@ -644,7 +1623,9 @@ class AutonomousMorphologySeeder:
         return prepared
 
     def progress(self) -> dict[str, Any]:
+        v3 = self.knowledge.morphology_v3_status()
         prepared = self._prepared_record_ids()
+        in_flight = self._in_flight_preparations()
         modes: dict[str, dict[str, int | bool]] = {}
         for mode in self.modes:
             total = self.morphology[mode].count()
@@ -657,7 +1638,7 @@ class AutonomousMorphologySeeder:
             }
         accepted_total = sum(int(item["accepted"]) for item in modes.values())
         source_total = sum(int(item["total"]) for item in modes.values())
-        return {
+        legacy = {
             "ready": True,
             "accepted": accepted_total,
             "total": source_total,
@@ -665,13 +1646,44 @@ class AutonomousMorphologySeeder:
             "complete": accepted_total >= source_total,
             "modes": modes,
         }
+        return {
+            **legacy,
+            "legacy_cards": dict(legacy),
+            "v3": v3,
+            "observed": int(v3.get("observed", 0)),
+            "materialized": int(v3.get("materialized", 0)),
+            "ambiguous": int(v3.get("ambiguous", 0)),
+            "qwen_ready": int(v3.get("qwen_ready", 0)),
+            "enrichment": dict(v3.get("enrichment", {})),
+            "graph_revision": int(v3.get("graph_revision", 0)),
+            "publication_admission": {
+                "in_flight": self._in_flight_count(in_flight),
+                "limit": self.max_in_flight_subjects,
+                "modes": {mode: len(value["subjects"]) for mode, value in in_flight.items()},
+                "language_jobs_hold_slots": False,
+            },
+        }
 
     def run_once(self, seed: str = "") -> DeckSeedResult:
         prepared = self._prepared_record_ids()
+        in_flight = self._in_flight_preparations()
+        active_count = self._in_flight_count(in_flight)
+        if active_count >= self.max_in_flight_subjects:
+            return DeckSeedResult(
+                status="busy",
+                mode="morphology",
+                message=(
+                    f"waiting for {active_count} direct morphology subjects; "
+                    f"the serial-worker admission budget is "
+                    f"{self.max_in_flight_subjects}"
+                ),
+            )
         ranked = sorted(
             self.modes,
             key=lambda mode: (
-                len(prepared[mode]) / max(1, self.morphology[mode].count()),
+                bool(in_flight[mode]["subjects"]),
+                (len(prepared[mode]) + len(in_flight[mode]["subjects"]))
+                / max(1, self.morphology[mode].count()),
                 self.modes.index(mode),
             ),
         )
@@ -691,84 +1703,272 @@ class AutonomousMorphologySeeder:
         prepared = self._prepared_record_ids()[mode]
         index = self.morphology[mode]
         total = index.count()
-        active = self.knowledge.active_term_preparation_count()
-        if active:
+        in_flight = self._in_flight_preparations()
+        active_count = self._in_flight_count(in_flight)
+        available_slots = self.max_in_flight_subjects - active_count
+        if available_slots <= 0:
             return DeckSeedResult(
                 status="busy",
                 mode=mode,
                 prepared=len(prepared),
                 total=total,
-                message=f"waiting for {active} active lexical plans to finish",
+                message=(
+                    f"waiting for {active_count} direct morphology subjects; "
+                    f"the serial-worker admission budget is "
+                    f"{self.max_in_flight_subjects}"
+                ),
             )
-        evidence = index.draw_unseen(
-            seed.strip() or f"{time.time_ns()}:{mode}:{len(prepared)}", prepared
+        admission_limit = min(
+            self.BATCH_SIZE, available_slots,
+            max(1, self.max_in_flight_subjects // len(self.modes)),
         )
-        if evidence is None:
+        base_seed = seed.strip() or f"{time.time_ns()}:{mode}:{len(prepared)}"
+        metadata = index.metadata()
+        corpus_id = str(metadata.get("corpus_id", ""))
+        corpus_fingerprint = str(metadata.get("source_sha256", ""))
+        outcome_lookup = getattr(self.knowledge, "morphology_source_outcomes", None)
+        outcomes = (
+            outcome_lookup(mode, corpus_id, corpus_fingerprint)
+            if callable(outcome_lookup)
+            else {}
+        )
+        now_epoch = int(time.time())
+        durable_blocked = {
+            entry_id
+            for entry_id, outcome in outcomes.items()
+            if str(outcome.get("status", "")) == "ineligible"
+            or int(outcome.get("next_eligible_epoch", 0) or 0) > now_epoch
+        }
+        blocked = (
+            set(prepared)
+            | self._ineligible_record_ids[mode]
+            | durable_blocked
+            | in_flight[mode]["entry_ids"]
+        )
+        evidence_batch: list[Any] = []
+        rejected = 0
+        unseen_exhausted = False
+        draw_batch = getattr(index, "draw_unseen_batch", None)
+        if callable(draw_batch):
+            candidates = draw_batch(
+                f"{base_seed}:batch", blocked, self.MAX_ELIGIBILITY_SCAN
+            )
+            unseen_exhausted = len(candidates) < self.MAX_ELIGIBILITY_SCAN
+        else:
+            candidates = []
+            for offset in range(self.MAX_ELIGIBILITY_SCAN):
+                evidence = index.draw_unseen(
+                    f"{base_seed}:batch:{offset}", blocked
+                )
+                if evidence is None:
+                    unseen_exhausted = True
+                    break
+                candidates.append(evidence)
+                blocked.add(str(evidence.entry_id))
+        for evidence in candidates:
+            entry_id = str(evidence.entry_id)
+            blocked.add(entry_id)
+            if not self._eligible_evidence(mode, evidence):
+                self._ineligible_record_ids[mode].add(entry_id)
+                recorder = getattr(
+                    self.knowledge, "record_morphology_source_outcome", None
+                )
+                if callable(recorder):
+                    recorder(
+                        mode,
+                        corpus_id,
+                        entry_id,
+                        corpus_fingerprint,
+                        status="ineligible",
+                    )
+                rejected += 1
+                continue
+            evidence_batch.append(evidence)
+            if len(evidence_batch) >= admission_limit:
+                break
+        revisit_epoch: int | None = None
+        if not evidence_batch:
+            if not unseen_exhausted:
+                return DeckSeedResult(
+                    status="deferred",
+                    mode=mode,
+                    prepared=len(prepared),
+                    total=total,
+                    message=(
+                        f"skipped {rejected} bounded {mode} source fragments "
+                        "without a declaration or headword morphology formula"
+                    ),
+                )
+            revisit_epoch = int(time.time() // self.REVISIT_INTERVAL_SECONDS)
+            revisit_blocked = set(self._ineligible_record_ids[mode])
+            if callable(draw_batch):
+                revisit_candidates = draw_batch(
+                    f"{seed.strip()}:{mode}:revisit:{revisit_epoch}",
+                    revisit_blocked,
+                    self.MAX_ELIGIBILITY_SCAN,
+                )
+            else:
+                revisit_candidates = []
+                for offset in range(self.MAX_ELIGIBILITY_SCAN):
+                    evidence = index.draw_unseen(
+                        f"{seed.strip()}:{mode}:revisit:{revisit_epoch}:{offset}",
+                        revisit_blocked,
+                    )
+                    if evidence is None:
+                        break
+                    revisit_candidates.append(evidence)
+                    revisit_blocked.add(str(evidence.entry_id))
+            for evidence in revisit_candidates:
+                entry_id = str(evidence.entry_id)
+                revisit_blocked.add(entry_id)
+                if not self._eligible_evidence(mode, evidence):
+                    self._ineligible_record_ids[mode].add(entry_id)
+                    continue
+                evidence_batch.append(evidence)
+                break
+            if not evidence_batch:
+                return DeckSeedResult(
+                    status="complete",
+                    mode=mode,
+                    prepared=len(prepared),
+                    total=total,
+                    message=(
+                        f"the polished {mode} corpus has no morphology-declared "
+                        "record in the bounded revisit scan"
+                    ),
+                )
+
+        queued_jobs = 0
+        queued_by_entry: dict[str, int] = {}
+        errors: list[str] = []
+        first_entry_id = str(evidence_batch[0].entry_id)
+        for evidence in evidence_batch:
+            source_fingerprint = ":".join(
+                part
+                for part in (
+                    str(metadata.get("source_sha256", "")).strip(),
+                    mode,
+                    str(evidence.entry_id).strip(),
+                    str(revisit_epoch) if revisit_epoch is not None else "",
+                )
+                if part
+            )
+            try:
+                plan = PreparationPlanner(
+                    self.knowledge,
+                    model=self.model,
+                    prompt_version=(
+                        f"{self.prompt_version}-revisit-{revisit_epoch}"
+                        if revisit_epoch is not None
+                        else self.prompt_version
+                    ),
+                    source_fingerprint=source_fingerprint,
+                ).plan_word(evidence.headword)
+            except Exception as exc:
+                errors.append(f"{evidence.headword}: {str(exc)[:180]}")
+                continue
+            active_publication_jobs = {
+                str(job["job_id"])
+                for job in self.knowledge.jobs_for_subject(plan.subject_key)
+                if _active_lexical_publication_job(job)
+            }
+            entry_queued = sum(
+                str(job_id) in active_publication_jobs
+                for job_id in plan.jobs.values()
+            )
+            queued_by_entry[str(evidence.entry_id)] = entry_queued
+            queued_jobs += entry_queued
+        recorder = getattr(self.knowledge, "record_morphology_source_outcome", None)
+        if callable(recorder):
+            terminal_retry = int(time.time()) + self.REVISIT_INTERVAL_SECONDS
+            for evidence in evidence_batch:
+                recorder(
+                    mode,
+                    corpus_id,
+                    str(evidence.entry_id),
+                    corpus_fingerprint,
+                    status="queued" if queued_by_entry.get(str(evidence.entry_id)) else "terminal",
+                    next_eligible_epoch=(
+                        0 if queued_by_entry.get(str(evidence.entry_id)) else terminal_retry
+                    ),
+                )
+        if not queued_jobs and revisit_epoch is not None:
             return DeckSeedResult(
                 status="complete",
                 mode=mode,
-                prepared=len(prepared),
-                total=total,
-                message=f"every polished {mode} record already has an accepted card",
-            )
-
-        metadata = index.metadata()
-        source_fingerprint = ":".join(
-            part
-            for part in (
-                str(metadata.get("source_sha256", "")).strip(),
-                mode,
-                str(evidence.entry_id).strip(),
-            )
-            if part
-        )
-        try:
-            plan = PreparationPlanner(
-                self.knowledge,
-                model=self.model,
-                prompt_version=self.prompt_version,
-                source_fingerprint=source_fingerprint,
-            ).plan_word(evidence.headword)
-        except Exception as exc:
-            return DeckSeedResult(
-                status="deferred",
-                mode=mode,
-                source_entry_id=evidence.entry_id,
-                prepared=len(prepared),
-                total=total,
-                message=str(exc)[:300],
-            )
-        statuses = {
-            str(job["job_id"]): str(job["status"])
-            for job in self.knowledge.jobs_for_subject(plan.subject_key)
-        }
-        pending = sum(
-            statuses.get(str(job_id)) in {"queued", "running"}
-            for job_id in plan.jobs.values()
-        )
-        if not pending:
-            return DeckSeedResult(
-                status="deferred",
-                mode=mode,
-                source_entry_id=evidence.entry_id,
+                source_entry_id=first_entry_id,
                 prepared=len(prepared),
                 total=total,
                 message=(
-                    f"the persisted {mode} plan has no queued or running work; "
-                    "a later repair revision may retry it"
+                    f"every polished {mode} record is represented and "
+                    f"revisit epoch {revisit_epoch} is already planned"
+                ),
+            )
+        if not queued_jobs:
+            return DeckSeedResult(
+                status="deferred",
+                mode=mode,
+                source_entry_id=first_entry_id,
+                prepared=len(prepared),
+                total=total,
+                message=(
+                    f"the persisted {mode} batch has no queued or running work; "
+                    f"{'; '.join(errors)[:220] or 'a later repair revision may retry it'}"
                 ),
             )
         return DeckSeedResult(
             status="queued",
             mode=mode,
-            source_entry_id=evidence.entry_id,
+            source_entry_id=first_entry_id,
             prepared=len(prepared),
             total=total,
             message=(
-                f"selected one polished {mode} record and queued {pending} "
+                f"selected {len(evidence_batch)} polished {mode} "
+                f"{'revisit' if revisit_epoch is not None else 'records'} and "
+                f"queued {queued_jobs} "
                 "persisted atomic jobs; the shared lexical graph owns publication"
             ),
         )
+
+
+class MorphologyV3EnrichmentSeeder:
+    """Plan one durable local-Qwen cluster without owning graph writes."""
+
+    def __init__(
+        self,
+        store: KnowledgeStore,
+        *,
+        model_name: str,
+        prompt_version: str = "morphology-v3-enrichment-v1",
+        scan_limit: int = 192,
+    ):
+        self.store = store
+        self.model_name = model_name.strip() or "local-qwen"
+        self.prompt_version = prompt_version.strip()
+        self.scan_limit = max(12, min(int(scan_limit), 512))
+
+    def run_once(self, _seed: str = "") -> dict[str, Any]:
+        planned = self.store.plan_morphology_v3_enrichment(
+            model=self.model_name,
+            prompt_version=self.prompt_version,
+            scan_limit=self.scan_limit,
+        )
+        if planned is None:
+            return {
+                "selected": False,
+                "action": "morphology-v3-enrichment",
+                "reason": "no eligible retained observation cluster on this bounded page",
+                "progress": self.progress(),
+            }
+        return {
+            "selected": True,
+            "action": "morphology-v3-enrichment",
+            "planned": planned,
+            "progress": self.progress(),
+        }
+
+    def progress(self) -> dict[str, Any]:
+        return self.store.morphology_v3_status()
 
 
 class BalancedProductSeeder:

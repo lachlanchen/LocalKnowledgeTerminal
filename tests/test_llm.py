@@ -389,8 +389,8 @@ class LlmParsingTests(unittest.TestCase):
         first_graph = request.call_args_list[0].args[0]
         repaired_graph = request.call_args_list[1].args[0]
         language_call = request.call_args_list[2].args[0]
-        self.assertEqual(first_graph["max_tokens"], 760)
-        self.assertEqual(repaired_graph["max_tokens"], 900)
+        self.assertEqual(first_graph["max_tokens"], 1200)
+        self.assertEqual(repaired_graph["max_tokens"], 1400)
         self.assertFalse(
             any(
                 message["role"] == "assistant"

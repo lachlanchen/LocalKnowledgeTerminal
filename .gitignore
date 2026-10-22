@@ -11,9 +11,13 @@ __pycache__/
 /runtime/
 /var/
 /logs/
+/dist/
+*.log
 *.sqlite3
 *.sqlite3-*
 *.gguf
+/NUL
+/live-*.png
 
 # Incomplete/reference checkouts are not product dependencies.
 /upstream/

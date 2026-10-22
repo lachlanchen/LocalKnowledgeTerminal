@@ -224,6 +224,25 @@ class MorphologyIndex:
         inventing a root or affix merely to balance visible card counts.
         """
 
+        batch = self.draw_unseen_batch(seed, excluded_record_ids, 1)
+        return batch[0] if batch else None
+
+    def draw_unseen_batch(
+        self,
+        seed: str,
+        excluded_record_ids: Iterable[str],
+        limit: int,
+    ) -> list[Evidence]:
+        """Draw a bounded circular batch with one source scan.
+
+        Eligibility planning may inspect dozens of records before it finds a
+        useful dictionary formula.  Loading the complete morphology table once
+        per candidate made that bounded scan quadratic in practice.  The source
+        is immutable, so one deterministic circular pass produces the same
+        real records without changing any downstream evidence or validation.
+        """
+
+        limit = max(1, min(int(limit), 256))
         metadata = self.metadata()
         excluded = {
             str(record_id).strip()
@@ -236,17 +255,34 @@ class MorphologyIndex:
             ).fetchall()
         rows = [row for row in rows if not _is_index_only(str(row["content"]))]
         if not rows:
-            return None
-        material = f"{metadata.get('corpus_id', '')}\0{seed.strip().casefold()}"
-        start = (
-            int.from_bytes(hashlib.sha256(material.encode("utf-8")).digest()[:8], "big")
-            % len(rows)
-        )
-        for step in range(len(rows)):
-            row = rows[(start + step) % len(rows)]
-            if str(row["record_id"]) not in excluded:
-                return self._evidence([row], str(row["headword"]), metadata)[0]
-        return None
+            return []
+        selected: list[sqlite3.Row] = []
+        for attempt in range(limit):
+            attempt_seed = seed if limit == 1 else f"{seed}:{attempt}"
+            material = (
+                f"{metadata.get('corpus_id', '')}\0"
+                f"{attempt_seed.strip().casefold()}"
+            )
+            start = (
+                int.from_bytes(
+                    hashlib.sha256(material.encode("utf-8")).digest()[:8], "big"
+                )
+                % len(rows)
+            )
+            chosen: sqlite3.Row | None = None
+            for step in range(len(rows)):
+                row = rows[(start + step) % len(rows)]
+                if str(row["record_id"]) not in excluded:
+                    chosen = row
+                    break
+            if chosen is None:
+                break
+            selected.append(chosen)
+            excluded.add(str(chosen["record_id"]))
+        return [
+            self._evidence([row], str(row["headword"]), metadata)[0]
+            for row in selected
+        ]
 
     @staticmethod
     def _evidence(
