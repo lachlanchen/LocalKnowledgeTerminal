@@ -58,6 +58,7 @@ _INTERACTIVE_PRIORITY_OFFSET = -1000
 _LIVE_LEXICAL_MODES = {"knowledge", "word", "root", "affix"}
 _LEXICAL_PROJECTION_VERSION = "live-lexical-projection-v14"
 _LEXICAL_PROJECTION_CACHE_SIZE = 256
+_LEXICAL_PROJECTION_STALE_SECONDS = 60.0
 _CARD_SUMMARY_PAGE_SIZE = 64
 _PROJECTION_WORKERS = 4
 _HEALTH_CACHE_TTL_SECONDS = 60.0
@@ -733,7 +734,9 @@ def handler_factory(
     settings: Settings, service: CardService, model: LlamaCppClient
 ) -> type[BaseHTTPRequestHandler]:
     knowledge = KnowledgeStore(settings.knowledge_db, serving=True)
-    projection_cache: OrderedDict[tuple[Any, ...], dict[str, Any]] = OrderedDict()
+    projection_cache: OrderedDict[
+        tuple[Any, ...], tuple[str, float, dict[str, Any]]
+    ] = OrderedDict()
     projection_inflight: dict[tuple[Any, ...], Event] = {}
     projection_cache_lock = RLock()
     projection_work_slots = BoundedSemaphore(_PROJECTION_WORKERS)
@@ -750,23 +753,36 @@ def handler_factory(
         subject_id: str,
         mode: str,
         limits: dict[str, int | str],
-        generation: int,
+        generation: str,
     ) -> dict[str, Any]:
-        """Share one live projection across concurrent requests for the same view."""
+        """Share one bounded-fresh projection for the same lexical view.
+
+        Presentation writes for an unrelated subject advance the global generation.
+        The previously accepted graph remains safe to render briefly while the worker
+        is busy: its claims and citations have not changed, only its freshness.  This
+        small grace window prevents continuous growth from turning the whole LRU into
+        a cold cache on SD-card-backed deployments.
+        """
 
         cache_key = (
             _LEXICAL_PROJECTION_VERSION,
-            generation,
             subject_id,
             mode,
             tuple(sorted(limits.items())),
         )
+        checked_at = monotonic()
         owner = False
         with projection_cache_lock:
-            graph = projection_cache.get(cache_key)
-            if graph is not None:
-                projection_cache.move_to_end(cache_key)
-                return graph
+            cached = projection_cache.get(cache_key)
+            if cached is not None:
+                cached_generation, cached_at, graph = cached
+                if (
+                    cached_generation == generation
+                    or checked_at - cached_at <= _LEXICAL_PROJECTION_STALE_SECONDS
+                ):
+                    projection_cache.move_to_end(cache_key)
+                    return graph
+                projection_cache.pop(cache_key, None)
             ready = projection_inflight.get(cache_key)
             if ready is None:
                 ready = Event()
@@ -776,9 +792,10 @@ def handler_factory(
             if not ready.wait(timeout=30):
                 raise TimeoutError("live lexical projection timed out")
             with projection_cache_lock:
-                graph = projection_cache.get(cache_key)
-                if graph is None:
+                cached = projection_cache.get(cache_key)
+                if cached is None:
                     raise OSError("live lexical projection failed")
+                _, _, graph = cached
                 projection_cache.move_to_end(cache_key)
                 return graph
 
@@ -786,7 +803,7 @@ def handler_factory(
             graph = dict(knowledge.lexical_subgraph(subject_id, mode, limits))
             graph["projection_version"] = _LEXICAL_PROJECTION_VERSION
             with projection_cache_lock:
-                projection_cache[cache_key] = graph
+                projection_cache[cache_key] = (generation, checked_at, graph)
                 projection_cache.move_to_end(cache_key)
                 while len(projection_cache) > _LEXICAL_PROJECTION_CACHE_SIZE:
                     projection_cache.popitem(last=False)

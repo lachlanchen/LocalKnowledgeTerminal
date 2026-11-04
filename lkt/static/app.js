@@ -68,6 +68,7 @@ let cardHydrationRevision = 0;
 let activeCardHydrationController = null;
 let knowledgeGeneration = "";
 const ambientModeDecks = new Map();
+const ambientLastGoodCards = new Map();
 const modeDeckTotals = new Map();
 const modeSummaryCache = new Map();
 const modeSummaryRequests = new Map();
@@ -86,6 +87,8 @@ let deckSyncInFlight = false;
 const INNER_SLIDE_DWELL_MS = 18000;
 const CARD_MIN_DWELL_MS = 30000;
 const ACCEPTED_DECK_SYNC_MS = 30000;
+const AMBIENT_FETCH_BUDGET_MS = 20000;
+const AMBIENT_LAST_GOOD_TTL_MS = 10 * 60 * 1000;
 const HISTORY_DOT_LIMIT = 18;
 const HISTORY_PAGE_LIMIT = 64;
 const HYDRATED_CARD_CACHE_LIMIT = 96;
@@ -4381,6 +4384,7 @@ async function submitIntent(query) {
 }
 
 async function loadHealth() {
+  if (globalThis.document?.visibilityState === "hidden") return;
   if (healthRequestInFlight) return;
   healthRequestInFlight = true;
   const container = $("#system-state");
@@ -4596,6 +4600,10 @@ async function loadHistory() {
   } catch (_error) {
     if (requestRevision !== historyRequestRevision || mode !== requestedMode) return;
     $("#history").replaceChildren(element("p", "quiet", "History unavailable."));
+    // A cold-start history timeout must not strand the kiosk before its first
+    // card. The ambient watchdog can still obtain a full card from the bounded
+    // random-card endpoint on its next dwell.
+    if (ambientRouting && autoplayEnabled) scheduleCarousel();
   }
 }
 
@@ -4782,27 +4790,51 @@ function takeAmbientCard(cardMode, cards) {
   return byId.get(selectedId) || null;
 }
 
-async function randomAcceptedCard(cardMode) {
+function lastGoodAmbientResult(cardMode) {
+  const retained = ambientLastGoodCards.get(cardMode);
+  if (!retained?.card?.card_id) return null;
+  if (Date.now() - retained.storedAt > AMBIENT_LAST_GOOD_TTL_MS) {
+    ambientLastGoodCards.delete(cardMode);
+    return null;
+  }
+  const cachedCards = modeSummaryCache.get(cardMode)?.cards || [];
+  if (
+    cachedCards.length
+    && !cachedCards.some((card) => card.card_id === retained.card.card_id)
+  ) {
+    ambientLastGoodCards.delete(cardMode);
+    return null;
+  }
+  return {
+    selected: retained.card,
+    cards: [
+      retained.card,
+      ...cachedCards.filter((card) => card.card_id !== retained.card.card_id),
+    ],
+  };
+}
+
+async function randomAcceptedCard(cardMode, signal = undefined) {
   const parameters = new URLSearchParams({ mode: cardMode });
   const recentIds = ambientModeDecks.get(cardMode)?.recentIds || [];
   if (recentIds.length) parameters.set("exclude", recentIds.join(","));
   const { response, payload: card } = await fetchJsonWithTimeout(
     `/api/cards/random?${parameters}`,
-    { cache: "no-store" },
-    20000,
+    { cache: "no-store", signal },
+    AMBIENT_FETCH_BUDGET_MS,
   );
   updateDeckResponseMetadata(response, cardMode);
   if (!response.ok || !card?.card_id) throw new Error(card.error || "Card history unavailable");
   return rememberHydratedCard(card);
 }
 
-async function hydrateAcceptedSummary(card, cardMode) {
+async function hydrateAcceptedSummary(card, cardMode, signal = undefined) {
   const cached = hydratedCardCache.get(`${card.card_id}:${knowledgeGeneration}`);
   if (cached) return cached;
   const { response, payload } = await fetchJsonWithTimeout(
     `/api/cards/${encodeURIComponent(card.card_id)}?rotation=1`,
-    { cache: "no-store" },
-    20000,
+    { cache: "no-store", signal },
+    AMBIENT_FETCH_BUDGET_MS,
   );
   updateDeckResponseMetadata(response, cardMode);
   if (!response.ok || !payload?.card_id) {
@@ -4812,18 +4844,24 @@ async function hydrateAcceptedSummary(card, cardMode) {
 }
 
 async function fetchAmbientMode(cardMode) {
+  const controller = new AbortController();
+  const budgetTimer = window.setTimeout(
+    () => controller.abort(),
+    AMBIENT_FETCH_BUDGET_MS,
+  );
   try {
     const cachedCards = modeSummaryCache.get(cardMode)?.cards || [];
     const queued = takeAmbientCard(cardMode, cachedCards);
     let selected = null;
     if (queued) {
       try {
-        selected = await hydrateAcceptedSummary(queued, cardMode);
+        selected = await hydrateAcceptedSummary(queued, cardMode, controller.signal);
       } catch (_error) {
-        selected = await randomAcceptedCard(cardMode);
+        if (controller.signal.aborted) return null;
+        selected = await randomAcceptedCard(cardMode, controller.signal);
       }
     } else {
-      selected = await randomAcceptedCard(cardMode);
+      selected = await randomAcceptedCard(cardMode, controller.signal);
     }
     const cards = [
       selected,
@@ -4832,9 +4870,12 @@ async function fetchAmbientMode(cardMode) {
     // Refresh summaries after hydration. This preserves new-card priority on
     // the next visit without making a lightweight list delay the current card.
     void fetchModeSummaries(cardMode).catch(() => null);
+    ambientLastGoodCards.set(cardMode, { card: selected, storedAt: Date.now() });
     return { selected, cards };
   } catch (_error) {
     return null;
+  } finally {
+    window.clearTimeout(budgetTimer);
   }
 }
 
@@ -4859,11 +4900,19 @@ async function advanceAmbientMode(activityRevision) {
   // timeouts made an unavailable deck look like a frozen kiosk for minutes.
   const nextMode = enabledModes[ambientModeIndex % enabledModes.length];
   ambientModeIndex = (ambientModeIndex + 1) % enabledModes.length;
-  const prefetched = (
+  const usedPrefetch = (
     ambientPrefetch?.mode === nextMode
-  ) ? ambientPrefetch.promise : fetchAmbientMode(nextMode);
+  );
+  const prefetched = usedPrefetch
+    ? ambientPrefetch.promise
+    : fetchAmbientMode(nextMode);
   ambientPrefetch = null;
-  const prepared = await prefetched;
+  let prepared = await prefetched;
+  // A transient failure during the 30-second prefetch window should not force
+  // this mode to be skipped. Reuse a recent accepted result without changing
+  // its content or citations; only a cold mode spends another bounded fetch.
+  if (!prepared) prepared = lastGoodAmbientResult(nextMode);
+  if (!prepared && usedPrefetch) prepared = await fetchAmbientMode(nextMode);
   if (!prepared) return;
   const { cards, selected } = prepared;
   if (
@@ -4944,6 +4993,7 @@ function rebuildModeCarousel(openLatest = false) {
 }
 
 async function syncAcceptedDeck() {
+  if (globalThis.document?.visibilityState === "hidden") return;
   if (deckSyncInFlight) return;
   if (restoringPageRoute || pinnedPageCardId) return;
   if (mode === "chat" || !["card", "empty"].includes(visibleView)) return;
@@ -5094,6 +5144,10 @@ function activeInnerSlideCount() {
 function scheduleCarousel() {
   if (autoplayTimer) clearTimeout(autoplayTimer);
   if (!autoplayEnabled) return;
+  // A second browser left in the background must not keep competing with the
+  // Pi kiosk for SD-card projections. It resumes from the same accepted card
+  // when visible again; no content or quality decision is changed.
+  if (globalThis.document?.visibilityState === "hidden") return;
   const dwell = ambientRouting
     ? CARD_MIN_DWELL_MS
     : Math.max(CARD_MIN_DWELL_MS, activeInnerSlideCount() * INNER_SLIDE_DWELL_MS);
@@ -5197,6 +5251,15 @@ document.addEventListener("fullscreenchange", () => {
     document.body.classList.remove("display-mode");
   }
   scheduleGraphViewportFit(160);
+});
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") {
+    window.clearTimeout(autoplayTimer);
+    return;
+  }
+  // Existing staggered health/deck intervals resume on their own. Restart only
+  // the carousel here so foregrounding a tab does not create a three-read burst.
+  scheduleCarousel();
 });
 // Motion reveals the controls but must not restart the 30-second card dwell.
 document.addEventListener("pointermove", () => noteActivity(false), { passive: true });

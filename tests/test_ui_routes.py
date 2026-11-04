@@ -236,6 +236,9 @@ const fetchModeSummaries=()=>{calls++;return new Promise(done=>{resolve=done;});
 
     def test_ambient_card_survives_optional_summary_failure(self) -> None:
         self.run_js(("fetchAmbientMode",), """
+const window={setTimeout,clearTimeout};
+const AMBIENT_FETCH_BUDGET_MS=20000;
+const ambientLastGoodCards=new Map();
 const modeSummaryCache=new Map([["word",{cards:[{card_id:"new",mode:"word"}]}]]);
 const takeAmbientCard=(_mode,cards)=>cards[0];
 const hydrateAcceptedSummary=async(card)=>({...card,summary_only:false});
@@ -246,6 +249,52 @@ const fetchModeSummaries=async()=>{throw new Error("optional summary failed");};
  assert.equal(result.selected.card_id,"new");
  assert.equal(result.cards[0].card_id,"new");
  await Promise.resolve();
+})().catch(error=>{console.error(error);process.exitCode=1;});
+""")
+
+    def test_failed_ambient_prefetch_gets_one_fresh_dwell_attempt(self) -> None:
+        self.run_js(("advanceAmbientMode",), """
+let ambientModeIndex=0,ambientRouting=true,autoplayEnabled=true,userActivityRevision=0;
+let ambientPrefetch={mode:"question",promise:Promise.resolve(null)};
+let attempts=0;
+const lastGoodAmbientResult=()=>null;
+const fetchAmbientMode=async(cardMode)=>{attempts++;assert.equal(cardMode,"question");return null;};
+(async()=>{
+ await advanceAmbientMode(0);
+ assert.equal(attempts,1);
+ assert.equal(ambientPrefetch,null);
+ assert.equal(ambientModeIndex,1);
+})().catch(error=>{console.error(error);process.exitCode=1;});
+""")
+
+    def test_recent_accepted_ambient_card_survives_transient_fetch_failure(self) -> None:
+        self.run_js(("lastGoodAmbientResult",), """
+const AMBIENT_LAST_GOOD_TTL_MS=600000;
+const ambientLastGoodCards=new Map([["word",{
+ card:{card_id:"accepted",mode:"word",title:"Accepted"},storedAt:Date.now(),
+}]]);
+const modeSummaryCache=new Map([["word",{cards:[
+ {card_id:"newer",mode:"word",summary_only:true},
+ {card_id:"accepted",mode:"word",summary_only:true},
+]}]]);
+(async()=>{
+const result=lastGoodAmbientResult("word");
+assert.equal(result.selected.card_id,"accepted");
+assert.deepEqual(result.cards.map(card=>card.card_id),["accepted","newer"]);
+})().catch(error=>{console.error(error);process.exitCode=1;});
+""")
+
+    def test_cold_start_history_failure_arms_ambient_watchdog(self) -> None:
+        self.run_js(("loadHistory",), """
+let mode="question",historyRequestRevision=0,pinnedPageCardId="",activeCard=null;
+let allSavedCards=[],ambientRouting=true,autoplayEnabled=true,scheduled=0;
+const fetchModeSummaries=async()=>{throw new Error("cold start");};
+const $=()=>({replaceChildren(){}});
+const element=()=>({});
+const scheduleCarousel=()=>{scheduled++;};
+(async()=>{
+ await loadHistory();
+ assert.equal(scheduled,1);
 })().catch(error=>{console.error(error);process.exitCode=1;});
 """)
 
@@ -265,6 +314,23 @@ scheduleCarousel();
 assert.equal(callbacks.length,1);
 callbacks.shift()();
 assert.equal(callbacks.length,1);
+""")
+
+    def test_hidden_page_does_not_arm_another_carousel_fetch(self) -> None:
+        self.run_js(("scheduleCarousel",), """
+globalThis.document={visibilityState:"hidden"};
+let autoplayTimer=null,autoplayEnabled=true,ambientRouting=true,mode="word";
+let carouselCards=[{card_id:"only"}],userActivityRevision=0;
+const CARD_MIN_DWELL_MS=30000,INNER_SLIDE_DWELL_MS=18000;
+const activeInnerSlideCount=()=>1;
+const prefetchAmbientMode=()=>{throw new Error("hidden page cannot prefetch");};
+const runAmbientAdvance=()=>{};
+const navigateCards=()=>{};
+let scheduled=0;
+const clearTimeout=()=>{};
+const setTimeout=()=>{scheduled++;};
+scheduleCarousel();
+assert.equal(scheduled,0);
 """)
 
     def test_cancelled_restore_invalidates_late_fetches(self) -> None:

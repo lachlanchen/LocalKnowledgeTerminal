@@ -213,6 +213,62 @@ class LiveHealthTests(unittest.TestCase):
 
         self.assertEqual(handler._json.call_args.args[1], 409)
 
+    def test_projection_cache_briefly_survives_unrelated_global_revisions(self):
+        self.knowledge.projection_generation.side_effect = (
+            "generation-1",
+            "generation-2",
+            "generation-3",
+            "generation-3",
+        )
+        self.knowledge.content_for_card.return_value = None
+        self.knowledge.lexical_subgraph.return_value = {
+            "nodes": [],
+            "edges": [],
+            "focus_areas": [],
+            "graph_revision": 7,
+            "projection_hash": "accepted-projection",
+        }
+        stored = {
+            "card_id": "card-1",
+            "mode": "root",
+            "query": "duc",
+            "title": "duc",
+            "extensions": {
+                "knowledge_subject": {"entity_id": "term-1"},
+                "lexical_view": {"subject_entity_id": "term-1"},
+            },
+            "evidence": [],
+        }
+        self.cards.get_accepted.side_effect = lambda _card_id: copy.deepcopy(stored)
+        clock = Mock(return_value=0.0)
+        with (
+            patch("lkt.web.KnowledgeStore", return_value=self.knowledge),
+            patch("lkt.web.monotonic", clock),
+        ):
+            handler_type = handler_factory(
+                SimpleNamespace(knowledge_db=self.database),
+                SimpleNamespace(store=self.cards),
+                SimpleNamespace(model_name="local-qwen"),
+            )
+            handler = object.__new__(handler_type)
+            handler.path = "/api/cards/card-1"
+            handler._json = Mock()
+
+            handler.do_GET()  # Cold generation-1 projection.
+            clock.return_value = 30.0
+            handler.do_GET()  # Generation-2 reuses the 30-second accepted graph.
+            clock.return_value = 91.0
+            handler.do_GET()  # Generation-3 is beyond the grace window and refreshes.
+            clock.return_value = 1000.0
+            handler.do_GET()  # Same generation remains cached without a time limit.
+
+        self.assertEqual(self.knowledge.lexical_subgraph.call_count, 2)
+        rendered = handler._json.call_args.args[0]
+        self.assertEqual(
+            rendered["extensions"]["lexical_projection"]["projection_hash"],
+            "accepted-projection",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

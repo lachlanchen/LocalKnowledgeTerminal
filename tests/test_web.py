@@ -687,7 +687,8 @@ class WebInputTests(unittest.TestCase):
             script,
         )
         self.assertIn("const ambientModeDecks = new Map();", script)
-        self.assertIn("async function randomAcceptedCard(cardMode)", script)
+        self.assertIn("const ambientLastGoodCards = new Map();", script)
+        self.assertIn("async function randomAcceptedCard(cardMode, signal = undefined)", script)
         self.assertIn("async function advanceAmbientMode(activityRevision)", script)
         self.assertIn("const enabledModes = activeAmbientModeOrder();", script)
         self.assertIn("One mode gets one bounded attempt per dwell", script)
@@ -697,7 +698,8 @@ class WebInputTests(unittest.TestCase):
         )
         self.assertIn('parameters.set("exclude", recentIds.join(","))', script)
         self.assertIn("promise: fetchAmbientMode(nextMode)", script)
-        self.assertIn("randomAcceptedCard(cardMode)", script)
+        self.assertIn("if (!prepared) prepared = lastGoodAmbientResult(nextMode);", script)
+        self.assertIn("randomAcceptedCard(cardMode, controller.signal)", script)
         self.assertIn("fetchModeSummaries(cardMode)", script)
         self.assertIn("!previous.acceptedIds.has(card.card_id)", script)
         self.assertIn("shuffledAmbientPass(cards, previous?.lastCardId", script)
@@ -706,6 +708,8 @@ class WebInputTests(unittest.TestCase):
         self.assertIn("function runAmbientAdvance(activityRevision)", script)
         self.assertIn('.catch((error) => console.warn("Ambient advance failed", error))', script)
         self.assertIn("if (ambientRouting && autoplayEnabled) scheduleCarousel();", script)
+        self.assertIn('globalThis.document?.visibilityState === "hidden"', script)
+        self.assertIn('document.addEventListener("visibilitychange"', script)
         self.assertIn("if (ambientRouting) {\n      runAmbientAdvance(userActivityRevision);", script)
         self.assertIn('document.addEventListener("pointerdown", () => noteActivity(true)', script)
 
