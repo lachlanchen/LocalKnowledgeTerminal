@@ -4433,6 +4433,15 @@ function readPageRoute(href) {
     language: (parameters.get("language") || "").slice(0, 32),
     display: parameters.has("display"),
     loop: parameters.has("loop"),
+    play: parameters.has("play"),
+  };
+}
+
+function pagePlaybackState(route) {
+  const autoplay = !route.cardId || route.display || route.loop || route.play;
+  return {
+    autoplayEnabled: autoplay,
+    ambientRouting: autoplay && (!route.hasMode || route.display || route.loop),
   };
 }
 
@@ -4443,11 +4452,12 @@ function pageSlideIndex(slide, count) {
 
 function pageViewUrl(href, state) {
   const url = new URL(href);
-  ["mode", "card", "slide", "focus", "entity", "language", "loop"].forEach((key) => {
+  ["mode", "card", "slide", "focus", "entity", "language", "loop", "play"].forEach((key) => {
     url.searchParams.delete(key);
   });
   url.searchParams.set("mode", state.mode);
   if (state.loop) url.searchParams.set("loop", "1");
+  if (state.play && !state.loop) url.searchParams.set("play", "1");
   if (state.cardId) {
     url.searchParams.set("card", state.cardId);
     if (state.slide) url.searchParams.set("slide", String(state.slide));
@@ -4479,6 +4489,7 @@ function syncPageUrl() {
       entityId: graph ? recenteredEntityId : "",
       language: alternate,
       loop: ambientRouting && autoplayEnabled,
+      play: !ambientRouting && autoplayEnabled && mode !== "chat",
     });
     // Autoplay must not create hundreds of browser history entries or reload.
     if (url.href !== window.location.href) {
@@ -4514,8 +4525,9 @@ async function restorePageFromUrl() {
     window.clearInterval(timer);
   });
   // Shared views stay still; an explicit kiosk URL retains its display loop.
-  autoplayEnabled = !route.cardId || route.display || route.loop;
-  ambientRouting = autoplayEnabled && (!route.hasMode || route.display || route.loop);
+  const playback = pagePlaybackState(route);
+  autoplayEnabled = playback.autoplayEnabled;
+  ambientRouting = playback.ambientRouting;
   ambientModeIndex = ambientIndexAfter(route.mode);
   document.body.classList.toggle("display-mode", route.display || Boolean(document.fullscreenElement));
   $("#generate-button").disabled = false;

@@ -251,6 +251,7 @@ class KnowledgeStore:
                         "AND name IN ("
                         "'idx_entities_updated_at', 'idx_jobs_type_next', "
                         "'idx_jobs_subject_snapshot', "
+                        "'idx_entity_properties_name_value', "
                         "'idx_morph_enrichment_v3_last_job')"
                     )
                 }
@@ -266,6 +267,7 @@ class KnowledgeStore:
             "idx_entities_updated_at",
             "idx_jobs_type_next",
             "idx_jobs_subject_snapshot",
+            "idx_entity_properties_name_value",
         }
         if has_morphology_enrichment:
             expected_indexes.add("idx_morph_enrichment_v3_last_job")
@@ -1063,6 +1065,8 @@ class KnowledgeStore:
                     updated_at TEXT NOT NULL,
                     UNIQUE(entity_id, name)
                 );
+                CREATE INDEX IF NOT EXISTS idx_entity_properties_name_value
+                    ON entity_properties(name, value, entity_id);
 
                 CREATE TABLE IF NOT EXISTS evidence_records (
                     evidence_id TEXT PRIMARY KEY,

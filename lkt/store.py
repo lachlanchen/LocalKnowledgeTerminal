@@ -539,7 +539,7 @@ class CardStore:
         with closing(self._connect()) as connection:
             rows = connection.execute(
                 f"""SELECT card_id, mode, query, title, created_at, updated_at
-                    FROM cards WHERE {where}
+                    FROM cards INDEXED BY idx_cards_rotation WHERE {where}
                     ORDER BY created_at DESC, card_id
                     LIMIT ? OFFSET ?""",
                 parameters,
@@ -572,7 +572,7 @@ class CardStore:
                 f"""SELECT COUNT(*),
                            COALESCE(MAX(CASE WHEN updated_at = ''
                                              THEN created_at ELSE updated_at END), '')
-                    FROM cards WHERE {where}""",
+                    FROM cards INDEXED BY idx_cards_rotation WHERE {where}""",
                 parameters,
             ).fetchone()
         total = int(row[0]) if row else 0
@@ -631,7 +631,7 @@ class CardStore:
             )
             parameters = (selected_mode, *omitted)
             total_row = connection.execute(
-                f"""SELECT COUNT(*) FROM cards
+                f"""SELECT COUNT(*) FROM cards INDEXED BY idx_cards_rotation
                    WHERE status = 'active' AND validation_state = 'accepted'
                      AND mode = ? AND {_ROTATION_ELIGIBILITY_SQL}"""
                 + exclusion,
@@ -642,7 +642,7 @@ class CardStore:
                 return None
             offset = uuid.uuid4().int % total
             return connection.execute(
-                f"""SELECT payload FROM cards
+                f"""SELECT payload FROM cards INDEXED BY idx_cards_rotation
                    WHERE status = 'active' AND validation_state = 'accepted'
                      AND mode = ? AND {_ROTATION_ELIGIBILITY_SQL}"""
                 + exclusion

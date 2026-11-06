@@ -14,6 +14,37 @@ from lkt.lexicon import WordnetRag
 
 
 class KnowledgeStoreTests(unittest.TestCase):
+    def test_card_property_lookup_has_a_covering_index(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            database = Path(temp) / "knowledge.sqlite3"
+            KnowledgeStore(database)
+
+            with closing(sqlite3.connect(database)) as connection:
+                indexes = {
+                    str(row[0])
+                    for row in connection.execute(
+                        "SELECT name FROM sqlite_master "
+                        "WHERE type = 'index' AND tbl_name = 'entity_properties'"
+                    )
+                }
+                plan = " ".join(
+                    str(row[3])
+                    for row in connection.execute(
+                        """EXPLAIN QUERY PLAN
+                           SELECT content.entity_id
+                           FROM content_items AS content
+                           JOIN entity_properties AS property
+                             ON property.entity_id = content.entity_id
+                           WHERE property.name = 'source_card_id'
+                             AND property.value = 'missing-card'
+                             AND content.language = 'en'
+                           LIMIT 1"""
+                    )
+                )
+
+            self.assertIn("idx_entity_properties_name_value", indexes)
+            self.assertIn("idx_entity_properties_name_value", plan)
+
     def test_reviewed_card_book_languages_become_idempotent_content_atoms(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             store = KnowledgeStore(Path(temp) / "knowledge.sqlite3")

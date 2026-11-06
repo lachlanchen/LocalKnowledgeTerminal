@@ -155,9 +155,36 @@ assert.equal(route.entityId,"morpheme-123");
 assert.equal(route.language,"ar");
 assert.equal(route.display,true);
 assert.equal(route.loop,true);
+assert.equal(route.play,false);
 assert.equal(url.searchParams.get("theme"),"paper");
 assert.equal(url.hash,"#canvas");
 assert.equal(pageSlideIndex(route.slide,7),2);
+""")
+
+    def test_direct_mode_autoplay_survives_url_sync_and_reload(self) -> None:
+        self.run_js(("readPageRoute", "pagePlaybackState", "pageViewUrl"), """
+const url=pageViewUrl("http://pi:8090/?mode=word&theme=paper",{
+ mode:"word",cardId:"saved-card",slide:2,play:true,loop:false});
+const route=readPageRoute(url.href);
+const playback=pagePlaybackState(route);
+assert.equal(url.searchParams.get("play"),"1");
+assert.equal(url.searchParams.has("loop"),false);
+assert.equal(route.mode,"word");
+assert.equal(route.cardId,"saved-card");
+assert.equal(playback.autoplayEnabled,true);
+assert.equal(playback.ambientRouting,false);
+
+const frozen=pagePlaybackState(readPageRoute(
+ "http://pi:8090/?mode=word&card=saved-card"
+));
+assert.equal(frozen.autoplayEnabled,false);
+assert.equal(frozen.ambientRouting,false);
+
+const ambient=pagePlaybackState(readPageRoute(
+ "http://pi:8090/?mode=word&card=saved-card&loop=1"
+));
+assert.equal(ambient.autoplayEnabled,true);
+assert.equal(ambient.ambientRouting,true);
 """)
 
     def test_new_tab_removes_stale_card_branch_and_language(self) -> None:

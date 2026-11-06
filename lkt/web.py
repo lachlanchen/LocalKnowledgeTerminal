@@ -5,6 +5,7 @@ import logging
 import mimetypes
 import sqlite3
 from collections import OrderedDict
+from copy import deepcopy
 from contextlib import closing
 from datetime import UTC, datetime
 from http import HTTPStatus
@@ -1012,6 +1013,34 @@ def handler_factory(
         finally:
             projection_work_slots.release()
 
+    def rotation_card(
+        card: dict[str, Any], generation: str | None = None
+    ) -> dict[str, Any]:
+        """Prefer live hydration but keep accepted rotation available under load."""
+
+        stored = deepcopy(card)
+        try:
+            return acquired_card(card, generation)
+        except (ProjectionBusy, OSError, TimeoutError, sqlite3.Error) as exc:
+            LOG.warning(
+                "Serving accepted stored card %s while live hydration is unavailable: %s",
+                str(stored.get("card_id", "")),
+                exc,
+            )
+            return renderable_card(stored)
+
+    def rotation_projection_generation() -> str:
+        """Return a usable header token when the live knowledge store is busy."""
+
+        try:
+            return knowledge_projection_generation()
+        except (OSError, TimeoutError, sqlite3.Error) as exc:
+            LOG.warning(
+                "Serving accepted stored cards without a live projection generation: %s",
+                exc,
+            )
+            return "unavailable"
+
     def requested_lexical_subgraph(
         entity_id: str, mode: str, limits: dict[str, int]
     ) -> dict[str, Any]:
@@ -1500,21 +1529,13 @@ def handler_factory(
                     ).split(",")[:24]
                     if item.strip()
                 )
-                try:
-                    generation = knowledge_projection_generation()
-                    rendered = acquire_random_renderable_card(
-                        service.store,
-                        mode,
-                        excluded,
-                        lambda card: acquired_card(card, generation),
-                    )
-                except ProjectionBusy as exc:
-                    self._json(
-                        {"error": str(exc)},
-                        HTTPStatus.SERVICE_UNAVAILABLE,
-                        {"Retry-After": "1"},
-                    )
-                    return
+                generation = rotation_projection_generation()
+                rendered = acquire_random_renderable_card(
+                    service.store,
+                    mode,
+                    excluded,
+                    lambda card: rotation_card(card, generation),
+                )
                 if rendered is None:
                     self._json(
                         {"error": "accepted renderable card not found"},
@@ -1536,9 +1557,18 @@ def handler_factory(
                 if card is None:
                     self._json({"error": "card not found"}, HTTPStatus.NOT_FOUND)
                     return
+                rotating = card_parameters.get("rotation", [""])[0] == "1"
+                generation = (
+                    rotation_projection_generation()
+                    if rotating
+                    else knowledge_projection_generation()
+                )
                 try:
-                    generation = knowledge_projection_generation()
-                    rendered = acquired_card(card, generation)
+                    rendered = (
+                        rotation_card(card, generation)
+                        if rotating
+                        else acquired_card(card, generation)
+                    )
                 except ProjectionBusy as exc:
                     self._json(
                         {"error": str(exc)},
@@ -1547,7 +1577,7 @@ def handler_factory(
                     )
                     return
                 if (
-                    card_parameters.get("rotation", [""])[0] == "1"
+                    rotating
                     and not live_card_rotation_eligible(rendered)
                 ):
                     self._json(

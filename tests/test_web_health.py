@@ -213,6 +213,96 @@ class LiveHealthTests(unittest.TestCase):
 
         self.assertEqual(handler._json.call_args.args[1], 409)
 
+    def test_random_rotation_uses_accepted_card_when_live_hydration_is_busy(self):
+        self.knowledge.projection_generation.return_value = "generation-1"
+        stored = {
+            "card_id": "card-1",
+            "mode": "root",
+            "query": "spect",
+            "title": "spect",
+            "evidence": [{"evidence_id": "book-1", "excerpt": "Latin specere"}],
+            "extensions": {
+                "lexical_projection": {"status": "live"},
+                "lexical_view": {
+                    "canonical_subject_entity_id": "term-inspection",
+                    "subject_entity_id": "term-inspection",
+                    "branch_focus_id": "root-spect",
+                    "nodes": [
+                        {"id": "term-inspection", "type": "term", "label": "inspection"},
+                        {"id": "root-spect", "type": "morpheme", "label": "spect"},
+                    ],
+                    "edges": [{
+                        "source": "term-inspection",
+                        "target": "root-spect",
+                        "relation": "has-component",
+                    }],
+                },
+            },
+        }
+        self.cards.random_accepted.return_value = stored
+        busy = Mock()
+        busy.acquire.return_value = False
+        with (
+            patch("lkt.web.KnowledgeStore", return_value=self.knowledge),
+            patch("lkt.web.Thread"),
+            patch("lkt.web.BoundedSemaphore", return_value=busy),
+            self.assertLogs("lkt.web", level="WARNING"),
+        ):
+            handler_type = handler_factory(
+                SimpleNamespace(knowledge_db=self.database),
+                SimpleNamespace(store=self.cards),
+                SimpleNamespace(model_name="local-qwen"),
+            )
+            handler = object.__new__(handler_type)
+            handler.path = "/api/cards/random?mode=root"
+            handler._json = Mock()
+            handler.do_GET()
+
+        rendered = handler._json.call_args.args[0]
+        self.assertEqual(rendered["card_id"], "card-1")
+        self.assertEqual(rendered["evidence"], stored["evidence"])
+        self.assertEqual(
+            handler._json.call_args.kwargs["extra_headers"]["X-Knowledge-Generation"],
+            "generation-1",
+        )
+
+    def test_direct_rotation_uses_accepted_card_when_generation_is_locked(self):
+        self.knowledge.projection_generation.side_effect = sqlite3.OperationalError(
+            "database is locked"
+        )
+        stored = {
+            "card_id": "card-1",
+            "mode": "answer",
+            "title": "Answer",
+            "evidence": [{"evidence_id": "answer-1", "excerpt": "A cited answer"}],
+        }
+        self.cards.get_accepted.return_value = stored
+        busy = Mock()
+        busy.acquire.return_value = False
+        with (
+            patch("lkt.web.KnowledgeStore", return_value=self.knowledge),
+            patch("lkt.web.Thread"),
+            patch("lkt.web.BoundedSemaphore", return_value=busy),
+            self.assertLogs("lkt.web", level="WARNING"),
+        ):
+            handler_type = handler_factory(
+                SimpleNamespace(knowledge_db=self.database),
+                SimpleNamespace(store=self.cards),
+                SimpleNamespace(model_name="local-qwen"),
+            )
+            handler = object.__new__(handler_type)
+            handler.path = "/api/cards/card-1?rotation=1"
+            handler._json = Mock()
+            handler.do_GET()
+
+        rendered = handler._json.call_args.args[0]
+        self.assertEqual(rendered["card_id"], "card-1")
+        self.assertEqual(rendered["evidence"], stored["evidence"])
+        self.assertEqual(
+            handler._json.call_args.kwargs["extra_headers"]["X-Knowledge-Generation"],
+            "unavailable",
+        )
+
     def test_projection_cache_briefly_survives_unrelated_global_revisions(self):
         self.knowledge.projection_generation.side_effect = (
             "generation-1",

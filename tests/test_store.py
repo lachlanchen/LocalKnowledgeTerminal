@@ -511,6 +511,62 @@ class StoreTests(unittest.TestCase):
             self.assertEqual(reopened.accepted_deck_info("word")["total"], 0)
             self.assertIsNone(reopened.random_accepted("word"))
 
+    def test_rotation_reads_force_the_payload_free_partial_index(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            database = Path(temp) / "cards.sqlite3"
+            store = CardStore(database)
+            payload = {
+                "card_id": "answer-1",
+                "mode": "answer",
+                "query": "question",
+                "title": "Answer",
+            }
+            with closing(sqlite3.connect(database)) as connection:
+                connection.execute(
+                    """INSERT INTO cards(
+                           card_id, mode, query, title, created_at, payload,
+                           status, revision_of, updated_at, validation_state,
+                           validation_errors
+                       ) VALUES ('answer-1', 'answer', 'question', 'Answer',
+                                 'now', ?, 'active', '', 'now', 'accepted', '[]')""",
+                    (json.dumps(payload),),
+                )
+                connection.commit()
+
+            statements: list[str] = []
+
+            def traced_connection() -> sqlite3.Connection:
+                connection = sqlite3.connect(database)
+                connection.set_trace_callback(statements.append)
+                return connection
+
+            with patch.object(store, "_connect", side_effect=traced_connection):
+                self.assertEqual(len(store.recent_summaries(10, "answer")), 1)
+                self.assertEqual(store.accepted_deck_info("answer")["total"], 1)
+                self.assertEqual(store.random_accepted("answer")["card_id"], "answer-1")
+
+            rotation_reads = [
+                statement
+                for statement in statements
+                if statement.lstrip().upper().startswith("SELECT")
+            ]
+            self.assertEqual(len(rotation_reads), 4)
+            self.assertTrue(
+                all(
+                    "INDEXED BY IDX_CARDS_ROTATION" in statement.upper()
+                    for statement in rotation_reads
+                )
+            )
+            with closing(sqlite3.connect(database)) as connection:
+                for statement in rotation_reads:
+                    plan = connection.execute(
+                        "EXPLAIN QUERY PLAN " + statement
+                    ).fetchall()
+                    self.assertTrue(
+                        any("idx_cards_rotation" in str(row[-1]) for row in plan),
+                        plan,
+                    )
+
     def test_legacy_and_rejected_cards_never_enter_visible_carousels(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             database = Path(temp) / "knowledge.sqlite3"
